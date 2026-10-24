@@ -11,6 +11,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "src/lib/components/chat/Messages/CitationsModal.svelte"
+MODAL = ROOT / "src/lib/components/common/Modal.svelte"
+FOCUS_HELPER = ROOT / "src/lib/utils/modalFocus.js"
 
 
 class CitationsModalSandboxTests(unittest.TestCase):
@@ -54,6 +56,26 @@ class CitationsModalSandboxTests(unittest.TestCase):
         self.assertIn("<pre class=", self.source)
         self.assertIn("{document.document}", self.source)
         self.assertIn('title={$i18n.t(\'Content\')}', self.source)
+
+    def test_html_canvas_is_stable_and_citation_modal_is_named_and_opt_in(self):
+        iframe = re.search(r"<iframe\b(?P<attributes>.*?)></iframe>", self.source, re.DOTALL)
+        self.assertIsNotNone(iframe)
+        self.assertRegex(iframe.group("attributes"), r'\bbg-white\b')
+        self.assertIn('style="color-scheme: light"', iframe.group("attributes"))
+        self.assertIn('trapFocus={true} labelledBy="citation-modal-title"', self.source)
+        self.assertRegex(self.source, r'id="citation-modal-title"')
+        self.assertIn("data-modal-initial-focus", self.source)
+
+    def test_focus_support_is_opt_in_and_restores_the_modal_boundary(self):
+        modal = MODAL.read_text(encoding="utf-8")
+        helper = FOCUS_HELPER.read_text(encoding="utf-8")
+        self.assertIn("export let trapFocus = false", modal)
+        self.assertIn("role={trapFocus ? 'dialog' : undefined}", modal)
+        self.assertIn("aria-modal={trapFocus ? 'true' : undefined}", modal)
+        self.assertIn("activateModalFocus(modalElement)", modal)
+        self.assertIn("releaseModalFocus()", modal)
+        for behavior in ("setAttribute('inert'", "removeAttribute('inert'", "event.key !== 'Tab'", "previousFocus.focus()"):
+            self.assertIn(behavior, helper)
 
 
 if __name__ == "__main__":

@@ -55,15 +55,16 @@
 	};
 </script>
 
-<Modal size="lg" bind:show>
+<Modal size="lg" bind:show trapFocus={true} labelledBy="citation-modal-title">
 	<div>
 		<div class=" flex justify-between dark:text-gray-300 px-5 pt-4 pb-2">
-			<div class=" text-lg font-medium self-center capitalize">
+			<div id="citation-modal-title" class=" text-lg font-medium self-center capitalize">
 				{$i18n.t('Citation')}
 			</div>
 			<button
 				class="self-center"
 				aria-label="Close citation"
+				data-modal-initial-focus
 				on:click={() => {
 					show = false;
 				}}
@@ -171,9 +172,10 @@
 								Static preview: scripts and forms are disabled.
 							</p>
 							<iframe
-								class="w-full border-0 h-auto rounded-none"
+								class="w-full border-0 h-auto rounded-none bg-white"
 								sandbox=""
 								srcdoc={document.document}
+								style="color-scheme: light"
 								title={$i18n.t('Content')}
 							></iframe>
 						{:else}
