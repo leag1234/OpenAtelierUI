@@ -61,21 +61,6 @@ class UserModel(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    def __await__(self):
-        """Allow the legacy synchronous lookup result in async plugin code.
-
-        This deliberately keeps the result itself as the native UserModel so
-        existing synchronous callers and model serialization remain unchanged.
-        The database lookup still happens before this result is produced; this
-        compatibility shim does not make the synchronous database operation
-        non-blocking.
-        """
-        async def resolved():
-            return self
-
-        return resolved().__await__()
-
-
 ####################
 # Forms
 ####################

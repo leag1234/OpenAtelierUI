@@ -148,6 +148,10 @@ def load_function_module_by_id(function_id, content=None):
 
         # Create appropriate object based on available class type in the module
         if hasattr(module, "Pipe"):
+            from open_webui.models.users import Users
+            from open_webui.utils.plugin_user_compat import adapt_pipe_module
+
+            adapt_pipe_module(module, Users)
             return module.Pipe(), "pipe", frontmatter
         elif hasattr(module, "Filter"):
             return module.Filter(), "filter", frontmatter

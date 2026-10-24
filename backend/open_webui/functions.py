@@ -29,6 +29,7 @@ from open_webui.models.functions import Functions
 from open_webui.models.models import Models
 
 from open_webui.utils.plugin import load_function_module_by_id
+from open_webui.utils.plugin_user_compat import execute_pipe as execute_compatible_pipe
 from open_webui.utils.tools import get_tools
 from open_webui.utils.access_control import has_access
 
@@ -138,10 +139,7 @@ async def generate_function_chat_completion(
     request, form_data, user, models: dict = {}
 ):
     async def execute_pipe(pipe, params):
-        if inspect.iscoroutinefunction(pipe):
-            return await pipe(**params)
-        else:
-            return pipe(**params)
+        return await execute_compatible_pipe(pipe, params, sys.modules.get)
 
     async def get_message_content(res: str | Generator | AsyncGenerator) -> str:
         if isinstance(res, str):
