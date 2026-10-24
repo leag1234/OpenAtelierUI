@@ -15,17 +15,17 @@ class _UsersLookupProxy:
     def __init__(self, users):
         self._users = users
 
-    def get_user_by_id(self, user_id):
+    def get_user_by_id(self, id):
         lookup = self._users.get_user_by_id
         try:
             asyncio.get_running_loop()
         except RuntimeError:
             # The chat dispatcher runs adapted sync pipes in a worker, so this
             # returns the exact native UserModel/None/error result.
-            return lookup(user_id)
+            return lookup(id)
         # Async pipes can await this coroutine; the blocking legacy lookup
         # executes in a worker thread and resolves to UserModel or None.
-        return asyncio.to_thread(lookup, user_id)
+        return asyncio.to_thread(lookup, id)
 
     def __getattr__(self, name):
         return getattr(self._users, name)

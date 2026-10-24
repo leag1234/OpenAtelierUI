@@ -61,6 +61,7 @@ class UserModel(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 ####################
 # Forms
 ####################
