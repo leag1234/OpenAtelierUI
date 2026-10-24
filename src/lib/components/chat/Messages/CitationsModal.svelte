@@ -63,6 +63,7 @@
 			</div>
 			<button
 				class="self-center"
+				aria-label="Close citation"
 				on:click={() => {
 					show = false;
 				}}
@@ -166,7 +167,7 @@
 							{$i18n.t('Content')}
 						</div>
 						{#if document.metadata?.html}
-							<p class="text-xs text-gray-500 dark:text-gray-400 mb-1">
+							<p class="text-sm text-gray-700 dark:text-gray-200 mb-1">
 								Static preview: scripts and forms are disabled.
 							</p>
 							<iframe

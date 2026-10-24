@@ -9,7 +9,8 @@ import unittest
 from pathlib import Path
 
 
-SOURCE = Path(__file__).resolve().parents[1] / "src/lib/components/chat/Messages/CitationsModal.svelte"
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE = ROOT / "src/lib/components/chat/Messages/CitationsModal.svelte"
 
 
 class CitationsModalSandboxTests(unittest.TestCase):
@@ -27,6 +28,23 @@ class CitationsModalSandboxTests(unittest.TestCase):
 
     def test_preview_notice_names_limited_interaction(self):
         self.assertIn("Static preview: scripts and forms are disabled.", self.source)
+        self.assertRegex(
+            self.source,
+            r'<p class="text-sm text-gray-700 dark:text-gray-200 mb-1">',
+        )
+
+    def test_close_button_has_accessible_name_without_changing_action(self):
+        button = re.search(r"<button\b(?P<attributes>.*?)on:click=\{\(\) => \{\s*show = false;", self.source, re.DOTALL)
+        self.assertIsNotNone(button)
+        self.assertIn('aria-label="Close citation"', button.group("attributes"))
+        self.assertIn("show = false;", button.group(0))
+
+    def test_notice_color_tokens_match_modal_palette(self):
+        tailwind = (ROOT / "tailwind.config.js").read_text(encoding="utf-8")
+        modal = (ROOT / "src/lib/components/common/Modal.svelte").read_text(encoding="utf-8")
+        self.assertIn("700: 'var(--color-gray-700, #4e4e4e)'", tailwind)
+        self.assertIn("200: 'var(--color-gray-200, #e3e3e3)'", tailwind)
+        self.assertIn("bg-white dark:bg-gray-900", modal)
 
     def test_original_source_control_and_non_html_text_path_remain(self):
         self.assertIn("metadata?.file_id", self.source)
