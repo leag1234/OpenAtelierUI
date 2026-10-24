@@ -1065,6 +1065,7 @@ async def get_base_models(request: Request, user=Depends(get_admin_user)):
     return {"data": models}
 
 
+@app.post("/api/v1/chat/completions")
 @app.post("/api/chat/completions")
 async def chat_completion(
     request: Request,

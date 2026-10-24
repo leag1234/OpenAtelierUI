@@ -27,6 +27,7 @@ router = APIRouter()
 ############################
 
 
+@router.get("/list", response_model=list[FunctionResponse])
 @router.get("/", response_model=list[FunctionResponse])
 async def get_functions(user=Depends(get_verified_user)):
     return Functions.get_functions()
