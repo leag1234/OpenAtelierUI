@@ -183,8 +183,13 @@ class ExplicitAccessGrantFormTests(unittest.TestCase):
                 with self.subTest(form=name, invalid=case):
                     payload = dict(base, **copy.deepcopy(changes))
                     before = copy.deepcopy(payload)
-                    with self.assertRaises(ValidationError):
+                    with self.assertRaises(ValidationError) as caught:
                         form_class.model_validate(payload)
+                    if case == "scalar grants":
+                        self.assertIn(
+                            "must be null or an empty list; nonempty grant semantics are not implemented",
+                            str(caught.exception),
+                        )
                     self.assertEqual(payload, before)
 
 

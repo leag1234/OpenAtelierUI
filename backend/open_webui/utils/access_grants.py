@@ -21,16 +21,20 @@ def convert_explicit_access_grants(data):
     converted = dict(data)
     del converted["access_grants"]
 
-    if grants is None or grants == []:
+    if grants is None:
         converted["access_control"] = {}
         return converted
 
     if not isinstance(grants, list):
-        raise ValueError("access_grants must be null or a list of user read grants")
-    if grants:
         raise ValueError(
-            "nonempty access_grants are unsupported: the old runtime cannot preserve "
-            "per-principal source and rights semantics"
+            "access_grants must be null or an empty list; "
+            "nonempty grant semantics are not implemented"
         )
-    converted["access_control"] = {}
-    return converted
+    if not grants:
+        converted["access_control"] = {}
+        return converted
+
+    raise ValueError(
+        "nonempty access_grants are unsupported: the old runtime cannot preserve "
+        "per-principal source and rights semantics"
+    )
