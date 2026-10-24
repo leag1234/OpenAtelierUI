@@ -166,9 +166,12 @@
 							{$i18n.t('Content')}
 						</div>
 						{#if document.metadata?.html}
+							<p class="text-xs text-gray-500 dark:text-gray-400 mb-1">
+								Static preview: scripts and forms are disabled.
+							</p>
 							<iframe
 								class="w-full border-0 h-auto rounded-none"
-								sandbox="allow-scripts allow-forms allow-same-origin"
+								sandbox=""
 								srcdoc={document.document}
 								title={$i18n.t('Content')}
 							></iframe>
