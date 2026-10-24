@@ -5,10 +5,11 @@ from typing import Optional
 from open_webui.internal.db import Base, JSONField, get_db
 from open_webui.models.users import Users, UserResponse
 from open_webui.env import SRC_LOG_LEVELS
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy import BigInteger, Column, String, Text, JSON
 
 from open_webui.utils.access_control import has_access
+from open_webui.utils.access_grants import convert_explicit_access_grants
 
 
 log = logging.getLogger(__name__)
@@ -100,6 +101,11 @@ class ToolForm(BaseModel):
     content: str
     meta: ToolMeta
     access_control: Optional[dict] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def convert_access_grants(cls, data):
+        return convert_explicit_access_grants(data)
 
 
 class ToolValves(BaseModel):

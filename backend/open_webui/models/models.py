@@ -8,7 +8,7 @@ from open_webui.env import SRC_LOG_LEVELS
 from open_webui.models.users import Users, UserResponse
 
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from sqlalchemy import or_, and_, func
 from sqlalchemy.dialects import postgresql, sqlite
@@ -16,6 +16,7 @@ from sqlalchemy import BigInteger, Column, Text, JSON, Boolean
 
 
 from open_webui.utils.access_control import has_access
+from open_webui.utils.access_grants import convert_explicit_access_grants
 
 
 log = logging.getLogger(__name__)
@@ -140,6 +141,11 @@ class ModelForm(BaseModel):
     params: ModelParams
     access_control: Optional[dict] = None
     is_active: bool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def convert_access_grants(cls, data):
+        return convert_explicit_access_grants(data)
 
 
 class ModelsTable:
