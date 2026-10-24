@@ -32,6 +32,7 @@ from open_webui.routers.retrieval import ProcessFileForm, process_file
 from open_webui.routers.audio import transcribe
 from open_webui.storage.provider import Storage
 from open_webui.utils.auth import get_admin_user, get_verified_user
+from open_webui.utils.uploaded_html import uploaded_html_response_headers
 from pydantic import BaseModel
 
 log = logging.getLogger(__name__)
@@ -381,7 +382,7 @@ async def get_file_content_by_id(
                 content_type = file.meta.get("content_type")
                 filename = file.meta.get("name", file.filename)
                 encoded_filename = quote(filename)
-                headers = {}
+                headers = {"X-Content-Type-Options": "nosniff"}
 
                 if attachment:
                     headers["Content-Disposition"] = (
@@ -443,7 +444,10 @@ async def get_html_file_content_by_id(id: str, user=Depends(get_verified_user)):
             # Check if the file already exists in the cache
             if file_path.is_file():
                 log.info(f"file_path: {file_path}")
-                return FileResponse(file_path)
+                return FileResponse(
+                    file_path,
+                    headers=uploaded_html_response_headers(),
+                )
             else:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -484,7 +488,8 @@ async def get_file_content_by_id(id: str, user=Depends(get_verified_user)):
         filename = file.meta.get("name", file.filename)
         encoded_filename = quote(filename)  # RFC5987 encoding
         headers = {
-            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+            "X-Content-Type-Options": "nosniff",
         }
 
         if file_path:

@@ -4,12 +4,17 @@ import os
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from typing import Dict
+from open_webui.utils.uploaded_html import configured_security_headers_for_response
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
-        response.headers.update(set_security_headers())
+        response.headers.update(
+            configured_security_headers_for_response(
+                response.headers, set_security_headers()
+            )
+        )
         return response
 
 

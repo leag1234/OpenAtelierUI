@@ -1,0 +1,12 @@
+# Uploaded HTML response-boundary prototype
+
+This bounded BSD change protects the dedicated authenticated HTML file response. It was independently authored from the old BSD route/middleware and the behavior-only policy acceptance in `TASK-OPENATELIER-HTML-001`; no newer implementation or browser patch was consulted.
+
+The dedicated `GET /api/v1/files/{id}/content/html` route retains its existing verified-user dependency, owner/admin/read-grant predicate, storage lookup, and `FileResponse` of the original file path. It adds `Content-Security-Policy: sandbox; default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'` and `X-Content-Type-Options: nosniff`. The response continues using `FileResponse`'s original path-based MIME detection and does not rewrite or sanitize body bytes. The CSP sandbox creates a restricted/opaque origin and blocks scripts and external content; ordinary text and inline CSS remain available. Pages that depend on scripts, remote images, fonts, forms, or framing will be limited. The existing generic download routes remain available as the direct original-byte fallback.
+
+The global security-header middleware previously overwrote endpoint CSP values with the configured global CSP. The narrow merge helper now preserves an explicit response CSP while continuing to apply other configured security headers. Generic `/{id}/content` responses and `/{id}/content/{file_name}` downloads also set `X-Content-Type-Options: nosniff`; the generic route's existing PDF/text inline behavior and attachment decisions remain unchanged.
+
+`python3 validation/test_uploaded_html_policy.py` executes five stdlib tests for the exact policy, route authorization predicates, direct original-file response, generic download/PDF/text boundaries, and route-CSP precedence over global headers. `python3 validation/test_migrate_sqlite.py` still passes all thirteen importer regression tests. `py_compile` for the changed modules and `git diff --check` passed.
+
+
+The response policy does not cover other consumers that copy uploaded HTML into `iframe srcdoc`. The primary's old-BSD frontend review identified `CitationsModal.svelte` with `allow-scripts`, `allow-forms`, and `allow-same-origin`, plus configurable `allow-same-origin` behavior in `Artifacts.svelte`. Those UI paths are unchanged and require a separate contract and browser review; this backend slice is not a complete XSS remediation. No frontend rebuild or frontend behavior is claimed.
