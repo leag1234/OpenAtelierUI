@@ -2,9 +2,9 @@
 import asyncio
 import importlib.util
 import pathlib
-import sys
 import time
 import types
+import unittest
 
 
 OPEN_WEBUI = pathlib.Path(__file__).resolve().parents[1]
@@ -24,7 +24,7 @@ class SyntheticUsers:
     def __init__(self, value):
         self.value = value
 
-    def get_user_by_id(self, user_id):
+    def get_user_by_id(self, id):
         time.sleep(0.06)
         if isinstance(self.value, BaseException):
             raise self.value
@@ -59,8 +59,6 @@ def test_unmodified_sync_pipe_lookup_runs_off_loop_and_reads_email():
     module.Users = users
     module.Pipe = type("Pipe", (), {})
     assert compat.adapt_pipe_module(module, users)
-    pipe_type = type("Pipe", (), {"__module__": module.__name__})
-    pipe = pipe_type()
 
     def unchanged_pipe():
         return module.Users.get_user_by_id("synthetic-user").email
@@ -80,10 +78,18 @@ def test_sync_accessor_preserves_native_model_identity_and_none():
     module.Users = users
     module.Pipe = type("Pipe", (), {})
     assert compat.adapt_pipe_module(module, users)
-    assert module.Users.get_user_by_id("synthetic-user") is user
+    assert module.Users.get_user_by_id(id="synthetic-user") is user
 
     users.value = None
-    assert module.Users.get_user_by_id("missing") is None
+    assert module.Users.get_user_by_id(id="missing") is None
+
+    for accessor in (users, module.Users):
+        try:
+            accessor.get_user_by_id(user_id="invalid-keyword")
+        except TypeError as error:
+            assert "id" in str(error)
+        else:
+            raise AssertionError("unexpected keyword was accepted")
 
 
 def test_import_alias_is_adapted_by_singleton_identity():
@@ -99,6 +105,21 @@ def test_import_alias_is_adapted_by_singleton_identity():
     )
 
 
+def test_non_pipe_and_unbound_modules_keep_original_binding():
+    users = SyntheticUsers(SyntheticUser())
+    non_pipe = types.ModuleType("synthetic_non_pipe")
+    non_pipe.Users = users
+    assert not compat.adapt_pipe_module(non_pipe, users)
+    assert non_pipe.Users is users
+
+    unbound = types.ModuleType("synthetic_unbound_pipe")
+    unbound.Pipe = type("Pipe", (), {})
+    unbound.Users = SyntheticUsers(SyntheticUser())
+    original = unbound.Users
+    assert not compat.adapt_pipe_module(unbound, users)
+    assert unbound.Users is original
+
+
 def test_unmodified_async_pipe_awaits_lookup_off_loop_and_reads_email():
     users = SyntheticUsers(SyntheticUser())
     module = types.ModuleType("synthetic_async_plugin")
@@ -107,7 +128,7 @@ def test_unmodified_async_pipe_awaits_lookup_off_loop_and_reads_email():
     assert compat.adapt_pipe_module(module, users)
 
     async def unchanged_pipe():
-        user = await module.Users.get_user_by_id("synthetic-user")
+        user = await module.Users.get_user_by_id(id="synthetic-user")
         return user.email
 
     async def execute():
@@ -125,7 +146,7 @@ def test_async_not_found_and_lookup_errors_keep_native_outcomes():
         module.Users = users
         module.Pipe = type("Pipe", (), {})
         compat.adapt_pipe_module(module, users)
-        return await module.Users.get_user_by_id("missing")
+        return await module.Users.get_user_by_id(id="missing")
 
     assert asyncio.run(resolve(None)) is None
     failure = LookupError("synthetic lookup failure")
@@ -135,3 +156,19 @@ def test_async_not_found_and_lookup_errors_keep_native_outcomes():
         assert error is failure
     else:
         raise AssertionError("lookup exception was swallowed by the adapter")
+
+
+TESTS = (
+    test_unmodified_sync_pipe_lookup_runs_off_loop_and_reads_email,
+    test_sync_accessor_preserves_native_model_identity_and_none,
+    test_import_alias_is_adapted_by_singleton_identity,
+    test_non_pipe_and_unbound_modules_keep_original_binding,
+    test_unmodified_async_pipe_awaits_lookup_off_loop_and_reads_email,
+    test_async_not_found_and_lookup_errors_keep_native_outcomes,
+)
+
+
+if __name__ == "__main__":
+    suite = unittest.TestSuite(unittest.FunctionTestCase(test) for test in TESTS)
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    raise SystemExit(0 if result.wasSuccessful() else 1)
