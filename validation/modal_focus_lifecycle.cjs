@@ -9,7 +9,7 @@ const helperSource = fs.readFileSync(helperPath, 'utf8').replace('export functio
 const activateModalFocus = new Function(`${helperSource}; return activateModalFocus;`)();
 
 function element(doc, options = {}) {
-	const attributes = new Set(options.inert ? ['inert'] : []);
+	const attributes = options.inert ? { inert: '' } : {};
 	return {
 		ownerDocument: doc,
 		tabIndex: options.tabIndex === undefined ? 0 : options.tabIndex,
@@ -28,13 +28,16 @@ function element(doc, options = {}) {
 			delete this.listeners[name];
 		},
 		hasAttribute(name) {
-			return attributes.has(name);
+			return Object.prototype.hasOwnProperty.call(attributes, name);
 		},
-		setAttribute(name) {
-			attributes.add(name);
+		getAttribute(name) {
+			return this.hasAttribute(name) ? attributes[name] : null;
+		},
+		setAttribute(name, value) {
+			attributes[name] = value;
 		},
 		removeAttribute(name) {
-			attributes.delete(name);
+			delete attributes[name];
 		},
 		contains(other) {
 			return this === other || (this.children || []).indexOf(other) !== -1;
@@ -64,9 +67,10 @@ const navigation = element(document);
 const modal = element(document, { tabIndex: -1 });
 const close = element(document);
 const sourceLink = element(document);
+const iframe = element(document);
 modal.initial = close;
-modal.focusables = [close, sourceLink];
-modal.children = [close, sourceLink];
+modal.focusables = [close, sourceLink, iframe];
+modal.children = [close, sourceLink, iframe];
 modal.ownerDocument = document;
 document.body = { children: [app, navigation, modal] };
 document.activeElement = opener;
@@ -76,24 +80,29 @@ assert.strictEqual(document.activeElement, close, 'opening focuses the marked cl
 assert.strictEqual(app.hasAttribute('inert'), true, 'background becomes inert');
 assert.strictEqual(navigation.hasAttribute('inert'), true, 'other background siblings become inert');
 assert.strictEqual(modal.listeners.keydown instanceof Function, true, 'Tab handler is attached');
+assert.strictEqual(modal.listeners.focusout instanceof Function, true, 'iframe exit guard is attached');
 
 let prevented = false;
 modal.listeners.keydown({ key: 'Tab', shiftKey: true, preventDefault() { prevented = true; } });
 assert.strictEqual(prevented, true, 'Shift+Tab from first control is contained');
-assert.strictEqual(document.activeElement, sourceLink, 'Shift+Tab wraps to last control');
+assert.strictEqual(document.activeElement, iframe, 'Shift+Tab from close reaches the iframe');
 prevented = false;
 modal.listeners.keydown({ key: 'Tab', shiftKey: false, preventDefault() { prevented = true; } });
 assert.strictEqual(prevented, true, 'Tab from last control is contained');
 assert.strictEqual(document.activeElement, close, 'Tab wraps to first control');
 
 const outside = element(document);
+modal.listeners.focusout({ relatedTarget: outside });
+assert.strictEqual(document.activeElement, close, 'native focus leaving the iframe returns to modal');
 documentListeners.focusin({ target: outside });
 assert.strictEqual(document.activeElement, close, 'focus escaping to background is returned to modal');
 
+app.removeAttribute('inert');
 cleanup();
-assert.strictEqual(app.hasAttribute('inert'), true, 'pre-existing inert state is preserved');
-assert.strictEqual(navigation.hasAttribute('inert'), false, 'temporary inert state is removed');
+assert.strictEqual(app.hasAttribute('inert'), true, 'pre-existing inert=true state is restored');
+assert.strictEqual(navigation.hasAttribute('inert'), false, 'captured inert=false state is restored');
 assert.strictEqual(modal.listeners.keydown, undefined, 'Tab handler is removed');
+assert.strictEqual(modal.listeners.focusout, undefined, 'iframe exit guard is removed');
 assert.strictEqual(documentListeners.focusin, undefined, 'focus guard is removed');
 assert.strictEqual(document.activeElement, opener, 'closing restores focus to opener');
-console.log('modal focus lifecycle: 14 assertions passed');
+console.log('modal focus lifecycle: 17 assertions passed');

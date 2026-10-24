@@ -1,5 +1,7 @@
+// SPDX-License-Identifier: BSD-3-Clause
+
 const FOCUSABLE_SELECTOR =
-	'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+	'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), iframe:not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])';
 
 /**
  * Add a bounded focus boundary for an opt-in modal. The returned cleanup restores
@@ -11,7 +13,7 @@ export function activateModalFocus(modal) {
 	const background = Array.from(doc.body.children).filter((element) => element !== modal);
 	const inertState = background.map((element) => ({
 		element,
-		wasInert: element.hasAttribute('inert')
+		inertValue: element.getAttribute('inert')
 	}));
 
 	for (const { element } of inertState) {
@@ -54,15 +56,24 @@ export function activateModalFocus(modal) {
 		if (!modal.contains(event.target)) focusInitial();
 	};
 
+	// Focus events inside the sandboxed iframe do not cross its browsing-context
+	// boundary. Recover only when the iframe/tab sequence moves outside this modal.
+	const onFocusOut = (event) => {
+		if (!event.relatedTarget || !modal.contains(event.relatedTarget)) focusInitial();
+	};
+
 	modal.addEventListener('keydown', onKeyDown);
+	modal.addEventListener('focusout', onFocusOut);
 	doc.addEventListener('focusin', onFocusIn, true);
 	focusInitial();
 
 	return () => {
 		modal.removeEventListener('keydown', onKeyDown);
+		modal.removeEventListener('focusout', onFocusOut);
 		doc.removeEventListener('focusin', onFocusIn, true);
-		for (const { element, wasInert } of inertState) {
-			if (!wasInert) element.removeAttribute('inert');
+		for (const { element, inertValue } of inertState) {
+			if (inertValue === null) element.removeAttribute('inert');
+			else element.setAttribute('inert', inertValue);
 		}
 		if (previousFocus && previousFocus.isConnected) previousFocus.focus();
 	};

@@ -74,7 +74,15 @@ class CitationsModalSandboxTests(unittest.TestCase):
         self.assertIn("aria-modal={trapFocus ? 'true' : undefined}", modal)
         self.assertIn("activateModalFocus(modalElement)", modal)
         self.assertIn("releaseModalFocus()", modal)
-        for behavior in ("setAttribute('inert'", "removeAttribute('inert'", "event.key !== 'Tab'", "previousFocus.focus()"):
+        self.assertIn("iframe:not([tabindex=\"-1\"])", helper)
+        for behavior in (
+            "setAttribute('inert'",
+            "removeAttribute('inert'",
+            "event.key !== 'Tab'",
+            "event.relatedTarget",
+            "inertValue === null",
+            "previousFocus.focus()",
+        ):
             self.assertIn(behavior, helper)
 
 
