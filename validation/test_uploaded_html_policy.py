@@ -40,19 +40,26 @@ class UploadedHTMLPolicyTests(unittest.TestCase):
         )
         self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
 
-    def test_route_policy_survives_global_security_headers_middleware(self):
+    def test_route_and_global_csp_are_both_enforced(self):
         route_headers = policy.uploaded_html_response_headers()
+        route_csp = route_headers["Content-Security-Policy"]
+        global_csp = "default-src 'self'; frame-ancestors 'none'; style-src 'self'"
         configured = {
-            "Content-Security-Policy": "default-src 'self'",
+            "Content-Security-Policy": global_csp,
             "Referrer-Policy": "no-referrer",
+            "X-Content-Type-Options": "nosniff",
         }
         update = policy.configured_security_headers_for_response(route_headers, configured)
-        self.assertNotIn("Content-Security-Policy", update)
+        self.assertEqual(update["Content-Security-Policy"], route_csp + ", " + global_csp)
         self.assertEqual(update["Referrer-Policy"], "no-referrer")
+        self.assertEqual(update["X-Content-Type-Options"], "nosniff")
         route_headers.update(update)
-        self.assertEqual(route_headers["Content-Security-Policy"], policy.UPLOADED_HTML_CONTENT_SECURITY_POLICY)
-        no_route_policy = policy.configured_security_headers_for_response({}, configured)
-        self.assertEqual(no_route_policy["Content-Security-Policy"], "default-src 'self'")
+        self.assertEqual(route_headers["Content-Security-Policy"].split(", "), [route_csp, global_csp])
+        conflict = policy.configured_security_headers_for_response(route_headers, {"X-Content-Type-Options": "none"})
+        self.assertEqual(conflict["X-Content-Type-Options"], "nosniff")
+        ordinary_update = policy.configured_security_headers_for_response({}, configured)
+        self.assertEqual(ordinary_update["Content-Security-Policy"], global_csp)
+        self.assertEqual(ordinary_update["X-Content-Type-Options"], "nosniff")
 
     def test_global_middleware_merges_through_route_policy_helper(self):
         middleware = ast.parse((ROOT / "backend/open_webui/utils/security_headers.py").read_text(encoding="utf-8"))

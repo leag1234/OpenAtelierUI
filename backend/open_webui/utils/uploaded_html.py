@@ -18,8 +18,16 @@ def uploaded_html_response_headers() -> dict[str, str]:
 def configured_security_headers_for_response(
     response_headers, configured_headers: dict[str, str]
 ) -> dict[str, str]:
-    """Keep a route's explicit CSP while applying the other global headers."""
+    """Enforce route and global CSPs together while applying global headers."""
     headers = dict(configured_headers)
-    if "Content-Security-Policy" in response_headers:
-        headers.pop("Content-Security-Policy", None)
+    route_csp = response_headers.get("Content-Security-Policy")
+    configured_csp = headers.get("Content-Security-Policy")
+    if route_csp and configured_csp:
+        # Comma-separated policies are independently enforced, so both apply.
+        headers["Content-Security-Policy"] = route_csp + ", " + configured_csp
+    if (
+        str(response_headers.get("X-Content-Type-Options", "")).lower() == "nosniff"
+        and str(headers.get("X-Content-Type-Options", "")).lower() != "nosniff"
+    ):
+        headers["X-Content-Type-Options"] = "nosniff"
     return headers
