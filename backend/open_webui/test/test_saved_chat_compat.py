@@ -8,7 +8,10 @@ import json
 import pathlib
 import unittest
 from types import SimpleNamespace
+from typing import Optional
 from unittest.mock import patch
+
+from pydantic import BaseModel, ConfigDict
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MODEL_PATH = ROOT / "models" / "chats.py"
@@ -50,6 +53,14 @@ def _method(path, class_name, method_name, namespace, preserve_defaults=False):
         method.args.kw_defaults = [None] * len(method.args.kwonlyargs)
     exec(compile(ast.Module(body=[method], type_ignores=[]), str(path), "exec"), namespace)
     return namespace[method_name]
+
+
+def _chat_model():
+    tree = ast.parse(MODEL_PATH.read_text(encoding="utf-8"), filename=str(MODEL_PATH))
+    node = next(item for item in tree.body if isinstance(item, ast.ClassDef) and item.name == "ChatModel")
+    namespace = {"BaseModel": BaseModel, "ConfigDict": ConfigDict, "Optional": Optional}
+    exec(compile(ast.Module(body=[node], type_ignores=[]), str(MODEL_PATH), "exec"), namespace)
+    return namespace["ChatModel"]
 
 
 def _model_helpers():
@@ -196,15 +207,10 @@ class SavedChatCompatibilityTests(unittest.TestCase):
     def test_storage_insert_stamps_only_new_private_rows_and_keeps_owner(self):
         h = self.helpers
         db = _DB()
-        class Model:
-            def __init__(self, **kwargs): self.values = kwargs
-            def model_dump(self): return dict(self.values)
-            @classmethod
-            def model_validate(cls, item): return item
         class Row:
             def __init__(self, **kwargs): self.__dict__.update(kwargs)
         method = _method(MODEL_PATH, "ChatTable", "insert_new_chat", {
-            "get_db": lambda: db, "ChatModel": Model, "Chat": Row,
+            "get_db": lambda: db, "ChatModel": _chat_model(), "Chat": Row,
             "uuid": SimpleNamespace(uuid4=lambda: "chat-1"),
             "time": SimpleNamespace(time=lambda: 100),
             "_new_saved_work_meta": h["_new_saved_work_meta"],
@@ -219,7 +225,8 @@ class SavedChatCompatibilityTests(unittest.TestCase):
         db.added = None
         db.commits = 0
         unmarked = method(object(), "member-1", form)
-        self.assertIsNone(unmarked.meta)
+        self.assertEqual(unmarked.meta, {})
+        self.assertEqual(db.added.meta, {})
 
     def test_read_marker_updates_only_owned_marked_row_without_touching_updated_at(self):
         marker = {"_mdk_private_saved_work": {"version": 1, "last_read_at": None}, "legacy": {"x": 1}}

@@ -285,21 +285,21 @@ class ChatTable:
     ) -> Optional[ChatModel]:
         with get_db() as db:
             id = str(uuid.uuid4())
-            chat = ChatModel(
-                **{
-                    "id": id,
-                    "user_id": user_id,
-                    "title": (
-                        form_data.chat["title"]
-                        if "title" in form_data.chat
-                        else "New Chat"
-                    ),
-                    "chat": form_data.chat,
-                    "meta": _new_saved_work_meta() if compatibility_saved_work else None,
-                    "created_at": int(time.time()),
-                    "updated_at": int(time.time()),
-                }
-            )
+            values = {
+                "id": id,
+                "user_id": user_id,
+                "title": (
+                    form_data.chat["title"]
+                    if "title" in form_data.chat
+                    else "New Chat"
+                ),
+                "chat": form_data.chat,
+                "created_at": int(time.time()),
+                "updated_at": int(time.time()),
+            }
+            if compatibility_saved_work:
+                values["meta"] = _new_saved_work_meta()
+            chat = ChatModel(**values)
 
             result = Chat(**chat.model_dump())
             db.add(result)
