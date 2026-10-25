@@ -10,7 +10,7 @@ from open_webui.models.tags import TagModel, Tag, Tags
 from open_webui.env import SRC_LOG_LEVELS
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import BigInteger, Boolean, Column, String, Text, JSON, update
+from sqlalchemy import BigInteger, Boolean, Column, String, Text, JSON, cast, update
 from sqlalchemy import or_, func, select, and_, text
 from sqlalchemy.sql import exists
 
@@ -364,6 +364,7 @@ class ChatTable:
                     db.query(
                         Chat.id,
                         Chat.meta,
+                        cast(Chat.meta, Text).label("meta_raw"),
                         Chat.updated_at,
                         Chat.share_id,
                         Chat.folder_id,
@@ -392,7 +393,7 @@ class ChatTable:
                             Chat.id == row.id,
                             Chat.user_id == user_id,
                             Chat.updated_at == row.updated_at,
-                            Chat.meta == row.meta,
+                            cast(Chat.meta, Text) == row.meta_raw,
                             Chat.share_id.is_(None),
                             Chat.folder_id.is_(None),
                         )

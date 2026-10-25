@@ -6,6 +6,7 @@ import asyncio
 import copy
 import json
 import pathlib
+import sqlite3
 import unittest
 from types import SimpleNamespace
 from typing import Optional
@@ -152,6 +153,11 @@ class _AckColumn:
     def __init__(self, name): self.name = name
     def __eq__(self, value): return ("eq", self.name, value)
     def is_(self, value): return ("is", self.name, value)
+    def label(self, _name): return self
+
+
+def _ack_cast(_column, _type):
+    return _AckColumn("meta_raw")
 
 
 class _AckUpdate:
@@ -311,10 +317,13 @@ class SavedChatCompatibilityTests(unittest.TestCase):
 
     def test_acknowledgement_updates_only_owned_valid_private_rows_to_each_updated_at(self):
         make_meta = self.helpers["_new_saved_work_meta"]
+        meta_a = make_meta({"keep": "a"}, 10)
+        meta_b = make_meta({"keep": "café"}, 20)
+        meta_other = make_meta({}, 30)
         rows = [
-            SimpleNamespace(id="owned-a", user_id="member-1", meta=make_meta({"keep": "a"}, 10), updated_at=120, share_id=None, folder_id=None, chat={"sentinel": "a"}),
-            SimpleNamespace(id="owned-b", user_id="member-1", meta=make_meta({"keep": "b"}, 20), updated_at=240, share_id=None, folder_id=None, chat={"sentinel": "b"}),
-            SimpleNamespace(id="other", user_id="member-2", meta=make_meta({}, 30), updated_at=360, share_id=None, folder_id=None, chat={"sentinel": "other"}),
+            SimpleNamespace(id="owned-a", user_id="member-1", meta=meta_a, meta_raw=json.dumps(meta_a, separators=(",", ":"), ensure_ascii=False), updated_at=120, share_id=None, folder_id=None, chat={"sentinel": "a"}),
+            SimpleNamespace(id="owned-b", user_id="member-1", meta=meta_b, meta_raw=json.dumps(meta_b, indent=2, ensure_ascii=False), updated_at=240, share_id=None, folder_id=None, chat={"sentinel": "b"}),
+            SimpleNamespace(id="other", user_id="member-2", meta=meta_other, meta_raw=json.dumps(meta_other, ensure_ascii=False), updated_at=360, share_id=None, folder_id=None, chat={"sentinel": "other"}),
         ]
         db = _AckDB(rows)
         class Chat:
@@ -326,18 +335,63 @@ class SavedChatCompatibilityTests(unittest.TestCase):
             user_id = _AckColumn("user_id")
         method = _method(MODEL_PATH, "ChatTable", "acknowledge_private_saved_chats", {
             "get_db": lambda: db, "Chat": Chat, "update": _AckUpdate,
+            "cast": _ack_cast, "Text": object(),
             "_updated_saved_work_read_meta": self.helpers["_updated_saved_work_read_meta"],
         })
         result = method(object(), "member-1")
         self.assertEqual(result, {"updated_count": 2, "folder_unread_counts": {}})
         self.assertTrue(db.lock_requested)
-        self.assertEqual(set(db.selected_columns), {"id", "meta", "updated_at", "share_id", "folder_id"})
+        self.assertEqual(set(db.selected_columns), {"id", "meta", "meta_raw", "updated_at", "share_id", "folder_id"})
         self.assertEqual([self.helpers["_saved_work_last_read"](rows[i].meta) for i in (0, 1)], [120, 240])
-        self.assertEqual([rows[i].meta["keep"] for i in (0, 1)], ["a", "b"])
+        self.assertEqual([rows[i].meta["keep"] for i in (0, 1)], ["a", "café"])
         self.assertEqual(rows[2].meta, db.before[2]["meta"])
         self.assertEqual([rows[i].chat for i in range(3)], [before["chat"] for before in db.before])
         self.assertEqual(db.commits, 1)
         self.assertEqual(len(db.executed), 2)
+
+    def test_acknowledgement_uses_exact_raw_json_text_in_conditional_update(self):
+        source = MODEL_PATH.read_text(encoding="utf-8")
+        self.assertIn('cast(Chat.meta, Text).label("meta_raw")', source)
+        self.assertIn('cast(Chat.meta, Text) == row.meta_raw', source)
+        meta_values = [
+            {"_mdk_private_saved_work": {"version": 1, "last_read_at": 1}, "label": "compact"},
+            {"_mdk_private_saved_work": {"version": 1, "last_read_at": 2}, "label": "pretty café"},
+            {"_mdk_private_saved_work": {"version": 1, "last_read_at": 3}, "label": "escaped café"},
+        ]
+        raw_values = [
+            json.dumps(meta_values[0], separators=(",", ":"), ensure_ascii=False),
+            json.dumps(meta_values[1], indent=2, ensure_ascii=False),
+            json.dumps(meta_values[2], indent=1, ensure_ascii=True),
+        ]
+        with sqlite3.connect(":memory:") as db:
+            db.execute("CREATE TABLE chats (id TEXT PRIMARY KEY, meta JSON)")
+            for index, raw in enumerate(raw_values):
+                db.execute("INSERT INTO chats VALUES (?, ?)", (str(index), raw))
+            for index, raw in enumerate(raw_values):
+                parsed, raw_read = db.execute(
+                    "SELECT meta, CAST(meta AS TEXT) FROM chats WHERE id=?", (str(index),)
+                ).fetchone()
+                self.assertEqual(json.loads(parsed), meta_values[index])
+                self.assertEqual(raw_read, raw)
+                updated = self.helpers["_updated_saved_work_read_meta"](
+                    json.loads(parsed), 100 + index
+                )
+                encoded = json.dumps(updated)
+                changed = db.execute(
+                    "UPDATE chats SET meta=? WHERE id=? AND CAST(meta AS TEXT)=?",
+                    (encoded, str(index), raw_read),
+                )
+                self.assertEqual(changed.rowcount, 1)
+            stale_raw = raw_values[0] + " "
+            unchanged = db.execute(
+                "UPDATE chats SET meta=? WHERE id=? AND CAST(meta AS TEXT)=?",
+                ("{}", "0", stale_raw),
+            )
+            self.assertEqual(unchanged.rowcount, 0)
+            self.assertEqual(
+                json.loads(db.execute("SELECT meta FROM chats WHERE id='0'").fetchone()[0])["label"],
+                "compact",
+            )
 
     def test_acknowledgement_rejects_legacy_or_folder_rows_before_writes(self):
         cases = (
@@ -357,6 +411,7 @@ class SavedChatCompatibilityTests(unittest.TestCase):
                 db = _AckDB([row])
                 method = _method(MODEL_PATH, "ChatTable", "acknowledge_private_saved_chats", {
                     "get_db": lambda: db, "Chat": Chat, "update": _AckUpdate,
+                    "cast": _ack_cast, "Text": object(),
                     "_updated_saved_work_read_meta": self.helpers["_updated_saved_work_read_meta"],
                 })
                 self.assertIsNone(method(object(), "member-1"))
@@ -366,8 +421,8 @@ class SavedChatCompatibilityTests(unittest.TestCase):
 
     def test_acknowledgement_rolls_back_if_a_conditional_row_update_misses(self):
         rows = [
-            SimpleNamespace(id="a", user_id="member-1", meta=self.helpers["_new_saved_work_meta"](last_read_at=1), updated_at=10, share_id=None, folder_id=None, chat={"kept": 1}),
-            SimpleNamespace(id="b", user_id="member-1", meta=self.helpers["_new_saved_work_meta"](last_read_at=2), updated_at=20, share_id=None, folder_id=None, chat={"kept": 2}),
+            SimpleNamespace(id="a", user_id="member-1", meta=self.helpers["_new_saved_work_meta"](last_read_at=1), meta_raw='{"_mdk_private_saved_work":{"version":1,"last_read_at":1}}', updated_at=10, share_id=None, folder_id=None, chat={"kept": 1}),
+            SimpleNamespace(id="b", user_id="member-1", meta=self.helpers["_new_saved_work_meta"](last_read_at=2), meta_raw='{"_mdk_private_saved_work":{"version":1,"last_read_at":2}}', updated_at=20, share_id=None, folder_id=None, chat={"kept": 2}),
         ]
         class FailSecondUpdateDB(_AckDB):
             def execute(self, statement):
@@ -385,6 +440,7 @@ class SavedChatCompatibilityTests(unittest.TestCase):
         db = FailSecondUpdateDB(rows)
         method = _method(MODEL_PATH, "ChatTable", "acknowledge_private_saved_chats", {
             "get_db": lambda: db, "Chat": Chat, "update": _AckUpdate,
+            "cast": _ack_cast, "Text": object(),
             "_updated_saved_work_read_meta": self.helpers["_updated_saved_work_read_meta"],
         })
         self.assertIsNone(method(object(), "member-1"))
@@ -404,6 +460,7 @@ class SavedChatCompatibilityTests(unittest.TestCase):
             user_id = _AckColumn("user_id")
         method = _method(MODEL_PATH, "ChatTable", "acknowledge_private_saved_chats", {
             "get_db": lambda: db, "Chat": Chat, "update": _AckUpdate,
+            "cast": _ack_cast, "Text": object(),
             "_updated_saved_work_read_meta": self.helpers["_updated_saved_work_read_meta"],
         })
         self.assertEqual(method(object(), "member-with-no-chats"), {
