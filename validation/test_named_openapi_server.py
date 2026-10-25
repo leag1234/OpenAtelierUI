@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import time
+import unicodedata
 from urllib.parse import urlsplit
 from types import SimpleNamespace
 import unittest
@@ -171,6 +172,7 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
 
         namespace = {
             "asyncio": asyncio,
+            "unicodedata": unicodedata,
             "urlsplit": urlsplit,
             "router": SimpleNamespace(get=lambda *_args, **_kwargs: lambda function: function),
             "Request": object,
@@ -192,7 +194,7 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
         }
         _load_functions(
             ROUTER_SOURCE,
-            {"_refresh_named_tool_server_catalog", "get_tools"},
+            {"_refresh_named_tool_server_catalog", "_valid_named_server_display_text", "get_tools"},
             namespace,
         )
         self.catalog_refresh = namespace["_refresh_named_tool_server_catalog"]
@@ -721,6 +723,67 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
         rows = await route(request, self.user(role="admin"))
         self.assertEqual(state.TOOL_SERVERS, [])
         self.assertEqual(rows, [])
+
+    async def test_named_catalog_uses_configured_metadata_and_falls_back_for_invalid(self):
+        connection = self.grant_connection(self.named_connection(), "user-1")
+        connection["info"].update({
+            "name": "Community workshop tools",
+            "description": "Bounded synthetic tools — atelier",
+        })
+        server = self.cache_entry(0, connection)
+        server["openapi"]["info"] = {
+            "title": "Schema title",
+            "description": "Schema description",
+        }
+        admin_rows = await self.catalog(connection, server, self.user(role="admin"))
+        member_rows = await self.catalog(connection, server, self.user())
+        for row in (admin_rows[0], member_rows[0]):
+            self.assertEqual(row["name"], "Community workshop tools")
+            self.assertEqual(row["meta"]["description"], "Bounded synthetic tools — atelier")
+
+        invalid = self.grant_connection(self.named_connection(), "user-1")
+        invalid["info"]["name"] = "  "
+        invalid["info"]["description"] = 17
+        fallback_server = self.cache_entry(0, invalid)
+        fallback_server["openapi"]["info"] = {
+            "title": "Fallback schema title",
+            "description": "Fallback schema description",
+        }
+        fallback = await self.catalog(invalid, fallback_server, self.user(role="admin"))
+        self.assertEqual(fallback[0]["name"], "Fallback schema title")
+        self.assertEqual(fallback[0]["meta"]["description"], "Fallback schema description")
+        invalid["info"]["name"] = "bad\nname"
+        invalid["info"]["description"] = ""
+        control_server = self.cache_entry(0, invalid)
+        control_server["openapi"]["info"] = {
+            "title": "Fallback schema title",
+            "description": "Fallback schema description",
+        }
+        control_fallback = await self.catalog(
+            invalid, control_server, self.user(role="admin")
+        )
+        self.assertEqual(control_fallback[0]["name"], "Fallback schema title")
+        self.assertEqual(control_fallback[0]["meta"]["description"], "")
+
+    async def test_named_metadata_projection_does_not_change_legacy_or_local_rows(self):
+        legacy = {
+            "type": "openapi",
+            "url": "https://example.invalid/legacy.json",
+            "config": {"enable": True},
+            "info": {"name": "Ignored legacy name", "description": "Ignored legacy description"},
+        }
+        server = {
+            "idx": 0,
+            "url": legacy["url"],
+            "specs": [],
+            "openapi": {"info": {"title": "Legacy schema title", "description": "Legacy schema description"}},
+        }
+        local = self.local_tool_record("local_tool")
+        rows = await self.catalog(legacy, server, self.user(role="admin"), [local])
+        by_id = {row["id"]: row for row in rows}
+        self.assertEqual(by_id["server:0"]["name"], "Legacy schema title")
+        self.assertEqual(by_id["server:0"]["meta"]["description"], "Legacy schema description")
+        self.assertEqual(by_id["local_tool"]["name"], "Local colliding tool")
 
 
 class ToolServerExecutorResponseTests(unittest.IsolatedAsyncioTestCase):

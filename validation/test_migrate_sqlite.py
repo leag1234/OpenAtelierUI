@@ -1024,6 +1024,37 @@ class NamedToolConfigurationImportTests(unittest.TestCase):
         self.assertNotIn("headers", imported_connection)
         self.assertNotIn("forward_cookies", imported_connection)
 
+    def test_bounded_alternate_named_connection_is_copied_exactly_without_fetching(self):
+        selected = named_tool_connection("u1")
+        selected["url"] = "https://example.invalid"
+        selected["path"] = "api/openapi.json"
+        selected["info"] = {
+            "id": "community_tools",
+            "name": "Community workshop tools",
+            "description": "Outils synthétiques — démonstration",
+        }
+        add_named_tool_configuration(self.source, selected)
+        before = digest(self.source), digest(self.template)
+        report = preview(
+            self.source, self.uploads, self.template,
+            include_named_tool_configuration=True,
+        )
+        self.assertFalse(report["fatal"])
+        self.assertFalse(report["cutover_eligible"])
+        target = self.root / "alternate-named-config"
+        result = convert(
+            self.source, self.uploads, self.template, target,
+            include_named_tool_configuration=True,
+        )
+        self.assertFalse(result["fatal"])
+        db = sqlite3.connect(target / "webui.db")
+        try:
+            imported = json.loads(db.execute("SELECT data FROM config").fetchone()[0])
+        finally:
+            db.close()
+        self.assertEqual(imported["tool_server"]["connections"][0], selected)
+        self.assertEqual((digest(self.source), digest(self.template)), before)
+
     def test_duplicate_selected_user_identity_with_different_roles_refuses(self):
         add_named_tool_configuration(self.source)
         db = sqlite3.connect(self.source)
@@ -1249,6 +1280,46 @@ class NamedToolConfigurationImportTests(unittest.TestCase):
         cases.append((multiple_connections, "named_tool_configuration_unsupported_shape", False))
         admin = named_tool_connection()
         cases.append((admin, "named_tool_configuration_grant_identity_invalid", True))
+        for bad_url in (
+            "http://",
+            "http://localhost:bad",
+            "http://localhost:0",
+            "http://localhost:65536",
+            "https://user:pass@example.invalid",
+            "https://example.invalid?token=x",
+            "https://example.invalid#fragment",
+            "https://example.invalid/base/path",
+            " https://example.invalid",
+        ):
+            malformed_url = named_tool_connection(); malformed_url["url"] = bad_url
+            cases.append((malformed_url, "named_tool_configuration_unsupported_shape", False))
+        for bad_path in (
+            "",
+            "/openapi.json",
+            "../openapi.json",
+            "api/../openapi.json",
+            "api\\openapi.json",
+            "https://example.invalid/openapi.json",
+            "openapi.json?x=1",
+            "api/%2e%2e/openapi.json",
+        ):
+            malformed_path = named_tool_connection(); malformed_path["path"] = bad_path
+            cases.append((malformed_path, "named_tool_configuration_unsupported_shape", False))
+        for bad_id in ("bad/id", "123", "x" * 129):
+            malformed_id = named_tool_connection(); malformed_id["info"]["id"] = bad_id
+            cases.append((malformed_id, "named_tool_configuration_unsupported_shape", False))
+        for key, bad_value in (
+            ("name", "   "),
+            ("name", "name\nwith-control"),
+            ("name", 42),
+            ("name", "n" * (importer.MAX_NAMED_TOOL_NAME_CHARS + 1)),
+            ("description", 42),
+            ("description", "description\u0085with-control"),
+            ("description", "d" * (importer.MAX_NAMED_TOOL_DESCRIPTION_CHARS + 1)),
+        ):
+            malformed_metadata = named_tool_connection()
+            malformed_metadata["info"][key] = bad_value
+            cases.append((malformed_metadata, "named_tool_configuration_unsupported_shape", False))
         for value, expected, is_admin in cases:
             with self.subTest(code=expected, value_shape=type(value).__name__, admin=is_admin):
                 self._assert_opt_in_refused(value, expected, admin=is_admin)

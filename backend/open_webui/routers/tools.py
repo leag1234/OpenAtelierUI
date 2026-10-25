@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 import time
+import unicodedata
 from urllib.parse import urlsplit
 
 from open_webui.models.tools import (
@@ -47,6 +48,15 @@ log.setLevel(SRC_LOG_LEVELS["MAIN"])
 
 
 router = APIRouter()
+
+
+def _valid_named_server_display_text(value, maximum, *, nonempty):
+    return (
+        isinstance(value, str)
+        and len(value) <= maximum
+        and (not nonempty or bool(value.strip()))
+        and not any(unicodedata.category(character) in {"Cc", "Cf", "Cs"} for character in value)
+    )
 
 
 async def _refresh_named_tool_server_catalog(connections, servers):
@@ -199,17 +209,29 @@ async def get_tools(request: Request, user=Depends(get_verified_user)):
         connection_config = connection.get("config")
         if not isinstance(connection_config, dict):
             connection_config = {}
+        schema_info = server["openapi"].get("info", {})
+        display_name = schema_info.get("title", "Tool Server")
+        display_description = schema_info.get("description", "")
+        if server_idx in named_indices:
+            configured_info = connection.get("info")
+            if isinstance(configured_info, dict):
+                configured_name = configured_info.get("name")
+                configured_description = configured_info.get("description")
+                if _valid_named_server_display_text(
+                    configured_name, 256, nonempty=True
+                ):
+                    display_name = configured_name
+                if _valid_named_server_display_text(
+                    configured_description, 1024, nonempty=False
+                ):
+                    display_description = configured_description
         tool_response = ToolUserResponse(
             **{
                 "id": catalog_id,
                 "user_id": catalog_id,
-                "name": server["openapi"]
-                .get("info", {})
-                .get("title", "Tool Server"),
+                "name": display_name,
                 "meta": {
-                    "description": server["openapi"]
-                    .get("info", {})
-                    .get("description", ""),
+                    "description": display_description,
                 },
                 "access_control": connection_config.get("access_control", None),
                 "updated_at": int(time.time()),

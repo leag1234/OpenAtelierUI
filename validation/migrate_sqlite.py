@@ -16,6 +16,8 @@ import hashlib
 import importlib.util
 import json
 import os
+import ipaddress
+import re
 import resource
 import shutil
 import sqlite3
@@ -23,8 +25,10 @@ import sys
 import tempfile
 import time
 import uuid
+import unicodedata
 from pathlib import Path, PurePosixPath
 from typing import Callable
+from urllib.parse import urlsplit
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1] / "backend"
 _HISTORY_HELPER = BACKEND_ROOT / "open_webui" / "utils" / "imported_history.py"
@@ -87,6 +91,11 @@ PRIVATE_CHAT_META_KEY = "_mdk_private_saved_work"
 PRIVATE_CHAT_META_VERSION = 1
 PRIVATE_CHAT_META_MAX_BYTES = 1024
 MAX_NAMED_TOOL_CONFIG_BYTES = 16 * 1024
+MAX_NAMED_TOOL_URL_CHARS = 2048
+MAX_NAMED_TOOL_PATH_CHARS = 512
+MAX_NAMED_TOOL_NAME_CHARS = 256
+MAX_NAMED_TOOL_DESCRIPTION_CHARS = 1024
+NAMED_TOOL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 OLD_CONFIG_SOURCE_SHA256 = "e86c2da3487ddf9d9ee9fe5bafc81f5e96d8bc8a800a5632e3387bec6e57d694"
 OLD_CONFIG_DEFAULTS_SHA256 = "7870936571d911d4d4580b924d7b187ac9b5d01121299a1947f5d1ccfc832dd8"
 NAMED_TOOL_CONNECTION_KEY = "tool_server.connections"
@@ -166,8 +175,83 @@ def _named_tool_target_config_schema(connection: sqlite3.Connection) -> bool:
     )
 
 
+def _valid_named_tool_base_url(value: object) -> bool:
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > MAX_NAMED_TOOL_URL_CHARS
+        or value != value.strip()
+        or "?" in value
+        or "#" in value
+        or any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        return False
+    try:
+        parts = urlsplit(value)
+        port = parts.port
+    except ValueError:
+        return False
+    if (
+        parts.scheme.lower() not in {"http", "https"}
+        or not parts.netloc
+        or parts.username is not None
+        or parts.password is not None
+        or parts.query
+        or parts.fragment
+        or parts.path not in {"", "/"}
+        or parts.netloc.endswith(":")
+        or (port is not None and not 1 <= port <= 65535)
+    ):
+        return False
+    host = parts.hostname
+    if not host or not host.isascii() or "%" in host or len(host) > 253:
+        return False
+    if ":" in host:
+        try:
+            ipaddress.IPv6Address(host)
+        except ValueError:
+            return False
+        return True
+    if re.fullmatch(r"[0-9.]+", host):
+        try:
+            ipaddress.IPv4Address(host)
+        except ValueError:
+            return False
+        return True
+    labels = host.split(".")
+    return all(
+        label
+        and len(label) <= 63
+        and re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?", label)
+        for label in labels
+    )
+
+
+def _valid_named_tool_path(value: object) -> bool:
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > MAX_NAMED_TOOL_PATH_CHARS
+        or value.startswith("/")
+        or "\\" in value
+        or "%" in value
+        or not re.fullmatch(r"[A-Za-z0-9._/-]+", value)
+    ):
+        return False
+    return all(part not in {"", ".", ".."} for part in value.split("/"))
+
+
+def _valid_named_tool_text(value: object, maximum: int, *, nonempty: bool) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) <= maximum
+        and (not nonempty or bool(value.strip()))
+        and not any(unicodedata.category(character) in {"Cc", "Cf", "Cs"} for character in value)
+    )
+
+
 def _parse_named_tool_connection(connection: sqlite3.Connection) -> dict:
-    """Validate the one fixed synthetic no-auth member/read connection."""
+    """Validate one bounded no-auth named URL connection and exact user/read grant."""
     if "config" not in _tables(connection):
         raise MigrationError("named_tool_configuration_source_schema_mismatch", "selected configuration table is unavailable")
     columns = _columns(connection, "config")
@@ -200,8 +284,8 @@ def _parse_named_tool_connection(connection: sqlite3.Connection) -> dict:
     info = value.get("info")
     nested = value.get("config")
     if (
-        value.get("url") != "http://127.0.0.1:18081"
-        or value.get("path") != "openapi.json"
+        not _valid_named_tool_base_url(value.get("url"))
+        or not _valid_named_tool_path(value.get("path"))
         or value.get("type") != "openapi"
         or value.get("spec_type") != "url"
         or value.get("spec") != ""
@@ -211,9 +295,16 @@ def _parse_named_tool_connection(connection: sqlite3.Connection) -> dict:
         or value.get("forward_cookies", False) is not False
         or not isinstance(info, dict)
         or set(info) != {"id", "name", "description"}
-        or info.get("id") != "synthetic_openapi"
-        or info.get("name") != "Synthetic OpenAPI tool fixture"
-        or info.get("description") != "Bounded synthetic tool server"
+        or not isinstance(info.get("id"), str)
+        or not info.get("id").isascii()
+        or not NAMED_TOOL_ID_RE.fullmatch(info.get("id"))
+        or info.get("id").isdecimal()
+        or not _valid_named_tool_text(
+            info.get("name"), MAX_NAMED_TOOL_NAME_CHARS, nonempty=True
+        )
+        or not _valid_named_tool_text(
+            info.get("description"), MAX_NAMED_TOOL_DESCRIPTION_CHARS, nonempty=False
+        )
         or not isinstance(nested, dict)
         or set(nested) != {"enable", "access_grants"}
         or nested.get("enable") is not True
