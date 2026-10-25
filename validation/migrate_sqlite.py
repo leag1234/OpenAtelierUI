@@ -1333,7 +1333,7 @@ def _inspect_source(
                     report,
                     "named_tool_configuration_prototype",
                     1,
-                    detail="one selected connection is mapped; remaining configuration is archived and cutover is disabled",
+                    detail="selected named-tool connections are mapped; remaining configuration is archived and cutover is disabled",
                 )
             else:
                 remaining_config_rows = config_rows

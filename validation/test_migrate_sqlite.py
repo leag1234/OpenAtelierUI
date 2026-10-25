@@ -1108,6 +1108,14 @@ class NamedToolConfigurationImportTests(unittest.TestCase):
         blockers = {row["code"]: row["count"] for row in report["blockers"]}
         self.assertEqual(blockers["unsupported_nonempty_domain_config"], 377)
         self.assertEqual(blockers["named_tool_configuration_prototype"], 1)
+        prototype = next(
+            row for row in report["blockers"]
+            if row["code"] == "named_tool_configuration_prototype"
+        )
+        self.assertEqual(
+            prototype["detail"],
+            "selected named-tool connections are mapped; remaining configuration is archived and cutover is disabled",
+        )
         target = self.root / "multi-named-config"
         result = convert(
             self.source, self.uploads, self.template, target,
