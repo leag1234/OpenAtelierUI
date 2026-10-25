@@ -992,8 +992,13 @@ if audit_level != AuditLevel.NONE:
 ##################################
 
 
+@app.get("/api/v1/models")
 @app.get("/api/models")
-async def get_models(request: Request, user=Depends(get_verified_user)):
+async def get_models(
+    request: Request,
+    refresh: Optional[bool] = None,
+    user=Depends(get_verified_user),
+):
     def get_filtered_models(models, user):
         filtered_models = []
         for model in models:
