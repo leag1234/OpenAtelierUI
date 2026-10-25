@@ -56,6 +56,7 @@ def _selected_env_nodes():
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in {
             "_load_torch",
             "__getattr__",
+            "__dir__",
             "_torch_is_installed",
         }:
             selected.append(node)
@@ -70,7 +71,7 @@ def _selected_env_nodes():
             elif "'torch' not in __all__" in expression:
                 selected.append(node)
     expected = {
-        "USE_CUDA", "cuda-branch", "mps-branch", "_load_torch", "__getattr__",
+        "USE_CUDA", "cuda-branch", "mps-branch", "_load_torch", "__getattr__", "__dir__",
         "_torch_is_installed", "__all__"
     }
     observed = set()
@@ -152,6 +153,8 @@ class EnvTorchImportTests(unittest.TestCase):
         torch = FakeTorch()
         env = load_env_block("linux", "false", torch)
         self.assertIn("torch", env["__all__"])
+        self.assertIn("torch", env["__dir__"]())
+        self.assertEqual(env["importlib"].calls, [])
         self.assertIs(env["__getattr__"]("torch"), torch)
         self.assertEqual(env["importlib"].calls, ["torch"])
         self.assertIs(env["torch"], torch)
@@ -163,6 +166,7 @@ class EnvTorchImportTests(unittest.TestCase):
 
         absent = load_env_block("linux", "false", torch_installed=False)
         self.assertNotIn("torch", absent["__all__"])
+        self.assertNotIn("torch", absent["__dir__"]())
 
 
 if __name__ == "__main__":
