@@ -115,6 +115,9 @@ class _DB:
     def query(self, _model):
         return self
 
+    def get(self, _model, _id):
+        return self.item
+
     def filter_by(self, **filters):
         self.filters = filters
         return self
@@ -143,6 +146,57 @@ class _DB:
 
     def limit(self, *_args):
         return self
+
+
+class _AckColumn:
+    def __init__(self, name): self.name = name
+    def __eq__(self, value): return ("eq", self.name, value)
+    def is_(self, value): return ("is", self.name, value)
+
+
+class _AckUpdate:
+    def __init__(self, model): self.model, self.conditions, self.values_to_set = model, [], {}
+    def where(self, *conditions): self.conditions.extend(conditions); return self
+    def values(self, **values): self.values_to_set = values; return self
+
+
+class _AckQuery:
+    def __init__(self, db): self.db, self.filters = db, {}
+    def filter_by(self, **filters): self.filters = filters; return self
+    def with_for_update(self): self.db.lock_requested = True; return self
+    def all(self):
+        return [row for row in self.db.rows if all(getattr(row, key) == value for key, value in self.filters.items())]
+
+
+class _AckDB:
+    def __init__(self, rows):
+        self.rows, self.commits, self.rollbacks, self.executed = rows, 0, 0, []
+        self.lock_requested = False
+        self.before = [copy.deepcopy(row.__dict__) for row in rows]
+    def __enter__(self): return self
+    def __exit__(self, *_args): return False
+    def query(self, *_columns):
+        self.selected_columns = [column.name for column in _columns]
+        return _AckQuery(self)
+    def execute(self, statement):
+        self.executed.append(statement)
+        count = 0
+        for row in self.rows:
+            matches = True
+            for operator, name, value in statement.conditions:
+                actual = getattr(row, name)
+                matches &= actual == value if operator == "eq" else actual is value
+            if matches:
+                for key, value in statement.values_to_set.items():
+                    setattr(row, key, copy.deepcopy(value))
+                count += 1
+        return SimpleNamespace(rowcount=count)
+    def commit(self): self.commits += 1
+    def rollback(self):
+        self.rollbacks += 1
+        for row, before in zip(self.rows, self.before):
+            row.__dict__.clear()
+            row.__dict__.update(copy.deepcopy(before))
 
 
 class SavedChatCompatibilityTests(unittest.TestCase):
@@ -207,18 +261,21 @@ class SavedChatCompatibilityTests(unittest.TestCase):
     def test_storage_insert_stamps_only_new_private_rows_and_keeps_owner(self):
         h = self.helpers
         db = _DB()
+        clock_values = iter((100, 101, 102))
         class Row:
             def __init__(self, **kwargs): self.__dict__.update(kwargs)
         method = _method(MODEL_PATH, "ChatTable", "insert_new_chat", {
             "get_db": lambda: db, "ChatModel": _chat_model(), "Chat": Row,
             "uuid": SimpleNamespace(uuid4=lambda: "chat-1"),
-            "time": SimpleNamespace(time=lambda: 100),
+            "time": SimpleNamespace(time=lambda: next(clock_values)),
             "_new_saved_work_meta": h["_new_saved_work_meta"],
         }, preserve_defaults=True)
         form = SimpleNamespace(chat={"title": "Saved", "history": {"currentId": "a"}}, folder_id=None)
         result = method(object(), "member-1", form, compatibility_saved_work=True)
         self.assertEqual(result.user_id, "member-1")
-        self.assertEqual(result.meta, {"_mdk_private_saved_work": {"version": 1, "last_read_at": None}})
+        self.assertEqual(result.created_at, 100)
+        self.assertEqual(result.updated_at, 100)
+        self.assertEqual(result.meta, {"_mdk_private_saved_work": {"version": 1, "last_read_at": 100}})
         self.assertEqual(result.chat, form.chat)
         self.assertEqual(db.commits, 1)
 
@@ -226,20 +283,134 @@ class SavedChatCompatibilityTests(unittest.TestCase):
         db.commits = 0
         unmarked = method(object(), "member-1", form)
         self.assertEqual(unmarked.meta, {})
+        self.assertEqual((unmarked.created_at, unmarked.updated_at), (101, 102))
         self.assertEqual(db.added.meta, {})
 
-    def test_read_marker_updates_only_owned_marked_row_without_touching_updated_at(self):
-        marker = {"_mdk_private_saved_work": {"version": 1, "last_read_at": None}, "legacy": {"x": 1}}
-        row = SimpleNamespace(id="chat-1", user_id="member-1", meta=copy.deepcopy(marker), updated_at=77)
+    def test_read_receipt_value_uses_validated_marker_and_row_timestamp(self):
+        marker = {"_mdk_private_saved_work": {"version": 1, "last_read_at": 77}, "legacy": {"x": 1}}
+        updated = self.helpers["_updated_saved_work_read_meta"](marker, 123)
+        self.assertEqual(updated["_mdk_private_saved_work"]["last_read_at"], 123)
+        self.assertEqual(updated["legacy"], {"x": 1})
+
+    def test_private_update_timestamp_can_be_preserved_or_advanced(self):
+        marker = self.helpers["_new_saved_work_meta"](last_read_at=70)
+        row = SimpleNamespace(chat={"title": "Saved"}, title="Saved", updated_at=77, meta=marker)
         db = _DB(row)
-        ns = {"get_db": lambda: db, "Chat": object(), "_updated_saved_work_read_meta": self.helpers["_updated_saved_work_read_meta"], "time": SimpleNamespace(time=lambda: 123)}
-        method = _method(MODEL_PATH, "ChatTable", "mark_private_saved_chat_read", ns)
-        self.assertTrue(method(object(), "chat-1", "member-1"))
-        self.assertEqual(db.filters, {"id": "chat-1", "user_id": "member-1"})
+        ns = {
+            "get_db": lambda: db, "Chat": object(),
+            "ChatModel": SimpleNamespace(model_validate=lambda item: item),
+            "time": SimpleNamespace(time=lambda: 123),
+        }
+        method = _method(MODEL_PATH, "ChatTable", "update_chat_by_id", ns, preserve_defaults=True)
+        method(object(), "chat-1", {"title": "Title only"}, update_timestamp=False)
         self.assertEqual(row.updated_at, 77)
-        self.assertEqual(row.meta["legacy"], {"x": 1})
-        self.assertEqual(self.helpers["_saved_work_last_read"](row.meta), 123)
+        self.assertEqual(row.meta, marker)
+        method(object(), "chat-1", {"title": "Full chat"}, update_timestamp=True)
+        self.assertEqual(row.updated_at, 123)
+        self.assertEqual(row.meta, marker)
+
+    def test_acknowledgement_updates_only_owned_valid_private_rows_to_each_updated_at(self):
+        make_meta = self.helpers["_new_saved_work_meta"]
+        rows = [
+            SimpleNamespace(id="owned-a", user_id="member-1", meta=make_meta({"keep": "a"}, 10), updated_at=120, share_id=None, folder_id=None, chat={"sentinel": "a"}),
+            SimpleNamespace(id="owned-b", user_id="member-1", meta=make_meta({"keep": "b"}, 20), updated_at=240, share_id=None, folder_id=None, chat={"sentinel": "b"}),
+            SimpleNamespace(id="other", user_id="member-2", meta=make_meta({}, 30), updated_at=360, share_id=None, folder_id=None, chat={"sentinel": "other"}),
+        ]
+        db = _AckDB(rows)
+        class Chat:
+            id = _AckColumn("id")
+            meta = _AckColumn("meta")
+            updated_at = _AckColumn("updated_at")
+            share_id = _AckColumn("share_id")
+            folder_id = _AckColumn("folder_id")
+            user_id = _AckColumn("user_id")
+        method = _method(MODEL_PATH, "ChatTable", "acknowledge_private_saved_chats", {
+            "get_db": lambda: db, "Chat": Chat, "update": _AckUpdate,
+            "_updated_saved_work_read_meta": self.helpers["_updated_saved_work_read_meta"],
+        })
+        result = method(object(), "member-1")
+        self.assertEqual(result, {"updated_count": 2, "folder_unread_counts": {}})
+        self.assertTrue(db.lock_requested)
+        self.assertEqual(set(db.selected_columns), {"id", "meta", "updated_at", "share_id", "folder_id"})
+        self.assertEqual([self.helpers["_saved_work_last_read"](rows[i].meta) for i in (0, 1)], [120, 240])
+        self.assertEqual([rows[i].meta["keep"] for i in (0, 1)], ["a", "b"])
+        self.assertEqual(rows[2].meta, db.before[2]["meta"])
+        self.assertEqual([rows[i].chat for i in range(3)], [before["chat"] for before in db.before])
         self.assertEqual(db.commits, 1)
+        self.assertEqual(len(db.executed), 2)
+
+    def test_acknowledgement_rejects_legacy_or_folder_rows_before_writes(self):
+        cases = (
+            SimpleNamespace(id="legacy", user_id="member-1", meta={}, updated_at=120, share_id=None, folder_id=None, chat={}),
+            SimpleNamespace(id="folder", user_id="member-1", meta=self.helpers["_new_saved_work_meta"](), updated_at=120, share_id=None, folder_id="folder-1", chat={}),
+            SimpleNamespace(id="shared", user_id="member-1", meta=self.helpers["_new_saved_work_meta"](), updated_at=120, share_id="share-1", folder_id=None, chat={}),
+        )
+        class Chat:
+            id = _AckColumn("id")
+            meta = _AckColumn("meta")
+            updated_at = _AckColumn("updated_at")
+            share_id = _AckColumn("share_id")
+            folder_id = _AckColumn("folder_id")
+            user_id = _AckColumn("user_id")
+        for row in cases:
+            with self.subTest(row=row.id):
+                db = _AckDB([row])
+                method = _method(MODEL_PATH, "ChatTable", "acknowledge_private_saved_chats", {
+                    "get_db": lambda: db, "Chat": Chat, "update": _AckUpdate,
+                    "_updated_saved_work_read_meta": self.helpers["_updated_saved_work_read_meta"],
+                })
+                self.assertIsNone(method(object(), "member-1"))
+                self.assertEqual(db.executed, [])
+                self.assertEqual(db.commits, 0)
+                self.assertEqual(row.__dict__, db.before[0])
+
+    def test_acknowledgement_rolls_back_if_a_conditional_row_update_misses(self):
+        rows = [
+            SimpleNamespace(id="a", user_id="member-1", meta=self.helpers["_new_saved_work_meta"](last_read_at=1), updated_at=10, share_id=None, folder_id=None, chat={"kept": 1}),
+            SimpleNamespace(id="b", user_id="member-1", meta=self.helpers["_new_saved_work_meta"](last_read_at=2), updated_at=20, share_id=None, folder_id=None, chat={"kept": 2}),
+        ]
+        class FailSecondUpdateDB(_AckDB):
+            def execute(self, statement):
+                if len(self.executed) == 1:
+                    self.executed.append(statement)
+                    return SimpleNamespace(rowcount=0)
+                return super().execute(statement)
+        class Chat:
+            id = _AckColumn("id")
+            meta = _AckColumn("meta")
+            updated_at = _AckColumn("updated_at")
+            share_id = _AckColumn("share_id")
+            folder_id = _AckColumn("folder_id")
+            user_id = _AckColumn("user_id")
+        db = FailSecondUpdateDB(rows)
+        method = _method(MODEL_PATH, "ChatTable", "acknowledge_private_saved_chats", {
+            "get_db": lambda: db, "Chat": Chat, "update": _AckUpdate,
+            "_updated_saved_work_read_meta": self.helpers["_updated_saved_work_read_meta"],
+        })
+        self.assertIsNone(method(object(), "member-1"))
+        self.assertEqual(db.rollbacks, 1)
+        self.assertEqual(db.commits, 0)
+        self.assertEqual([row.meta for row in rows], [before["meta"] for before in db.before])
+        self.assertEqual([row.chat for row in rows], [before["chat"] for before in db.before])
+
+    def test_empty_owner_acknowledgement_succeeds_without_writes(self):
+        db = _AckDB([])
+        class Chat:
+            id = _AckColumn("id")
+            meta = _AckColumn("meta")
+            updated_at = _AckColumn("updated_at")
+            share_id = _AckColumn("share_id")
+            folder_id = _AckColumn("folder_id")
+            user_id = _AckColumn("user_id")
+        method = _method(MODEL_PATH, "ChatTable", "acknowledge_private_saved_chats", {
+            "get_db": lambda: db, "Chat": Chat, "update": _AckUpdate,
+            "_updated_saved_work_read_meta": self.helpers["_updated_saved_work_read_meta"],
+        })
+        self.assertEqual(method(object(), "member-with-no-chats"), {
+            "updated_count": 0, "folder_unread_counts": {},
+        })
+        self.assertEqual(db.commits, 1)
+        self.assertEqual(db.executed, [])
 
     def test_read_marker_survives_json_roundtrip_for_later_owner_list(self):
         meta = self.helpers["_new_saved_work_meta"]({"unrelated": "keep"})
@@ -275,12 +446,9 @@ class SavedChatCompatibilityTests(unittest.TestCase):
     def test_owner_mismatch_and_unmarked_collision_do_not_write_read_state(self):
         row = SimpleNamespace(id="chat-1", user_id="owner", meta={"_mdk_private_saved_work": {"opaque": True}}, updated_at=77)
         db = _DB(row)
-        ns = {"get_db": lambda: db, "Chat": object(), "_updated_saved_work_read_meta": self.helpers["_updated_saved_work_read_meta"], "time": SimpleNamespace(time=lambda: 123)}
-        method = _method(MODEL_PATH, "ChatTable", "mark_private_saved_chat_read", ns)
-        self.assertFalse(method(object(), "chat-1", "member-1"))
+        self.assertIsNone(self.helpers["_updated_saved_work_read_meta"](row.meta, 123))
         self.assertEqual(row.meta, {"_mdk_private_saved_work": {"opaque": True}})
         self.assertEqual(row.updated_at, 77)
-        self.assertEqual(db.commits, 0)
 
     def test_response_projection_hides_only_internal_marker_and_never_mutates_chat(self):
         project = _response_helper()
@@ -419,7 +587,7 @@ class SavedChatCompatibilityTests(unittest.TestCase):
             asyncio.run(create(SimpleNamespace(chat={"title": "Saved"}, variables={"private": "data"}, folder_id=None), self.actor))
         self.assertEqual(effects, [])
 
-    def test_actual_owner_read_marks_only_after_owner_lookup_and_projects_continue(self):
+    def test_actual_owner_read_projects_continue_without_storage_write(self):
         stored_chat = {"title": "Saved", "history": {"currentId": "a", "messages": {
             "a": {"id": "a", "role": "user", "user_id": "member-1", "user": {"id": "member-1", "name": "Previous name"}}}},
             "messages": [{"id": "a", "role": "user", "user_id": "member-1", "user": {"id": "member-1", "name": "Previous name"}}]}
@@ -432,7 +600,7 @@ class SavedChatCompatibilityTests(unittest.TestCase):
         effects = []
         ns = {
             "Chats": SimpleNamespace(get_chat_by_id_and_user_id=lambda chat_id, user_id: model,
-                                      mark_private_saved_chat_read=lambda chat_id, user_id: effects.append(("read", chat_id, user_id))),
+                                      acknowledge_private_saved_chats=lambda *_: effects.append("unexpected acknowledgement")),
             "_saved_chat_response": _response_helper(), "Users": SimpleNamespace(get_user_by_id=lambda _user_id: None),
             "PrivateChatResponse": lambda **kwargs: kwargs,
             "HTTPException": RuntimeError, "status": SimpleNamespace(HTTP_401_UNAUTHORIZED=401),
@@ -441,7 +609,7 @@ class SavedChatCompatibilityTests(unittest.TestCase):
         route = _function(ROUTE_PATH, "get_chat_by_id", ns)
         renamed_actor = SimpleNamespace(id="member-1", name="Current synthetic name", role="user")
         response = asyncio.run(route("chat-1", renamed_actor))
-        self.assertEqual(effects, [("read", "chat-1", "member-1")])
+        self.assertEqual(effects, [])
         self.assertEqual(response["chat"]["share_mode"], "continue")
         self.assertEqual(response["chat"]["history"]["messages"]["a"]["user"]["name"], "Current synthetic name")
         self.assertEqual(response["chat"]["messages"][0]["user"]["name"], "Current synthetic name")
@@ -453,7 +621,7 @@ class SavedChatCompatibilityTests(unittest.TestCase):
             "a": {"id": "a", "role": "user", "user_id": "claimed"}}},
             "messages": [{"id": "a", "role": "user", "user_id": "claimed"}]}
         marker = {"_mdk_private_saved_work": {"version": 1, "last_read_at": None}}
-        existing = SimpleNamespace(chat=stored, meta=marker)
+        existing = SimpleNamespace(chat=stored, meta=marker, share_id=None, folder_id=None)
         captured = {}
         class Updated:
             def __init__(self, chat):
@@ -462,8 +630,8 @@ class SavedChatCompatibilityTests(unittest.TestCase):
                 return {"id": "chat-1", "user_id": "member-1", "title": self.chat["title"],
                         "chat": self.chat, "created_at": 1, "updated_at": 3, "meta": self.meta,
                         "archived": False, "pinned": False, "folder_id": None}
-        def save(chat_id, chat_data):
-            captured["id"], captured["chat"] = chat_id, chat_data
+        def save(chat_id, chat_data, update_timestamp=True):
+            captured["id"], captured["chat"], captured["update_timestamp"] = chat_id, chat_data, update_timestamp
             return Updated(chat_data)
         ns = {
             "Chats": SimpleNamespace(get_chat_by_id_and_user_id=lambda *_: existing, update_chat_by_id=save),
@@ -478,9 +646,14 @@ class SavedChatCompatibilityTests(unittest.TestCase):
         response = asyncio.run(route("chat-1", SimpleNamespace(chat={"title": "Saved"}), self.actor))
         self.assertEqual(captured["id"], "chat-1")
         self.assertEqual(response["user_id"], "member-1")
+        self.assertFalse(captured["update_timestamp"])
         self.assertEqual(captured["chat"]["history"]["messages"]["a"]["user_id"], "member-1")
         self.assertEqual(captured["chat"]["messages"][0]["user"]["name"], "Synthetic member")
         self.assertEqual(stored["history"]["messages"]["a"]["user_id"], "claimed")
+        full_chat = copy.deepcopy(stored)
+        full_chat["title"] = "Full saved chat update"
+        asyncio.run(route("chat-1", SimpleNamespace(chat=full_chat), self.actor))
+        self.assertTrue(captured["update_timestamp"])
 
     def test_actual_get_route_denies_before_read_marker_or_projection(self):
         class Denied(Exception):
@@ -488,7 +661,7 @@ class SavedChatCompatibilityTests(unittest.TestCase):
         effects = []
         ns = {
             "Chats": SimpleNamespace(get_chat_by_id_and_user_id=lambda *_: None,
-                                      mark_private_saved_chat_read=lambda *_: effects.append("read")),
+                                      acknowledge_private_saved_chats=lambda *_: effects.append("unexpected acknowledgement")),
             "_saved_chat_response": lambda *_args, **_kwargs: effects.append("projection"),
             "HTTPException": Denied, "status": SimpleNamespace(HTTP_401_UNAUTHORIZED=401),
             "ERROR_MESSAGES": SimpleNamespace(NOT_FOUND="not found"),
@@ -498,6 +671,27 @@ class SavedChatCompatibilityTests(unittest.TestCase):
             asyncio.run(route("private-chat", self.actor))
         self.assertEqual(raised.exception.kwargs["status_code"], 401)
         self.assertEqual(effects, [])
+
+    def test_explicit_read_route_returns_exact_payload_and_refuses_unsupported_rows(self):
+        class RouteError(Exception):
+            def __init__(self, **kwargs): self.kwargs = kwargs
+        calls = []
+        ns = {
+            "Chats": SimpleNamespace(acknowledge_private_saved_chats=lambda user_id: calls.append(user_id) or {"updated_count": 2, "folder_unread_counts": {}}),
+            "HTTPException": RouteError,
+            "status": SimpleNamespace(HTTP_409_CONFLICT=409),
+        }
+        route = _function(ROUTE_PATH, "acknowledge_private_chat_reads", ns)
+        result = asyncio.run(route(SimpleNamespace(id="member-1")))
+        self.assertEqual(result, {"updated_count": 2, "folder_unread_counts": {}})
+        self.assertEqual(calls, ["member-1"])
+        ns["Chats"].acknowledge_private_saved_chats = lambda _user_id: None
+        with self.assertRaises(RouteError) as raised:
+            asyncio.run(route(SimpleNamespace(id="member-1")))
+        self.assertEqual(raised.exception.kwargs["status_code"], 409)
+        tree = ast.parse(ROUTE_PATH.read_text(encoding="utf-8"))
+        route_names = [node.name for node in tree.body if isinstance(node, ast.AsyncFunctionDef)]
+        self.assertLess(route_names.index("acknowledge_private_chat_reads"), route_names.index("get_chat_by_id"))
 
     def test_current_message_projection_handles_malformed_optional_history(self):
         current = self.helpers["_chat_current_message_id"]

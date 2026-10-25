@@ -391,12 +391,22 @@ async def get_user_chat_list_by_tag_name(
 ############################
 
 
+@router.post("/read")
+async def acknowledge_private_chat_reads(user=Depends(get_verified_user)):
+    result = Chats.acknowledge_private_saved_chats(user.id)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Read acknowledgement is unavailable for unsupported saved chats.",
+        )
+    return result
+
+
 @router.get("/{id}", response_model=Optional[PrivateChatResponse])
 async def get_chat_by_id(id: str, user=Depends(get_verified_user)):
     chat = Chats.get_chat_by_id_and_user_id(id, user.id)
 
     if chat:
-        Chats.mark_private_saved_chat_read(id, user.id)
         return _saved_chat_response(
             chat, user, mark_continue=True, user_lookup=Users.get_user_by_id
         )
@@ -420,9 +430,17 @@ async def update_chat_by_id(
     if chat:
         _require_supported_saved_chat_fields(form_data)
         updated_chat = {**chat.chat, **form_data.chat}
+        marked_private = (
+            _saved_work_marker(chat.meta) is not None
+            and chat.share_id is None
+            and chat.folder_id is None
+        )
         if _saved_work_marker(chat.meta) is not None:
             updated_chat = _normalize_private_chat_authors(updated_chat, user)
-        chat = Chats.update_chat_by_id(id, updated_chat)
+        title_only_update = marked_private and set(form_data.chat) == {"title"}
+        chat = Chats.update_chat_by_id(
+            id, updated_chat, update_timestamp=not title_only_update
+        )
         return _saved_chat_response(chat, user)
     else:
         raise HTTPException(

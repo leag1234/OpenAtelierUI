@@ -10,7 +10,7 @@ from open_webui.models.tags import TagModel, Tag, Tags
 from open_webui.env import SRC_LOG_LEVELS
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import BigInteger, Boolean, Column, String, Text, JSON
+from sqlalchemy import BigInteger, Boolean, Column, String, Text, JSON, update
 from sqlalchemy import or_, func, select, and_, text
 from sqlalchemy.sql import exists
 
@@ -40,10 +40,10 @@ def _saved_work_marker(meta):
     return marker
 
 
-def _new_saved_work_meta(meta=None):
+def _new_saved_work_meta(meta=None, last_read_at=None):
     result = copy.deepcopy(meta) if isinstance(meta, dict) else {}
     if SAVED_WORK_META_KEY not in result:
-        result[SAVED_WORK_META_KEY] = {"version": 1, "last_read_at": None}
+        result[SAVED_WORK_META_KEY] = {"version": 1, "last_read_at": last_read_at}
     return result
 
 
@@ -285,6 +285,10 @@ class ChatTable:
     ) -> Optional[ChatModel]:
         with get_db() as db:
             id = str(uuid.uuid4())
+            created_at = int(time.time())
+            updated_at = (
+                created_at if compatibility_saved_work else int(time.time())
+            )
             values = {
                 "id": id,
                 "user_id": user_id,
@@ -294,11 +298,11 @@ class ChatTable:
                     else "New Chat"
                 ),
                 "chat": form_data.chat,
-                "created_at": int(time.time()),
-                "updated_at": int(time.time()),
+                "created_at": created_at,
+                "updated_at": updated_at,
             }
             if compatibility_saved_work:
-                values["meta"] = _new_saved_work_meta()
+                values["meta"] = _new_saved_work_meta(last_read_at=created_at)
             chat = ChatModel(**values)
 
             result = Chat(**chat.model_dump())
@@ -336,13 +340,16 @@ class ChatTable:
             db.refresh(result)
             return ChatModel.model_validate(result) if result else None
 
-    def update_chat_by_id(self, id: str, chat: dict) -> Optional[ChatModel]:
+    def update_chat_by_id(
+        self, id: str, chat: dict, update_timestamp: bool = True
+    ) -> Optional[ChatModel]:
         try:
             with get_db() as db:
                 chat_item = db.get(Chat, id)
                 chat_item.chat = chat
                 chat_item.title = chat["title"] if "title" in chat else "New Chat"
-                chat_item.updated_at = int(time.time())
+                if update_timestamp:
+                    chat_item.updated_at = int(time.time())
                 db.commit()
                 db.refresh(chat_item)
 
@@ -350,26 +357,57 @@ class ChatTable:
         except Exception:
             return None
 
-    def mark_private_saved_chat_read(self, id: str, user_id: str) -> bool:
+    def acknowledge_private_saved_chats(self, user_id: str) -> Optional[dict]:
         try:
             with get_db() as db:
-                chat_item = (
-                    db.query(Chat)
-                    .filter_by(id=id, user_id=user_id)
-                    .first()
+                rows = (
+                    db.query(
+                        Chat.id,
+                        Chat.meta,
+                        Chat.updated_at,
+                        Chat.share_id,
+                        Chat.folder_id,
+                    )
+                    .filter_by(user_id=user_id)
+                    .with_for_update()
+                    .all()
                 )
-                if chat_item is None:
-                    return False
-                updated_meta = _updated_saved_work_read_meta(
-                    chat_item.meta, int(time.time())
-                )
-                if updated_meta is None:
-                    return False
-                chat_item.meta = updated_meta
+                updates = []
+                for row in rows:
+                    if row.share_id is not None or row.folder_id is not None:
+                        return None
+                    if type(row.updated_at) is not int or row.updated_at < 0:
+                        return None
+                    updated_meta = _updated_saved_work_read_meta(
+                        row.meta, row.updated_at
+                    )
+                    if updated_meta is None:
+                        return None
+                    updates.append((row, updated_meta))
+
+                for row, updated_meta in updates:
+                    result = db.execute(
+                        update(Chat)
+                        .where(
+                            Chat.id == row.id,
+                            Chat.user_id == user_id,
+                            Chat.updated_at == row.updated_at,
+                            Chat.meta == row.meta,
+                            Chat.share_id.is_(None),
+                            Chat.folder_id.is_(None),
+                        )
+                        .values(meta=updated_meta)
+                    )
+                    if result.rowcount != 1:
+                        db.rollback()
+                        return None
                 db.commit()
-                return True
+                return {
+                    "updated_count": len(updates),
+                    "folder_unread_counts": {},
+                }
         except Exception:
-            return False
+            return None
 
     def update_chat_title_by_id(self, id: str, title: str) -> Optional[ChatModel]:
         chat = self.get_chat_by_id(id)
