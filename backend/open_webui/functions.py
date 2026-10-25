@@ -259,6 +259,7 @@ async def generate_function_chat_completion(
             "__messages__": form_data["messages"],
             "__files__": files,
         },
+        include_response_headers=True,
     )
 
     if model_info:

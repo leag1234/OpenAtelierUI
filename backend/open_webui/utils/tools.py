@@ -218,7 +218,12 @@ def get_async_tool_function_and_apply_extra_params(
 
 
 def get_tools(
-    request: Request, tool_ids: list[str], user: UserModel, extra_params: dict
+    request: Request,
+    tool_ids: list[str],
+    user: UserModel,
+    extra_params: dict,
+    *,
+    include_response_headers: bool = False,
 ) -> dict[str, dict]:
     tools_dict = {}
 
@@ -268,23 +273,39 @@ def get_tools(
                     elif auth_type == "session":
                         token = request.state.token.credentials
 
-                    def make_tool_function(function_name, token, tool_server_data):
+                    def make_tool_function(
+                        function_name,
+                        token,
+                        tool_server_data,
+                        include_headers=False,
+                    ):
                         async def tool_function(**kwargs):
                             print(
                                 f"Executing tool function {function_name} with params: {kwargs}"
                             )
+                            executor_kwargs = {
+                                "token": token,
+                                "url": tool_server_data["url"],
+                                "name": function_name,
+                                "params": kwargs,
+                                "server_data": tool_server_data,
+                            }
+                            if include_headers:
+                                executor_kwargs["include_response_headers"] = True
                             return await execute_tool_server(
-                                token=token,
-                                url=tool_server_data["url"],
-                                name=function_name,
-                                params=kwargs,
-                                server_data=tool_server_data,
+                                **executor_kwargs
                             )
 
                         return tool_function
 
                     tool_function = make_tool_function(
-                        function_name, token, tool_server_data
+                        function_name,
+                        token,
+                        tool_server_data,
+                        include_headers=(
+                            include_response_headers
+                            and resolved_named_server is not None
+                        ),
                     )
 
                     callable = get_async_tool_function_and_apply_extra_params(
@@ -682,7 +703,13 @@ async def get_tool_servers_data(
 
 
 async def execute_tool_server(
-    token: str, url: str, name: str, params: Dict[str, Any], server_data: Dict[str, Any]
+    token: str,
+    url: str,
+    name: str,
+    params: Dict[str, Any],
+    server_data: Dict[str, Any],
+    *,
+    include_response_headers: bool = False,
 ) -> Any:
     error = None
     try:
@@ -758,13 +785,19 @@ async def execute_tool_server(
                     if response.status >= 400:
                         text = await response.text()
                         raise Exception(f"HTTP error {response.status}: {text}")
-                    return await response.json()
+                    payload = await response.json()
+                    if include_response_headers:
+                        return payload, response.headers
+                    return payload
             else:
                 async with request_method(final_url, headers=headers) as response:
                     if response.status >= 400:
                         text = await response.text()
                         raise Exception(f"HTTP error {response.status}: {text}")
-                    return await response.json()
+                    payload = await response.json()
+                    if include_response_headers:
+                        return payload, response.headers
+                    return payload
 
     except Exception as err:
         error = str(err)

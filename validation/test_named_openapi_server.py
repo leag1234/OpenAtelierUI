@@ -17,6 +17,7 @@ from typing import Awaitable, Callable, Optional
 ROOT = Path(__file__).resolve().parents[1]
 UTILS_SOURCE = ROOT / "backend/open_webui/utils/tools.py"
 ROUTER_SOURCE = ROOT / "backend/open_webui/routers/tools.py"
+FUNCTIONS_SOURCE = ROOT / "backend/open_webui/functions.py"
 
 
 def _load_functions(path, names, namespace):
@@ -63,6 +64,7 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
         )
         self.local_lookup_calls = []
         self.server_calls = []
+        self.executor_result = {"ok": True}
 
         class ToolStore:
             @staticmethod
@@ -74,7 +76,7 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
 
         async def execute_tool_server(**kwargs):
             self.server_calls.append(kwargs)
-            return {"ok": True}
+            return self.executor_result
 
         self.namespace["execute_tool_server"] = execute_tool_server
         self.local_collision = False
@@ -122,6 +124,7 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
         role="admin",
         refuse_config=False,
         user_id="user-1",
+        include_response_headers=False,
     ):
         if refuse_config:
             class Config:
@@ -140,7 +143,13 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
         app = type("App", (), {"state": state})()
         request = type("RequestValue", (), {"app": app, "state": type("RequestState", (), {"token": None})()})()
         user = type("User", (), {"role": role, "id": user_id})()
-        return self.namespace["get_tools"](request, [requested_id], user, {"__user__": {}})
+        return self.namespace["get_tools"](
+            request,
+            [requested_id],
+            user,
+            {"__user__": {}},
+            include_response_headers=include_response_headers,
+        )
 
     def load_catalog_route(self, tool_rows):
         class ResponseRecord:
@@ -218,6 +227,80 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
         await tools["echo"]["callable"](value="hello")
         self.assertEqual(len(self.server_calls), 1)
         self.assertEqual(self.server_calls[0]["name"], "echo")
+        self.assertNotIn("include_response_headers", self.server_calls[0])
+
+    async def test_named_opt_in_forwards_header_flag_and_preserves_executor_tuple(self):
+        connection = self.grant_connection(self.named_connection(), "user-1")
+        server = self.cache_entry(0, connection)
+        headers = object()
+        payload = {"reply": "Synthetic reply: Community workshop"}
+        self.executor_result = (payload, headers)
+        tools = self.invoke(
+            [connection],
+            [server],
+            "server:synthetic_openapi",
+            "user",
+            include_response_headers=True,
+        )
+        result = await tools["echo"]["callable"](choice="Community workshop")
+        self.assertIs(result, self.executor_result)
+        self.assertEqual(self.server_calls[-1]["include_response_headers"], True)
+
+    async def test_opt_in_does_not_forward_for_legacy_unnamed_server(self):
+        connection = {
+            "type": "openapi",
+            "url": "https://example.invalid/legacy.json",
+            "config": {"enable": True},
+        }
+        server = self.cache_entry(0, connection)
+        tools = self.invoke(
+            [connection],
+            [server],
+            "server:0",
+            "user",
+            include_response_headers=True,
+        )
+        self.assertEqual(set(tools), {"echo"})
+        await tools["echo"]["callable"]()
+        self.assertNotIn("include_response_headers", self.server_calls[-1])
+
+    async def test_opt_in_still_requires_existing_named_read_gate(self):
+        connection = self.named_connection()
+        server = self.cache_entry(0, connection)
+        self.assertEqual(
+            self.invoke(
+                [connection], [server], "server:synthetic_openapi", "user",
+                include_response_headers=True,
+            ),
+            {},
+        )
+        self.assertEqual(self.server_calls, [])
+
+    def test_pipe_injection_callsite_is_the_trusted_opt_in(self):
+        tree = ast.parse(FUNCTIONS_SOURCE.read_text(encoding="utf-8"))
+        assignments = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Subscript)
+                and isinstance(target.value, ast.Name)
+                and target.value.id == "extra_params"
+                and isinstance(target.slice, ast.Constant)
+                and target.slice.value == "__tools__"
+                for target in node.targets
+            )
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == "get_tools"
+            and any(
+                keyword.arg == "include_response_headers"
+                and isinstance(keyword.value, ast.Constant)
+                and keyword.value.value is True
+                for keyword in node.value.keywords
+            )
+        ]
+        self.assertEqual(len(assignments), 1)
 
     async def test_only_exact_fresh_user_read_grant_allows_member_selection(self):
         base = self.named_connection()
@@ -422,7 +505,13 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_local_tool_does_not_read_server_configuration(self):
         self.local_collision = True
-        self.assertEqual(self.invoke([], [], "local_tool", "user", refuse_config=True), {})
+        self.assertEqual(
+            self.invoke(
+                [], [], "local_tool", "user", refuse_config=True,
+                include_response_headers=True,
+            ),
+            {},
+        )
         self.assertEqual(self.local_lookup_calls, ["local_tool"])
 
     async def test_distinct_sparse_config_indices_keep_the_original_connection_index(self):
@@ -440,6 +529,112 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
             )[0],
             named,
         )
+
+
+class ToolServerExecutorResponseTests(unittest.IsolatedAsyncioTestCase):
+    def executor(self, response):
+        class Response:
+            status = response.status
+            headers = response.headers
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            async def json(self):
+                if isinstance(response.json_result, Exception):
+                    raise response.json_result
+                return response.json_result
+
+            async def text(self):
+                return response.text_result
+
+        class Session:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            def post(self, *_args, **_kwargs):
+                return Response()
+
+        namespace = {
+            "Dict": dict,
+            "Any": object,
+            "aiohttp": SimpleNamespace(ClientSession=Session),
+            "print": lambda *_args, **_kwargs: None,
+        }
+        _load_functions(UTILS_SOURCE, {"execute_tool_server"}, namespace)
+        return namespace["execute_tool_server"]
+
+    def server_data(self):
+        return {
+            "openapi": {
+                "paths": {
+                    "/echo": {
+                        "post": {
+                            "operationId": "synthetic_echo",
+                            "requestBody": {"content": {"application/json": {}}},
+                        }
+                    }
+                }
+            }
+        }
+
+    async def test_default_returns_payload_and_opt_in_returns_actual_header_object(self):
+        headers = object()
+        payload = {"reply": "Synthetic reply: Festival poster"}
+        fake = SimpleNamespace(
+            status=200, headers=headers, json_result=payload, text_result=""
+        )
+        execute = self.executor(fake)
+        args = {
+            "token": None,
+            "url": "http://127.0.0.1:18081",
+            "name": "synthetic_echo",
+            "params": {"choice": "Festival poster"},
+            "server_data": self.server_data(),
+        }
+        self.assertIs(await execute(**args), payload)
+        result = await execute(**args, include_response_headers=True)
+        self.assertIs(result[0], payload)
+        self.assertIs(result[1], headers)
+
+    async def test_http_and_json_errors_remain_raw_error_dicts_when_opted_in(self):
+        http_failure = SimpleNamespace(
+            status=503,
+            headers=object(),
+            json_result={"should": "not be returned"},
+            text_result="Synthetic unavailable",
+        )
+        result = await self.executor(http_failure)(
+            None,
+            "http://127.0.0.1:18081",
+            "synthetic_echo",
+            {"choice": "Community workshop"},
+            self.server_data(),
+            include_response_headers=True,
+        )
+        self.assertEqual(result, {"error": "HTTP error 503: Synthetic unavailable"})
+
+        decode_failure = SimpleNamespace(
+            status=200,
+            headers=object(),
+            json_result=ValueError("Synthetic invalid JSON"),
+            text_result="",
+        )
+        result = await self.executor(decode_failure)(
+            None,
+            "http://127.0.0.1:18081",
+            "synthetic_echo",
+            {"choice": "Community workshop"},
+            self.server_data(),
+            include_response_headers=True,
+        )
+        self.assertEqual(result, {"error": "Synthetic invalid JSON"})
 
 
 if __name__ == "__main__":
