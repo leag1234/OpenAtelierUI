@@ -1,7 +1,9 @@
+import asyncio
 import logging
 from pathlib import Path
 from typing import Optional
 import time
+from urllib.parse import urlsplit
 
 from open_webui.models.tools import (
     ToolForm,
@@ -23,6 +25,8 @@ from open_webui.config import CACHE_DIR
 from open_webui.constants import ERROR_MESSAGES
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from open_webui.utils.tools import (
+    _named_server_config,
+    _tool_server_connection_binding,
     get_tool_specs,
     named_tool_server_catalog_ids,
     named_tool_server_read_allowed,
@@ -43,6 +47,87 @@ log.setLevel(SRC_LOG_LEVELS["MAIN"])
 
 
 router = APIRouter()
+
+
+async def _refresh_named_tool_server_catalog(connections, servers):
+    """Refresh only unique enabled named servers using the measured no-auth shape."""
+    if not isinstance(connections, list) or not isinstance(servers, list):
+        return servers
+
+    ids = {}
+    id_counts = {}
+    for index, connection in enumerate(connections):
+        attempted, server_id = _named_server_config(connection)
+        info = connection.get("info") if isinstance(connection, dict) else None
+        raw_id = info.get("id") if attempted and isinstance(info, dict) else None
+        if isinstance(raw_id, str):
+            id_counts[raw_id] = id_counts.get(raw_id, 0) + 1
+        if attempted and server_id is not None:
+            ids[index] = server_id
+
+    eligible = {}
+    for index, server_id in ids.items():
+        connection = connections[index]
+        config = connection.get("config")
+        url = connection.get("url")
+        try:
+            url_parts = urlsplit(url) if isinstance(url, str) else None
+            valid_url = (
+                url_parts is not None
+                and url_parts.scheme in {"http", "https"}
+                and bool(url_parts.hostname)
+                and url_parts.username is None
+                and url_parts.password is None
+                and not url_parts.fragment
+            )
+        except ValueError:
+            valid_url = False
+        if (
+            id_counts[server_id] == 1
+            and isinstance(config, dict)
+            and config.get("enable") is True
+            and valid_url
+            and connection.get("auth_type") == "none"
+            and connection.get("key", "") == ""
+            and connection.get("headers") in (None, {})
+            and connection.get("forward_cookies", False) is False
+        ):
+            eligible[index] = connection
+    if not eligible:
+        return servers
+
+    indices = list(eligible)
+    fetched = await asyncio.gather(
+        *(get_tool_servers_data([eligible[index]]) for index in indices),
+        return_exceptions=True,
+    )
+    fresh_by_index = {}
+    for index, connection, result in zip(indices, (eligible[i] for i in indices), fetched):
+        if isinstance(result, Exception) or not isinstance(result, list) or len(result) != 1:
+            continue
+        entry = result[0]
+        if (
+            not isinstance(entry, dict)
+            or entry.get("idx") != 0
+            or entry.get("connection_binding") != _tool_server_connection_binding(connection)
+        ):
+            continue
+        fresh_by_index[index] = {**entry, "idx": index}
+
+    refreshed = []
+    emitted = set()
+    for entry in servers:
+        index = entry.get("idx") if isinstance(entry, dict) else None
+        if index not in eligible:
+            refreshed.append(entry)
+        elif index not in emitted:
+            emitted.add(index)
+            if index in fresh_by_index:
+                refreshed.append(fresh_by_index[index])
+    for index in indices:
+        if index not in emitted and index in fresh_by_index:
+            refreshed.append(fresh_by_index[index])
+    return refreshed
 
 
 def _tool_access_fields(tool, user):
@@ -70,6 +155,11 @@ async def get_tools(request: Request, user=Depends(get_verified_user)):
 
         request.app.state.TOOL_SERVERS = await get_tool_servers_data(
             request.app.state.config.TOOL_SERVER_CONNECTIONS
+        )
+    else:
+        request.app.state.TOOL_SERVERS = await _refresh_named_tool_server_catalog(
+            request.app.state.config.TOOL_SERVER_CONNECTIONS,
+            request.app.state.TOOL_SERVERS,
         )
 
     tools = Tools.get_tools()

@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import time
+from urllib.parse import urlsplit
 from types import SimpleNamespace
 import unittest
 from functools import partial, update_wrapper
@@ -62,6 +63,7 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
             },
             self.namespace,
         )
+        self.catalog_fetcher = None
         self.local_lookup_calls = []
         self.server_calls = []
         self.executor_result = {"ok": True}
@@ -162,7 +164,14 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
                     fields.pop(key, None)
                 return fields
 
+        async def get_tool_servers_data(connections):
+            if self.catalog_fetcher is None:
+                return None
+            return await self.catalog_fetcher(connections)
+
         namespace = {
+            "asyncio": asyncio,
+            "urlsplit": urlsplit,
             "router": SimpleNamespace(get=lambda *_args, **_kwargs: lambda function: function),
             "Request": object,
             "Depends": lambda dependency: dependency,
@@ -170,16 +179,23 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
             "time": time,
             "Tools": type("CatalogTools", (), {"get_tools": staticmethod(lambda: list(tool_rows))}),
             "ToolUserResponse": ResponseRecord,
+            "_named_server_config": self.namespace["_named_server_config"],
+            "_tool_server_connection_binding": self.namespace["_tool_server_connection_binding"],
             "named_tool_server_catalog_ids": self.namespace["named_tool_server_catalog_ids"],
             "named_tool_server_read_allowed": self.namespace["named_tool_server_read_allowed"],
-            "get_tool_servers_data": lambda *_args, **_kwargs: None,
+            "get_tool_servers_data": get_tool_servers_data,
             "has_access": lambda *_args, **_kwargs: False,
             "_tool_access_fields": lambda _tool, _user: {
                 "access_grants": [{"legacy": True}],
                 "write_access": False,
             },
         }
-        _load_functions(ROUTER_SOURCE, {"get_tools"}, namespace)
+        _load_functions(
+            ROUTER_SOURCE,
+            {"_refresh_named_tool_server_catalog", "get_tools"},
+            namespace,
+        )
+        self.catalog_refresh = namespace["_refresh_named_tool_server_catalog"]
         return namespace["get_tools"]
 
     async def catalog(self, connection, server, user, local_rows=()):
@@ -529,6 +545,115 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
             )[0],
             named,
         )
+
+    async def test_catalog_refresh_replaces_eligible_named_schema_at_original_index(self):
+        legacy = {
+            "type": "openapi", "url": "https://example.invalid/legacy.json",
+            "config": {"enable": True},
+        }
+        named = self.grant_connection(
+            self.named_connection(
+                "fresh", auth_type="none", key="", headers=None,
+                forward_cookies=False,
+            ),
+            "user-1",
+        )
+        old_legacy = {
+            "idx": 0, "url": legacy["url"], "specs": [],
+            "openapi": {"info": {"title": "Legacy old"}},
+        }
+        old_named = self.cache_entry(1, named, specs=[{"name": "old_echo"}])
+        route = self.load_catalog_route([])
+        fetched = []
+
+        async def fetch(selected):
+            fetched.append(selected)
+            return [{
+                "idx": 0,
+                "url": named["url"],
+                "connection_binding": self.namespace["_tool_server_connection_binding"](named),
+                "specs": [{"name": "echo_next"}],
+                "openapi": {"info": {"title": "Fresh schema"}},
+            }]
+
+        self.catalog_fetcher = fetch
+        config = type("Config", (), {"TOOL_SERVER_CONNECTIONS": [legacy, named]})()
+        state = type("State", (), {"config": config, "TOOL_SERVERS": [old_legacy, old_named]})()
+        request = type("RequestValue", (), {"app": type("App", (), {"state": state})()})()
+        rows = await route(request, self.user(role="admin"))
+        self.assertEqual(fetched, [[named]])
+        self.assertEqual([entry["idx"] for entry in state.TOOL_SERVERS], [0, 1])
+        self.assertEqual(state.TOOL_SERVERS[0], old_legacy)
+        self.assertEqual(state.TOOL_SERVERS[1]["specs"], [{"name": "echo_next"}])
+        self.assertEqual(
+            [(row["id"], row["name"]) for row in rows],
+            [("server:0", "Legacy old"), ("server:fresh", "Fresh schema")],
+        )
+
+    async def test_catalog_refresh_failure_removes_stale_named_entry_only(self):
+        legacy = {
+            "type": "openapi", "url": "https://example.invalid/legacy.json",
+            "config": {"enable": True},
+        }
+        named = self.named_connection(
+            "fresh", auth_type="none", key="", headers={},
+        )
+        old_legacy = {
+            "idx": 0, "url": legacy["url"], "specs": [],
+            "openapi": {"info": {"title": "Legacy"}},
+        }
+        old_named = self.cache_entry(1, named)
+        route = self.load_catalog_route([])
+        fetched = []
+
+        async def fetch(selected):
+            fetched.append(selected)
+            return []
+
+        self.catalog_fetcher = fetch
+        config = type("Config", (), {"TOOL_SERVER_CONNECTIONS": [legacy, named]})()
+        state = type("State", (), {"config": config, "TOOL_SERVERS": [old_legacy, old_named]})()
+        request = type("RequestValue", (), {"app": type("App", (), {"state": state})()})()
+        rows = await route(request, self.user(role="admin"))
+        self.assertEqual(fetched, [[named]])
+        self.assertEqual(state.TOOL_SERVERS, [old_legacy])
+        self.assertEqual([(row["id"], row["name"]) for row in rows], [("server:0", "Legacy")])
+
+    async def test_refresh_skips_ineligible_named_connections_and_no_eligible_is_unchanged(self):
+        valid = self.named_connection("same", auth_type="none", key="")
+        disabled = dict(valid, config={"enable": False})
+        credentialed = dict(valid, auth_type="bearer", key="synthetic-secret-marker")
+        credential_url = dict(valid, url="https://user:secret@example.invalid/openapi.json")
+        forwarded_headers = dict(valid, headers={"X-Synthetic": "value"})
+        forwarded_cookies = dict(valid, forward_cookies=True)
+        malformed = self.named_connection("bad/id", auth_type="none", key="")
+        malformed_duplicate = dict(valid, type="custom")
+        duplicate = self.named_connection("same", auth_type="none", key="")
+        cases = [
+            [disabled],
+            [credentialed],
+            [credential_url],
+            [forwarded_headers],
+            [forwarded_cookies],
+            [malformed],
+            [valid, duplicate],
+            [valid, malformed_duplicate],
+        ]
+
+        async def forbidden_fetch(_connections):
+            self.fail("ineligible configuration unexpectedly triggered a refresh")
+
+        route = self.load_catalog_route([])
+        self.catalog_fetcher = forbidden_fetch
+        for connections in cases:
+            with self.subTest(connections=len(connections)):
+                cached = [self.cache_entry(index, item) for index, item in enumerate(connections)]
+                result = await self.catalog_refresh(connections, cached)
+                self.assertIs(result, cached)
+
+        local_only = [{"type": "openapi", "url": "https://example.invalid/local.json", "config": {"enable": True}}]
+        cached = [self.cache_entry(0, local_only[0])]
+        self.assertIs(await self.catalog_refresh(local_only, cached), cached)
 
 
 class ToolServerExecutorResponseTests(unittest.IsolatedAsyncioTestCase):
