@@ -311,6 +311,7 @@ class ImporterTests(unittest.TestCase):
             ("permissions", "unsupported_group_permissions"),
             ("data", "unsupported_group_data_profile"),
             ("meta", "unsupported_group_meta_profile"),
+            ("meta_json_null", "unsupported_group_meta_profile"),
             ("timestamp", "invalid_group_timestamp"),
             ("owner", "group_owner_missing"),
             ("unknown_member", "group_member_user_missing"),
@@ -340,6 +341,8 @@ class ImporterTests(unittest.TestCase):
                     db.execute('UPDATE "group" SET data=?', ('{"config":{"share":"everyone"}}',))
                 elif case == "meta":
                     db.execute('UPDATE "group" SET meta=?', ('{"unmeasured":"data"}',))
+                elif case == "meta_json_null":
+                    db.execute('UPDATE "group" SET meta=?', ('null',))
                 elif case == "timestamp":
                     db.execute('UPDATE "group" SET created_at="not-a-time"')
                 elif case == "owner":
@@ -379,33 +382,51 @@ class ImporterTests(unittest.TestCase):
                 self.assertFalse(target.exists())
                 self.assertEqual((digest(self.source), digest(self.template)), (source_before, template_before))
 
-    def test_membership_like_ambiguity_case_wildcards_and_escaped_delimiters_refuse(self):
-        cases = (
-            ("case_collision", "legacy_group_membership_like_ambiguous"),
-            ("wildcard", "legacy_group_membership_like_ambiguous"),
-            ("escaped_delimiter", "legacy_group_membership_like_ambiguous"),
-        )
-        for case, expected in cases:
-            with self.subTest(case=case):
+    def test_group_membership_identity_shapes_survive_import_for_exact_runtime_matching(self):
+        add_group_import_schema(self.source, self.template)
+        insert_flat_group(self.source)
+        unusual_ids = ["u_", "u%", 'u"1', "Upper", "upper"]
+        for index, user_id in enumerate(unusual_ids):
+            add_user(self.source, user_id)
+            db = sqlite3.connect(self.source)
+            if index == 0:
+                db.execute('UPDATE group_member SET user_id=?', (user_id,))
+            else:
+                db.execute("INSERT INTO group_member VALUES (?,?,?,?,?)", (f"gm{index + 1}", "g1", user_id, 100 + index, 101 + index))
+            db.commit(); db.close()
+        report = convert(self.source, self.uploads, self.template, self.root / "unusual-membership-target")
+        self.assertFalse(report["cutover_eligible"])
+        db = sqlite3.connect(self.root / "unusual-membership-target" / "webui.db")
+        stored = json.loads(db.execute('SELECT user_ids FROM "group" WHERE id="g1"').fetchone()[0])
+        db.close()
+        self.assertEqual(stored, unusual_ids)
+        self.assertEqual(report["imported_counts"]["group_member"], 0)
+
+    def test_group_and_membership_resource_caps_refuse_without_target(self):
+        for mode in ("groups", "memberships"):
+            with self.subTest(mode=mode):
                 self.tearDown(); self.setUp()
                 add_group_import_schema(self.source, self.template)
-                insert_flat_group(self.source)
-                if case == "case_collision":
-                    add_user(self.source, "U1")
-                elif case == "wildcard":
-                    add_user(self.source, "u_")
+                db = sqlite3.connect(self.source)
+                if mode == "groups":
+                    db.executemany(
+                        'INSERT INTO "group" VALUES (?,?,?,?,?,?,?,?,?,NULL)',
+                        ((f"g{i}", "u1", "Synthetic group", "Description", '{"config":{"share":"members"}}', None, "{}", 1, 1) for i in range(1001)),
+                    )
                 else:
-                    add_user(self.source, 'u"1')
-                    db = sqlite3.connect(self.source)
-                    db.execute('UPDATE group_member SET user_id=?', ('u"1',))
-                    db.commit(); db.close()
+                    db.executemany(
+                        "INSERT INTO group_member VALUES (?,?,?,?,?)",
+                        ((f"gm{i}", "g1", "u1", 1, 1) for i in range(10001)),
+                    )
+                db.commit(); db.close()
                 source_before, template_before = digest(self.source), digest(self.template)
                 report = preview(self.source, self.uploads, self.template)
                 self.assertTrue(report["fatal"])
-                self.assertIn(expected, {item["code"] for item in report["blockers"]})
+                self.assertIn("group_import_resource_cap_exceeded", {item["code"] for item in report["blockers"]})
+                target = self.root / "over-cap-target"
                 with self.assertRaises(MigrationError):
-                    convert(self.source, self.uploads, self.template, self.root / "unsafe-membership-target")
-                self.assertFalse((self.root / "unsafe-membership-target").exists())
+                    convert(self.source, self.uploads, self.template, target)
+                self.assertFalse(target.exists())
                 self.assertEqual((digest(self.source), digest(self.template)), (source_before, template_before))
 
     def test_object_grants_and_version_links_fail_closed(self):

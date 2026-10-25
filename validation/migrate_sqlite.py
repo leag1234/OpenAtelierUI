@@ -412,31 +412,6 @@ def _validate_old_group_target(template: Path, report: dict) -> None:
         connection.close()
 
 
-def _legacy_group_lookup_is_unambiguous(user_ids: set[str]) -> bool:
-    """Prove the old `LIKE '%"id"%'` query is exact for known account IDs.
-
-    The legacy query does not escape LIKE wildcards and SQLite LIKE folds ASCII
-    case. JSON also escapes quotes, backslashes and controls. Rejecting those
-    identity shapes plus case-fold collisions makes quoted substring lookup
-    equivalent to exact membership for this finite known-user set.
-    """
-    folded = set()
-    for user_id in user_ids:
-        if (
-            not isinstance(user_id, str)
-            or not user_id
-            or not user_id.isascii()
-            or any(char in user_id for char in '%_"\\')
-            or any(ord(char) < 0x20 or ord(char) == 0x7F for char in user_id)
-        ):
-            return False
-        normalized = user_id.casefold()
-        if normalized in folded:
-            return False
-        folded.add(normalized)
-    return True
-
-
 def _validate_group_domains(
     connection: sqlite3.Connection, report: dict, user_ids: set[str], template: Path
 ) -> dict[str, list[str]]:
@@ -445,6 +420,15 @@ def _validate_group_domains(
     group_count = _count(connection, "group") if "group" in tables else 0
     member_count = _count(connection, "group_member") if "group_member" in tables else 0
     if not group_count and not member_count:
+        return {}
+    if group_count > 1000 or member_count > 10000:
+        _block(
+            report,
+            "group_import_resource_cap_exceeded",
+            max(group_count, member_count),
+            fatal=True,
+            detail="bounded profile supports at most 1000 groups and 10000 memberships",
+        )
         return {}
     if "group" not in tables or "group_member" not in tables:
         _block(report, "group_membership_schema_missing", 1, fatal=True)
@@ -481,11 +465,6 @@ def _validate_group_domains(
         if data != {"config": {"share": "members"}}:
             _block(report, "unsupported_group_data_profile", 1, fatal=True)
         meta = row.get("meta")
-        if isinstance(meta, str):
-            try:
-                meta = json.loads(meta)
-            except (ValueError, TypeError):
-                meta = object()
         if meta is not None:
             _block(report, "unsupported_group_meta_profile", 1, fatal=True)
         permissions = _json_value(row.get("permissions"), dict, "invalid_group_permissions", report)
@@ -516,9 +495,6 @@ def _validate_group_domains(
         if group_id in members_by_group and isinstance(user_id, str) and user_id in user_ids:
             members_by_group[group_id].append(user_id)
 
-    if not _legacy_group_lookup_is_unambiguous(user_ids):
-        _block(report, "legacy_group_membership_like_ambiguous", 1, fatal=True,
-               detail="old membership lookup uses unescaped LIKE and case-insensitive matching; account IDs cannot be proven exact")
     for values in members_by_group.values():
         if len(values) != len(set(values)):
             _block(report, "duplicate_group_membership", 1, fatal=True)

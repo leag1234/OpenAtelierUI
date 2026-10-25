@@ -105,6 +105,12 @@ class ExplicitAccessGrantFormTests(unittest.TestCase):
             cases = (
                 ([{"principal_type": "user", "principal_id": "member-01", "permission": "read"}],
                  {"read": {"user_ids": ["member-01"]}}),
+                ([{"principal_type": "group", "principal_id": "group-01", "permission": "read"}],
+                 {"read": {"group_ids": ["group-01"]}}),
+                ([
+                    {"principal_type": "user", "principal_id": "member-01", "permission": "read"},
+                    {"principal_type": "group", "principal_id": "group-01", "permission": "read"},
+                 ], {"read": {"user_ids": ["member-01"], "group_ids": ["group-01"]}}),
                 ([{"principal_type": "user", "principal_id": "*", "permission": "read"}], None),
             )
             for grants, expected in cases:
@@ -151,6 +157,28 @@ class ExplicitAccessGrantFormTests(unittest.TestCase):
         self.assertEqual(access_grants_for_acl(None, "model", "resource-01")[0]["principal_id"], "*")
         self.assertEqual(access_grants_for_acl({}, "tool", "resource-01"), [])
 
+    def test_named_group_read_grants_mix_with_user_read_and_roundtrip(self):
+        grants = [
+            {"principal_type": "user", "principal_id": "member-01", "permission": "read"},
+            {"principal_type": "group", "principal_id": "group-01", "permission": "read"},
+        ]
+        expected_acl = {"read": {"user_ids": ["member-01"], "group_ids": ["group-01"]}}
+        self.assertEqual(access_grants.access_control_for_grants(grants), expected_acl)
+        projected = access_grants_for_acl(expected_acl, "tool", "resource-01", 123)
+        self.assertEqual(
+            [(grant["principal_type"], grant["principal_id"], grant["permission"]) for grant in projected],
+            [("user", "member-01", "read"), ("group", "group-01", "read")],
+        )
+        self.assertTrue(all(grant["resource_id"] == "resource-01" for grant in projected))
+
+    def test_group_wildcard_and_write_grants_remain_rejected(self):
+        for grant in (
+            {"principal_type": "group", "principal_id": "*", "permission": "read"},
+            {"principal_type": "group", "principal_id": "group-01", "permission": "write"},
+        ):
+            with self.subTest(grant=grant), self.assertRaises(ValueError):
+                access_grants.access_control_for_grants([grant])
+
     def test_roundtrip_metadata_is_not_used_as_authority(self):
         for _, form_class, base in FORMS:
             grant = {
@@ -183,14 +211,6 @@ class ExplicitAccessGrantFormTests(unittest.TestCase):
                             "permission": "read",
                             "scope": "all",
                         }
-                    ]
-                },
-            ),
-            (
-                "group principal",
-                {
-                    "access_grants": [
-                        {"principal_type": "group", "principal_id": "group-01", "permission": "read"}
                     ]
                 },
             ),
