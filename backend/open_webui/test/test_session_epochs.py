@@ -64,6 +64,32 @@ def build_ambiguous_auth_db(path: Path, *, composite_primary_key: bool) -> None:
     db.close()
 
 
+def build_index_auth_db(path: Path, *, index_kind: str, prepared: bool) -> None:
+    db = sqlite3.connect(path)
+    stamp = ", session_stamp TEXT" if prepared else ""
+    db.executescript(f"""
+      CREATE TABLE auth (
+        id VARCHAR(255) NOT NULL,
+        email TEXT NOT NULL,
+        password TEXT NOT NULL,
+        active INTEGER NOT NULL{stamp}
+      );
+      INSERT INTO auth VALUES
+        ('synthetic-owner','owner@example.invalid','bcrypt-placeholder',1{', NULL' if prepared else ''}),
+        ('synthetic-other','other@example.invalid','bcrypt-placeholder',1{', NULL' if prepared else ''});
+    """)
+    index_sql = {
+        "partial": "CREATE UNIQUE INDEX ix_auth_id ON auth(id) WHERE active=1",
+        "composite": "CREATE UNIQUE INDEX ix_auth_id_email ON auth(id,email)",
+        "expression": "CREATE UNIQUE INDEX ix_auth_lower_id ON auth(lower(id))",
+        "nonunique": "CREATE INDEX ix_auth_id ON auth(id)",
+        "unique_id": "CREATE UNIQUE INDEX ix_auth_id ON auth(id)",
+    }[index_kind]
+    db.execute(index_sql)
+    db.commit()
+    db.close()
+
+
 class SessionEpochTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -199,7 +225,7 @@ class SessionEpochTests(unittest.TestCase):
                 self.assertEqual(digest(source), source_hash)
                 self.assertFalse(target.exists())
 
-    def test_component_refuses_prepared_tables_without_a_sole_id_primary_key(self):
+    def test_component_refuses_prepared_tables_without_unique_id_identity(self):
         for composite in (False, True):
             with self.subTest(composite_primary_key=composite):
                 path = self.root / ("prepared-composite.db" if composite else "prepared-duplicate.db")
@@ -222,6 +248,54 @@ class SessionEpochTests(unittest.TestCase):
                 with self.assertRaises(epochs.SessionEpochError) as caught:
                     epochs.get_epoch(path, "synthetic-duplicate")
                 self.assertEqual(caught.exception.code, "auth_identity_schema_ambiguous")
+
+    def test_partial_composite_expression_and_nonunique_indexes_are_refused(self):
+        for index_kind in ("partial", "composite", "expression", "nonunique"):
+            with self.subTest(index_kind=index_kind):
+                source = self.root / f"{index_kind}-source.db"
+                target = self.root / f"{index_kind}-target.db"
+                build_index_auth_db(source, index_kind=index_kind, prepared=False)
+                source_hash = digest(source)
+                with self.assertRaises(epochs.SessionEpochError) as caught:
+                    epochs.prepare_auth_session_stamp_copy(source, target)
+                self.assertEqual(caught.exception.code, "auth_identity_schema_ambiguous")
+                self.assertEqual(digest(source), source_hash)
+                self.assertFalse(target.exists())
+
+                prepared = self.root / f"{index_kind}-prepared.db"
+                build_index_auth_db(prepared, index_kind=index_kind, prepared=True)
+                with self.assertRaises(epochs.SessionEpochError) as caught:
+                    epochs.get_epoch(prepared, "synthetic-owner")
+                self.assertEqual(caught.exception.code, "auth_identity_schema_ambiguous")
+
+    def test_not_null_unique_id_index_is_accepted_for_copy_issue_rotate_and_reopen(self):
+        source = self.root / "peewee-unique-index-source.db"
+        target = self.root / "peewee-unique-index-target.db"
+        build_index_auth_db(source, index_kind="unique_id", prepared=False)
+        source_hash = digest(source)
+
+        report = epochs.prepare_auth_session_stamp_copy(source, target)
+        self.assertTrue(report["source_unchanged"])
+        self.assertEqual(digest(source), source_hash)
+        initial = epochs.issue_epoch(target, "synthetic-owner")
+        updated = epochs.rotate_epoch(target, "synthetic-owner")
+        self.assertNotEqual(initial, updated)
+        self.assertFalse(epochs.validate_epoch(target, "synthetic-owner", initial))
+        self.assertTrue(epochs.validate_epoch(target, "synthetic-owner", updated))
+
+        reopened = sqlite3.connect(target)
+        self.assertEqual(
+            reopened.execute("SELECT id,session_stamp FROM auth WHERE id='synthetic-owner'").fetchone(),
+            ("synthetic-owner", updated),
+        )
+        indexes = reopened.execute('PRAGMA index_list("auth")').fetchall()
+        id_index = next(index for index in indexes if index[1] == "ix_auth_id")
+        self.assertEqual((id_index[2], id_index[4]), (1, 0))
+        self.assertEqual(
+            reopened.execute('PRAGMA index_info("ix_auth_id")').fetchall()[0][2],
+            "id",
+        )
+        reopened.close()
 
     def test_varchar_id_single_primary_key_remains_supported(self):
         source = self.root / "varchar-source.db"

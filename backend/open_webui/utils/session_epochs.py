@@ -104,16 +104,38 @@ def _require_schema(connection: sqlite3.Connection) -> None:
         raise SessionEpochError("auth_table_missing", "database has no auth table")
     if not {"id", "session_stamp"}.issubset(columns):
         raise SessionEpochError("session_stamp_schema_missing", "database lacks the prepared auth.session_stamp field")
-    _require_single_id_primary_key(rows)
+    _require_unique_auth_identity(connection, rows)
 
 
-def _require_single_id_primary_key(rows) -> None:
+def _require_unique_auth_identity(connection: sqlite3.Connection, rows) -> None:
     primary_key_columns = [(row[1], row[5]) for row in rows if row[5]]
-    if primary_key_columns != [("id", 1)]:
+    if primary_key_columns == [("id", 1)]:
+        return
+
+    id_column = next((row for row in rows if row[1] == "id"), None)
+    if id_column is None or not id_column[3]:
         raise SessionEpochError(
             "auth_identity_schema_ambiguous",
-            "auth.id must be the table's sole declared primary-key column",
+            "auth.id must be the sole primary key or a NOT NULL column with a unique plain id index",
         )
+
+    try:
+        indexes = connection.execute('PRAGMA index_list("auth")').fetchall()
+        for index in indexes:
+            if not index[2] or (len(index) > 4 and index[4]):
+                continue
+            escaped_name = str(index[1]).replace('"', '""')
+            index_columns = connection.execute(
+                f'PRAGMA index_info("{escaped_name}")'
+            ).fetchall()
+            if len(index_columns) == 1 and index_columns[0][2] == "id":
+                return
+    except sqlite3.Error as error:
+        raise _database_error(error) from error
+    raise SessionEpochError(
+        "auth_identity_schema_ambiguous",
+        "auth.id must be the sole primary key or a NOT NULL column with a unique plain id index",
+    )
 
 
 def _check_user_id(user_id: str) -> None:
@@ -300,7 +322,7 @@ def prepare_auth_session_stamp_copy(source_path: str | Path, target_path: str | 
             required = {"id", "email", "password", "active"}
             if not required.issubset(columns):
                 raise SessionEpochError("auth_schema_mismatch", "source auth table lacks required old-format columns")
-            _require_single_id_primary_key(auth_rows)
+            _require_unique_auth_identity(inspect, auth_rows)
             if "session_stamp" in columns:
                 raise SessionEpochError("session_stamp_already_present", "copy preparation accepts only the old-format auth schema")
             account_count = inspect.execute('SELECT COUNT(*) FROM "auth"').fetchone()[0]
