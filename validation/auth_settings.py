@@ -70,7 +70,7 @@ def validate_manifest_bytes(contents: bytes) -> dict[str, Any]:
         )
     except AuthSettingsError:
         raise
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
         raise AuthSettingsError("invalid_manifest_json") from None
 
     if not isinstance(document, dict) or set(document) != {"format", "settings"}:
@@ -106,7 +106,7 @@ def load_manifest(path: str | os.PathLike[str]) -> dict[str, Any]:
     candidate = Path(path)
     try:
         metadata = candidate.lstat()
-    except OSError:
+    except (OSError, ValueError):
         raise AuthSettingsError("manifest_unavailable") from None
     if stat.S_ISLNK(metadata.st_mode):
         raise AuthSettingsError("manifest_symlink_refused")
@@ -119,7 +119,7 @@ def load_manifest(path: str | os.PathLike[str]) -> dict[str, Any]:
     flags |= getattr(os, "O_NONBLOCK", 0)
     try:
         descriptor = os.open(candidate, flags)
-    except OSError:
+    except (OSError, ValueError):
         raise AuthSettingsError("manifest_unavailable") from None
     try:
         opened = os.fstat(descriptor)

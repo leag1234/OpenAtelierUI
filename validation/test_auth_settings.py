@@ -132,6 +132,7 @@ class AuthSettingsManifestTests(unittest.TestCase):
             (b"{", "invalid_manifest_json"),
             (b"\xff", "invalid_manifest_json"),
             (b'{"x":NaN}', "invalid_json_constant"),
+            (b"[" * 2000 + b"]" * 2000, "invalid_manifest_json"),
             (b" " * (MAX_MANIFEST_BYTES + 1), "manifest_too_large"),
         ):
             with self.subTest(code=code):
@@ -143,6 +144,10 @@ class AuthSettingsManifestTests(unittest.TestCase):
         missing = self.root / "missing.json"
         with self.assertRaises(AuthSettingsError) as caught:
             load_manifest(missing)
+        self.assertEqual(caught.exception.code, "manifest_unavailable")
+
+        with self.assertRaises(AuthSettingsError) as caught:
+            load_manifest(str(self.root / "embedded\0nul.json"))
         self.assertEqual(caught.exception.code, "manifest_unavailable")
 
         directory = self.root / "directory"

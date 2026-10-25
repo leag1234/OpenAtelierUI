@@ -4,7 +4,7 @@ This is the candidate implementation slice for `TASK-OPENATELIER-AUTH-SETTINGS-0
 
 The validator accepts only the exact `openatelier-auth-settings/v1` object with exactly three settings: `JWT_EXPIRES_IN`, `ENABLE_SIGNUP`, and `ENABLE_LOGIN_FORM`. Duration validation uses a full match for one positive integer and one `s`, `m`, `h`, `d`, or `w` unit, with a maximum of 366 days and 32 characters. Booleans must be JSON booleans. Duplicate keys are rejected at every object level; invalid JSON/UTF-8/constants, missing/extra fields, invalid types, nonpositive/unsupported/oversized durations, and expiries above the cap return named refusals without echoing arbitrary input.
 
-File input must be a regular non-symlink file no larger than 16 KiB. The reader checks metadata before opening, uses `O_NOFOLLOW` when available, verifies the opened descriptor, and reads at most the size limit plus one byte. The CLI is invoked as:
+File input must be a regular non-symlink file no larger than 16 KiB. The reader checks metadata before opening, uses `O_NOFOLLOW` when available, verifies the opened descriptor, and reads at most the size limit plus one byte. Deeply nested JSON that exceeds the parser's recursion capacity and invalid path values such as embedded NUL are converted to named JSON-only refusals. The CLI is invoked as:
 
 ```sh
 python3 validation/auth_settings.py --manifest PATH
