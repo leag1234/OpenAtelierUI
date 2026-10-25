@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import resource
@@ -23,6 +24,16 @@ import time
 import uuid
 from pathlib import Path, PurePosixPath
 from typing import Callable
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1] / "backend"
+_HISTORY_HELPER = BACKEND_ROOT / "open_webui" / "utils" / "imported_history.py"
+_HISTORY_SPEC = importlib.util.spec_from_file_location("_open_webui_imported_history", _HISTORY_HELPER)
+if _HISTORY_SPEC is None or _HISTORY_SPEC.loader is None:
+    raise RuntimeError("could not load the stdlib-only imported-history helper")
+_HISTORY_MODULE = importlib.util.module_from_spec(_HISTORY_SPEC)
+sys.modules[_HISTORY_SPEC.name] = _HISTORY_MODULE
+_HISTORY_SPEC.loader.exec_module(_HISTORY_MODULE)
+write_history_sidecar = _HISTORY_MODULE.write_history_sidecar
 
 
 MAX_INPUT_BYTES = 16 * 1024 * 1024
@@ -800,7 +811,7 @@ def _dir_size(root: Path) -> int:
     return sum(path.stat().st_size for path in root.rglob("*") if path.is_file())
 
 
-def convert(source_db: str | Path, uploads_root: str | Path, old_template: str | Path, new_target_dir: str | Path, *, runtime_data_root: str | Path = "/app/backend/data", failpoint: Callable[[str], None] | None = None) -> dict:
+def convert(source_db: str | Path, uploads_root: str | Path, old_template: str | Path, new_target_dir: str | Path, *, runtime_data_root: str | Path = "/app/backend/data", include_history_sidecar: bool = False, failpoint: Callable[[str], None] | None = None) -> dict:
     started = time.perf_counter()
     report, upload_rows, object_access = inspect_source(source_db, uploads_root, old_template)
     source = Path(source_db).resolve(strict=True)
@@ -873,6 +884,15 @@ def convert(source_db: str | Path, uploads_root: str | Path, old_template: str |
             readback_counts = {table: _count(target_readback, table) for table in COPYABLE_TABLES}
         finally:
             target_readback.close()
+        if include_history_sidecar:
+            history = write_history_sidecar(source, app_db, attempt / "imported-history.sqlite")
+            report["imported_history_sidecar"] = {
+                **history,
+                "opt_in": True,
+                "runtime_switch": "OPEN_WEBUI_IMPORTED_HISTORY_READS=1",
+                "runtime_path": "DATA_DIR/imported-history.sqlite",
+                "history_is_functionally_cut_over": False,
+            }
         if _digest(source) != report["source"]["sha256"] or _digest(template) != report["target_template"]["sha256"]:
             raise MigrationError("original_changed", "source or template bytes changed during conversion", report)
         if failpoint:
@@ -953,12 +973,13 @@ def main(argv: list[str] | None = None) -> int:
         if name == "convert":
             command.add_argument("--new-target-dir", required=True)
             command.add_argument("--runtime-data-root", default="/app/backend/data", help="data directory used by the old runtime for persisted upload paths")
+            command.add_argument("--include-history-sidecar", action="store_true", help="write the bounded opt-in Tool/Model history prototype under the fresh target data directory")
     args = parser.parse_args(argv)
     try:
         if args.command == "preview":
             report = preview(args.source_db, args.uploads_root, args.empty_old_target_template)
         else:
-            report = convert(args.source_db, args.uploads_root, args.empty_old_target_template, args.new_target_dir, runtime_data_root=args.runtime_data_root)
+            report = convert(args.source_db, args.uploads_root, args.empty_old_target_template, args.new_target_dir, runtime_data_root=args.runtime_data_root, include_history_sidecar=args.include_history_sidecar)
     except MigrationError as error:
         report = {"status": "refused", "error_code": error.code, **error.report}
         _emit(report)

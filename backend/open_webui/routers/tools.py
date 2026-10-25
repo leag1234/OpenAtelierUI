@@ -10,6 +10,13 @@ from open_webui.models.tools import (
     ToolUserResponse,
     Tools,
 )
+from open_webui.models.users import Users
+from open_webui.utils.imported_history import (
+    HistoryNotFound,
+    HistoryUnavailable,
+    get_history as get_imported_tool_history,
+    list_history as list_imported_tool_history,
+)
 from open_webui.utils.plugin import load_tool_module_by_id, replace_imports
 from open_webui.config import CACHE_DIR
 from open_webui.constants import ERROR_MESSAGES
@@ -22,7 +29,7 @@ from open_webui.utils.access_grants import (
     access_grants_for_acl,
     preserve_access_control_for_update,
 )
-from open_webui.env import SRC_LOG_LEVELS
+from open_webui.env import DATA_DIR, DATABASE_URL, SRC_LOG_LEVELS
 
 from open_webui.utils.tools import get_tool_servers_data
 
@@ -236,6 +243,36 @@ async def get_tools_by_id(id: str, user=Depends(get_verified_user)):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
+
+
+@router.get("/id/{id}/history")
+async def get_tool_history(id: str, page: int = 1, user=Depends(get_verified_user)):
+    tool = Tools.get_tool_by_id(id)
+    if not tool:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.NOT_FOUND)
+    if user.role != "admin" and tool.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+    try:
+        return list_imported_tool_history(DATA_DIR, DATABASE_URL, "tool", tool, page, Users.get_user_by_id)
+    except HistoryNotFound:
+        raise HTTPException(status_code=404, detail="Not found")
+    except HistoryUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error))
+
+
+@router.get("/id/{id}/history/{version_id}")
+async def get_tool_history_version(id: str, version_id: str, user=Depends(get_verified_user)):
+    tool = Tools.get_tool_by_id(id)
+    if not tool:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.NOT_FOUND)
+    if user.role != "admin" and tool.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+    try:
+        return get_imported_tool_history(DATA_DIR, DATABASE_URL, "tool", tool, version_id, Users.get_user_by_id)
+    except HistoryNotFound:
+        raise HTTPException(status_code=404, detail="Version not found")
+    except HistoryUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error))
 
 
 @router.post("/id/{id}/access/update")
