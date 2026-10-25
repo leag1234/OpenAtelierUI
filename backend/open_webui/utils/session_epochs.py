@@ -12,7 +12,6 @@ import argparse
 import hashlib
 import json
 import os
-import resource
 import shutil
 import sqlite3
 import sys
@@ -427,6 +426,8 @@ def _account_count(database_path: Path) -> int:
 
 
 def _peak_rss_bytes() -> int:
+    import resource
+
     value = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     return int(value if sys.platform == "darwin" else value * 1024)
 

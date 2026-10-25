@@ -7,7 +7,6 @@ import hashlib
 import requests
 import os
 from pathlib import Path
-from urllib.parse import unquote
 
 
 from datetime import datetime, timedelta
@@ -139,7 +138,7 @@ def _session_epoch_database_path() -> Path:
             or "#" in database_path
         ):
             raise ValueError("unsupported SQLite URL")
-        path = Path(unquote(database_path))
+        path = Path(database_path)
         if not path.is_absolute():
             raise ValueError("SQLite path must be absolute")
         return path
@@ -171,7 +170,7 @@ def revoke_user_session_epoch(user_id: str) -> None:
         rotate_epoch(_session_epoch_database_path(), user_id)
     except SessionEpochError as error:
         if error.code == "user_not_found":
-            raise HTTPException(status_code=404, detail="User not found") from error
+            raise HTTPException(status_code=404, detail="User not found.") from error
         raise _session_state_unavailable() from error
     except Exception as error:
         raise _session_state_unavailable() from error

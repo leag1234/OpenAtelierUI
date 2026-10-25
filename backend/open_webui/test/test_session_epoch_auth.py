@@ -14,7 +14,6 @@ import types
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import unquote
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -126,7 +125,6 @@ def _make_namespace(database_url: str, *, users=None, events=None):
     namespace = {
         "os": os,
         "Path": Path,
-        "unquote": unquote,
         "DATABASE_URL": database_url,
         "HTTPException": HTTPError,
         "status": status,
@@ -193,7 +191,7 @@ def _request(cookie=None, *, path="/api/v1/users/me", api_key_enabled=False):
 
 
 def _prepared_db(path: Path):
-    source = path.with_name("old-source.db")
+    source = path.with_name(path.stem + ".old-source.db")
     db = sqlite3.connect(source)
     db.executescript("""
       CREATE TABLE auth (
@@ -308,6 +306,42 @@ class SessionEpochAuthTests(unittest.TestCase):
                         self.namespace["create_token"]({"id": "synthetic-owner"})
                     self.assertEqual((unavailable.exception.status_code, unavailable.exception.detail), (503, "Session state unavailable"))
 
+    def test_literal_percent_escape_in_sqlite_filename_is_not_decoded(self):
+        literal_database = self.root / "session%20literal.db"
+        _prepared_db(literal_database)
+        namespace = _make_namespace("sqlite:///" + str(literal_database))
+        self.assertEqual(namespace["_session_epoch_database_path"](), literal_database)
+        with patch.dict(os.environ, {"OPENATELIER_SESSION_EPOCHS": "true"}, clear=True):
+            token = namespace["create_token"]({"id": "synthetic-owner"})
+        self.assertTrue(literal_database.is_file())
+        self.assertEqual(
+            session_epochs.get_epoch(literal_database, "synthetic-owner"),
+            namespace["jwt"].decoded[token]["session_stamp"],
+        )
+
+    def test_posix_resource_module_is_imported_only_by_measurement_helper(self):
+        component_path = ROOT / "utils" / "session_epochs.py"
+        tree = ast.parse(component_path.read_text(encoding="utf-8"))
+        module_imports_resource = any(
+            isinstance(node, ast.Import)
+            and any(alias.name == "resource" for alias in node.names)
+            or isinstance(node, ast.ImportFrom)
+            and node.module == "resource"
+            for node in tree.body
+        )
+        measure = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_peak_rss_bytes"
+        )
+        self.assertFalse(module_imports_resource)
+        self.assertTrue(
+            any(
+                isinstance(node, ast.Import)
+                and any(alias.name == "resource" for alias in node.names)
+                for node in measure.body
+            )
+        )
+
     def test_missing_or_corrupt_prepared_database_is_service_unavailable(self):
         with patch.dict(os.environ, {"OPENATELIER_SESSION_EPOCHS": "true"}, clear=True):
             token = self.namespace["create_token"]({"id": "synthetic-owner"})
@@ -408,7 +442,7 @@ class SessionEpochAuthTests(unittest.TestCase):
             self.assertIsNone(asyncio.run(route("synthetic-owner", user=admin)))
             with self.assertRaises(HTTPError) as missing:
                 asyncio.run(route("no-such-user", user=admin))
-            self.assertEqual((missing.exception.status_code, missing.exception.detail), (404, "User not found"))
+            self.assertEqual((missing.exception.status_code, missing.exception.detail), (404, "User not found."))
             member = types.SimpleNamespace(id="synthetic-owner", role="user")
             with self.assertRaises(HTTPError) as denied:
                 self.namespace["get_admin_user"](member)
