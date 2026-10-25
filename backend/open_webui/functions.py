@@ -201,7 +201,7 @@ async def generate_function_chat_completion(
     if user.role == "user" and model_info and model_info.base_model_id:
         selected_model = models.get(model_id, {})
         if selected_model.get("pipe"):
-            from open_webui.config import BYPASS_MODEL_ACCESS_CONTROL
+            from open_webui.env import BYPASS_MODEL_ACCESS_CONTROL
 
             if not BYPASS_MODEL_ACCESS_CONTROL:
                 from open_webui.utils.models import check_model_access

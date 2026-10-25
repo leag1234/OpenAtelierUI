@@ -3,6 +3,7 @@
 
 import ast
 import asyncio
+import os
 import pathlib
 import sys
 import types
@@ -61,6 +62,24 @@ def _load_real_access_policy():
     return model_namespace["check_model_access"]
 
 
+def _load_real_bypass_setting(value):
+    env_path = ROOT / "env.py"
+    tree = ast.parse(env_path.read_text(encoding="utf-8"), filename=str(env_path))
+    assignment = next(
+        node for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name)
+            and target.id == "BYPASS_MODEL_ACCESS_CONTROL"
+            for target in node.targets
+        )
+    )
+    namespace = {"os": os}
+    with patch.dict(os.environ, {"BYPASS_MODEL_ACCESS_CONTROL": value}):
+        exec(compile(ast.Module(body=[assignment], type_ignores=[]), str(env_path), "exec"), namespace)
+    return namespace["BYPASS_MODEL_ACCESS_CONTROL"]
+
+
 def _load_completion_function():
     function = _function(ROOT / "functions.py", "generate_function_chat_completion")
     effects = []
@@ -95,8 +114,8 @@ class PluginBaseAdmissionTests(unittest.TestCase):
         _GroupStore.members = {"group-member": ["workshop"]}
         self.check_model_access = _load_real_access_policy()
         self.function, self.effects = _load_completion_function()
-        self.config_module = types.ModuleType("open_webui.config")
-        self.config_module.BYPASS_MODEL_ACCESS_CONTROL = False
+        self.env_module = types.ModuleType("open_webui.env")
+        self.env_module.BYPASS_MODEL_ACCESS_CONTROL = _load_real_bypass_setting("False")
         self.models_module = types.ModuleType("open_webui.utils.models")
         self.models_module.check_model_access = self.check_model_access
         self.open_webui_module = types.ModuleType("open_webui")
@@ -114,7 +133,7 @@ class PluginBaseAdmissionTests(unittest.TestCase):
             sys.modules,
             {
                 "open_webui": self.open_webui_module,
-                "open_webui.config": self.config_module,
+                "open_webui.env": self.env_module,
                 "open_webui.utils": self.utils_module,
                 "open_webui.utils.models": self.models_module,
             },
@@ -188,7 +207,9 @@ class PluginBaseAdmissionTests(unittest.TestCase):
             ("user", "pipe-id", True),
         ):
             with self.subTest(role=role, base_id=base_id, bypass=bypass):
-                self.config_module.BYPASS_MODEL_ACCESS_CONTROL = bypass
+                self.env_module.BYPASS_MODEL_ACCESS_CONTROL = _load_real_bypass_setting(
+                    "True" if bypass else "False"
+                )
                 _ModelStore.reads = []
                 self.effects.clear()
                 with self.assertRaises(_StopAfterGuard):
@@ -197,6 +218,30 @@ class PluginBaseAdmissionTests(unittest.TestCase):
                 # read only when ordinary-user policy is active.
                 self.assertEqual(_ModelStore.reads, ["bare"] if (role == "admin" or base_id is None or bypass) else ["bare", base_id])
                 self.assertEqual(self.effects, ["tools"])
+
+    def test_bypass_import_resolves_to_the_old_env_export(self):
+        function_tree = ast.parse((ROOT / "functions.py").read_text(encoding="utf-8"))
+        dispatcher = next(
+            node for node in function_tree.body
+            if isinstance(node, ast.AsyncFunctionDef)
+            and node.name == "generate_function_chat_completion"
+        )
+        imports = [
+            node for node in ast.walk(dispatcher)
+            if isinstance(node, ast.ImportFrom)
+            and any(alias.name == "BYPASS_MODEL_ACCESS_CONTROL" for alias in node.names)
+        ]
+        self.assertEqual(len(imports), 1)
+        self.assertEqual(imports[0].module, "open_webui.env")
+        main_tree = ast.parse((ROOT / "main.py").read_text(encoding="utf-8"))
+        main_imports = [
+            node for node in ast.walk(main_tree)
+            if isinstance(node, ast.ImportFrom)
+            and any(alias.name == "BYPASS_MODEL_ACCESS_CONTROL" for alias in node.names)
+        ]
+        self.assertTrue(any(node.module == "open_webui.env" for node in main_imports))
+        self.assertIs(_load_real_bypass_setting("False"), False)
+        self.assertIs(_load_real_bypass_setting("True"), True)
 
 
 if __name__ == "__main__":
