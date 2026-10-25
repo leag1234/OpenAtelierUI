@@ -1,7 +1,9 @@
+import copy
+import hashlib
 import inspect
+import json
 import logging
 import re
-import inspect
 import aiohttp
 import asyncio
 import yaml
@@ -38,9 +40,138 @@ from open_webui.models.users import UserModel
 from open_webui.utils.plugin import load_tool_module_by_id
 from open_webui.env import AIOHTTP_CLIENT_TIMEOUT_TOOL_SERVER_DATA
 
-import copy
-
 log = logging.getLogger(__name__)
+
+
+_NAMED_SERVER_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def _named_server_config(connection: dict) -> tuple[bool, Optional[str]]:
+    """Return (named-mode-attempt, valid ID) for the measured explicit format."""
+    if not isinstance(connection, dict):
+        return False, None
+    info = connection.get("info")
+    has_info_id = isinstance(info, dict) and "id" in info
+    attempted = "spec_type" in connection or has_info_id
+    if not attempted:
+        return False, None
+    if connection.get("type") != "openapi" or connection.get("spec_type") != "url":
+        return True, None
+    if not isinstance(info, dict):
+        return True, None
+    server_id = info.get("id")
+    if (
+        not isinstance(server_id, str)
+        or not server_id.isascii()
+        or not _NAMED_SERVER_ID.fullmatch(server_id)
+        or server_id.isdecimal()
+    ):
+        return True, None
+    return True, server_id
+
+
+def _tool_server_connection_binding(connection: dict) -> tuple:
+    """Non-secret config identity kept only in the in-memory server cache."""
+    config = connection.get("config") if isinstance(connection, dict) else None
+    if not isinstance(config, dict):
+        config = {}
+    _attempted, server_id = _named_server_config(connection)
+    binding_fields = (
+        connection.get("url") if isinstance(connection, dict) else None,
+        connection.get("path", "openapi.json") if isinstance(connection, dict) else None,
+        connection.get("type") if isinstance(connection, dict) else None,
+        connection.get("spec_type") if isinstance(connection, dict) else None,
+        server_id,
+        config.get("enable") is True,
+    )
+    # Keep only a digest in application state; URLs can themselves contain secrets.
+    encoded = json.dumps(binding_fields, ensure_ascii=True, separators=(",", ":"))
+    return (hashlib.sha256(encoded.encode("utf-8")).hexdigest(),)
+
+
+def named_tool_server_catalog_ids(
+    connections: list, servers: list
+) -> tuple[dict[int, str], set[int]]:
+    """Map valid, unique, fresh named servers by original connection index."""
+    named_indices: set[int] = set()
+    counts: dict[str, int] = {}
+    valid_ids: dict[int, str] = {}
+    for index, connection in enumerate(connections):
+        attempted, server_id = _named_server_config(connection)
+        if not attempted:
+            continue
+        named_indices.add(index)
+        config = connection.get("config") if isinstance(connection, dict) else None
+        if isinstance(config, dict) and config.get("enable") is True and server_id is not None:
+            valid_ids[index] = server_id
+            counts[server_id] = counts.get(server_id, 0) + 1
+
+    catalog_ids: dict[int, str] = {}
+    for index, server_id in valid_ids.items():
+        if counts[server_id] != 1:
+            continue
+        matches = [server for server in servers if server.get("idx") == index]
+        if len(matches) != 1:
+            continue
+        if matches[0].get("connection_binding") != _tool_server_connection_binding(connections[index]):
+            continue
+        catalog_ids[index] = f"server:{server_id}"
+    return catalog_ids, named_indices
+
+
+def resolve_tool_server_reference(
+    tool_id: str, connections: list, servers: list, user_role: str
+) -> Optional[tuple[dict, dict]]:
+    """Resolve canonical named IDs or preserve legacy numeric IDs safely."""
+    if not isinstance(tool_id, str) or not tool_id.startswith("server:"):
+        return None
+    catalog_ids, named_indices = named_tool_server_catalog_ids(connections, servers)
+    named_by_id = {tool_id_value: index for index, tool_id_value in catalog_ids.items()}
+    named_index = named_by_id.get(tool_id)
+    if named_index is not None:
+        # Named server sharing forms are unmeasured; fail closed for every non-admin.
+        if user_role != "admin":
+            return None
+        matches = [server for server in servers if server.get("idx") == named_index]
+        if len(matches) != 1:
+            return None
+        return connections[named_index], matches[0]
+
+    suffix = tool_id[len("server:"):]
+    if not suffix.isascii() or not suffix.isdecimal():
+        return None
+    index = int(suffix)
+    if index >= len(connections) or index in named_indices:
+        return None
+    matches = [server for server in servers if server.get("idx") == index]
+    if len(matches) != 1:
+        return None
+    return connections[index], matches[0]
+
+
+def is_reserved_named_server_reference(tool_id: str, connections: list) -> bool:
+    """Keep named-server selections out of the local-plugin fallback path."""
+    if not isinstance(tool_id, str) or not tool_id.startswith("server:"):
+        return False
+    suffix = tool_id[len("server:") :]
+    for index, connection in enumerate(connections):
+        attempted, server_id = _named_server_config(connection)
+        if not attempted:
+            continue
+        if (
+            suffix.isascii()
+            and suffix.isdecimal()
+            and len(suffix) <= 10
+            and int(suffix) == index
+        ):
+            return True
+        info = connection.get("info") if isinstance(connection, dict) else None
+        raw_id = info.get("id") if isinstance(info, dict) else None
+        if isinstance(raw_id, str) and suffix == raw_id:
+            return True
+        if server_id is not None and suffix == server_id:
+            return True
+    return False
 
 
 def get_async_tool_function_and_apply_extra_params(
@@ -68,19 +199,27 @@ def get_tools(
     tools_dict = {}
 
     for tool_id in tool_ids:
-        tool = Tools.get_tool_by_id(tool_id)
+        connections = request.app.state.config.TOOL_SERVER_CONNECTIONS
+        reserved_named = is_reserved_named_server_reference(tool_id, connections)
+        # Named server IDs are a separate namespace. Never let a local plugin row
+        # with the same textual ID shadow the server or bypass its role gate.
+        if reserved_named and user.role != "admin":
+            continue
+        if reserved_named and Tools.get_tool_by_id(tool_id) is not None:
+            # Reject ambiguous local/server IDs before constructing a callable.
+            continue
+        tool = None if reserved_named else Tools.get_tool_by_id(tool_id)
         if tool is None:
             if tool_id.startswith("server:"):
-                server_idx = int(tool_id.split(":")[1])
-                tool_server_connection = (
-                    request.app.state.config.TOOL_SERVER_CONNECTIONS[server_idx]
+                resolved_server = resolve_tool_server_reference(
+                    tool_id,
+                    connections,
+                    request.app.state.TOOL_SERVERS,
+                    user.role,
                 )
-                tool_server_data = None
-                for server in request.app.state.TOOL_SERVERS:
-                    if server["idx"] == server_idx:
-                        tool_server_data = server
-                        break
-                assert tool_server_data is not None
+                if resolved_server is None:
+                    continue
+                tool_server_connection, tool_server_data = resolved_server
                 specs = tool_server_data.get("specs", [])
 
                 for spec in specs:
@@ -497,6 +636,7 @@ async def get_tool_servers_data(
             {
                 "idx": idx,
                 "url": server.get("url"),
+                "connection_binding": _tool_server_connection_binding(server),
                 "openapi": response.get("openapi"),
                 "info": response.get("info"),
                 "specs": response.get("specs"),

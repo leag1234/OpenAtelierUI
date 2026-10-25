@@ -22,7 +22,7 @@ from open_webui.utils.plugin import load_tool_module_by_id, replace_imports
 from open_webui.config import CACHE_DIR
 from open_webui.constants import ERROR_MESSAGES
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from open_webui.utils.tools import get_tool_specs
+from open_webui.utils.tools import get_tool_specs, named_tool_server_catalog_ids
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_access, has_permission
 from open_webui.utils.access_grants import (
@@ -69,12 +69,33 @@ async def get_tools(request: Request, user=Depends(get_verified_user)):
         )
 
     tools = Tools.get_tools()
+    connections = request.app.state.config.TOOL_SERVER_CONNECTIONS
+    named_catalog_ids, named_indices = named_tool_server_catalog_ids(
+        connections, request.app.state.TOOL_SERVERS
+    )
     for server in request.app.state.TOOL_SERVERS:
+        server_idx = server.get("idx")
+        if not isinstance(server_idx, int) or isinstance(server_idx, bool):
+            continue
+        if server_idx < 0 or server_idx >= len(connections):
+            continue
+        connection = connections[server_idx]
+        if not isinstance(connection, dict):
+            continue
+        if server_idx in named_indices:
+            catalog_id = named_catalog_ids.get(server_idx)
+            if catalog_id is None or user.role != "admin":
+                continue
+        else:
+            catalog_id = f"server:{server_idx}"
+        connection_config = connection.get("config")
+        if not isinstance(connection_config, dict):
+            connection_config = {}
         tools.append(
             ToolUserResponse(
                 **{
-                    "id": f"server:{server['idx']}",
-                    "user_id": f"server:{server['idx']}",
+                    "id": catalog_id,
+                    "user_id": catalog_id,
                     "name": server["openapi"]
                     .get("info", {})
                     .get("title", "Tool Server"),
@@ -83,11 +104,7 @@ async def get_tools(request: Request, user=Depends(get_verified_user)):
                         .get("info", {})
                         .get("description", ""),
                     },
-                    "access_control": request.app.state.config.TOOL_SERVER_CONNECTIONS[
-                        server["idx"]
-                    ]
-                    .get("config", {})
-                    .get("access_control", None),
+                    "access_control": connection_config.get("access_control", None),
                     "updated_at": int(time.time()),
                     "created_at": int(time.time()),
                 }
