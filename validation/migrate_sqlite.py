@@ -441,6 +441,9 @@ def _validate_object_domains(connection: sqlite3.Connection, report: dict, user_
     history_rows: dict[str, dict[str, dict]] = {}
     for table, (kind, owner_column) in history_specs.items():
         if table not in tables:
+            history_rows[kind] = {}
+            if any(row.get("version_id") not in (None, "") for row in objects[kind].values()):
+                _block(report, "missing_history_table_for_version_" + kind, 1, fatal=True)
             continue
         required = {"id", owner_column, "parent_id", "snapshot", "user_id", "commit_message", "created_at"}
         cols = set(_columns(connection, table))
@@ -466,7 +469,7 @@ def _validate_object_domains(connection: sqlite3.Connection, report: dict, user_
                 for field in required_snapshot:
                     expected_type = dict if field in {"meta", "params"} else str
                     if kind == "model" and field == "base_model_id":
-                        if snapshot[field] is not None and not isinstance(snapshot[field], str):
+                        if field not in snapshot or (snapshot[field] is not None and not isinstance(snapshot[field], str)):
                             _block(report, "invalid_history_snapshot_" + kind, 1, fatal=True)
                         continue
                     if not isinstance(snapshot.get(field), expected_type):

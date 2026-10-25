@@ -197,6 +197,8 @@ class ImporterTests(unittest.TestCase):
             (["INSERT INTO access_grant VALUES ('g1','tool','tool-private','user','*','read',12)", "INSERT INTO access_grant VALUES ('g2','tool','tool-private','user','u1','read',13)"], 'public_and_targeted_grants_conflict'),
             (["UPDATE tool SET version_id='absent' WHERE id='tool-private'"], 'invalid_current_version_link_tool'),
             (["UPDATE tool SET version_id='bad-snapshot' WHERE id='tool-private'", "INSERT INTO tool_history VALUES ('bad-snapshot','tool-private',NULL,'{}','u1',NULL,10)"], 'invalid_history_snapshot_tool'),
+            (["UPDATE model SET version_id='missing-table-version' WHERE id='model-private'", "DROP TABLE model_history"], 'missing_history_table_for_version_model'),
+            (["UPDATE model SET version_id='missing-field-version' WHERE id='model-private'", "INSERT INTO model_history VALUES ('missing-field-version','model-private',NULL,'{\"name\":\"x\",\"params\":{},\"meta\":{}}','u1',NULL,10)"], 'invalid_history_snapshot_model'),
         ]
         for statements, expected in bad_inputs:
             with self.subTest(expected=expected):
