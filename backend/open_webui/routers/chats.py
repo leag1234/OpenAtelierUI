@@ -1,3 +1,4 @@
+import copy
 import json
 import logging
 from typing import Optional
@@ -7,10 +8,19 @@ from open_webui.socket.main import get_event_emitter
 from open_webui.models.chats import (
     ChatForm,
     ChatImportForm,
+    PrivateChatForm,
     ChatResponse,
+    PrivateChatResponse,
     Chats,
     ChatTitleIdResponse,
+    PrivateChatTitleIdResponse,
+    _chat_current_message_id,
+    _normalize_private_chat_authors,
+    _public_chat_meta,
+    _project_private_chat_authors,
+    _saved_work_marker,
 )
+from open_webui.models.users import Users
 from open_webui.models.tags import TagModel, Tags
 from open_webui.models.folders import Folders
 
@@ -29,13 +39,45 @@ log.setLevel(SRC_LOG_LEVELS["MODELS"])
 
 router = APIRouter()
 
+
+def _saved_chat_response(chat, user, mark_continue=False, user_lookup=None):
+    values = chat.model_dump()
+    chat_payload = copy.deepcopy(values.get("chat") or {})
+    marked = _saved_work_marker(values.get("meta")) is not None
+    if marked:
+        chat_payload = _project_private_chat_authors(chat_payload, user, user_lookup)
+        if mark_continue:
+            chat_payload["share_mode"] = "continue"
+    values["chat"] = chat_payload
+    values["meta"] = _public_chat_meta(values.get("meta"))
+    values["variables"] = {}
+    values["tasks"] = None
+    values["summary"] = None
+    values["context_usage"] = None
+    values["current_message_id"] = _chat_current_message_id(chat_payload)
+    values.setdefault("folder_id", None)
+    return PrivateChatResponse(**values)
+
+
+def _require_supported_saved_chat_fields(form_data):
+    if form_data.variables not in (None, {}):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Non-empty chat variables are not supported by this compatibility prototype.",
+        )
+    if form_data.folder_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Folder chat behavior is not supported by this compatibility prototype.",
+        )
+
 ############################
 # GetChatList
 ############################
 
 
-@router.get("/", response_model=list[ChatTitleIdResponse])
-@router.get("/list", response_model=list[ChatTitleIdResponse])
+@router.get("/", response_model=list[PrivateChatTitleIdResponse])
+@router.get("/list", response_model=list[PrivateChatTitleIdResponse])
 async def get_session_user_chat_list(
     user=Depends(get_verified_user), page: Optional[int] = None
 ):
@@ -95,11 +137,20 @@ async def get_user_chat_list_by_user_id(
 ############################
 
 
-@router.post("/new", response_model=Optional[ChatResponse])
-async def create_new_chat(form_data: ChatForm, user=Depends(get_verified_user)):
+@router.post("/new", response_model=Optional[PrivateChatResponse])
+async def create_new_chat(form_data: PrivateChatForm, user=Depends(get_verified_user)):
+    _require_supported_saved_chat_fields(form_data)
     try:
-        chat = Chats.insert_new_chat(user.id, form_data)
-        return ChatResponse(**chat.model_dump())
+        normalized = _normalize_private_chat_authors(form_data.chat, user)
+        prepared = PrivateChatForm(
+            chat=normalized,
+            variables=form_data.variables,
+            folder_id=form_data.folder_id,
+        )
+        chat = Chats.insert_new_chat(
+            user.id, prepared, compatibility_saved_work=True
+        )
+        return _saved_chat_response(chat, user)
     except Exception as e:
         log.exception(e)
         raise HTTPException(
@@ -340,12 +391,15 @@ async def get_user_chat_list_by_tag_name(
 ############################
 
 
-@router.get("/{id}", response_model=Optional[ChatResponse])
+@router.get("/{id}", response_model=Optional[PrivateChatResponse])
 async def get_chat_by_id(id: str, user=Depends(get_verified_user)):
     chat = Chats.get_chat_by_id_and_user_id(id, user.id)
 
     if chat:
-        return ChatResponse(**chat.model_dump())
+        Chats.mark_private_saved_chat_read(id, user.id)
+        return _saved_chat_response(
+            chat, user, mark_continue=True, user_lookup=Users.get_user_by_id
+        )
 
     else:
         raise HTTPException(
@@ -358,15 +412,18 @@ async def get_chat_by_id(id: str, user=Depends(get_verified_user)):
 ############################
 
 
-@router.post("/{id}", response_model=Optional[ChatResponse])
+@router.post("/{id}", response_model=Optional[PrivateChatResponse])
 async def update_chat_by_id(
-    id: str, form_data: ChatForm, user=Depends(get_verified_user)
+    id: str, form_data: PrivateChatForm, user=Depends(get_verified_user)
 ):
     chat = Chats.get_chat_by_id_and_user_id(id, user.id)
     if chat:
+        _require_supported_saved_chat_fields(form_data)
         updated_chat = {**chat.chat, **form_data.chat}
+        if _saved_work_marker(chat.meta) is not None:
+            updated_chat = _normalize_private_chat_authors(updated_chat, user)
         chat = Chats.update_chat_by_id(id, updated_chat)
-        return ChatResponse(**chat.model_dump())
+        return _saved_chat_response(chat, user)
     else:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

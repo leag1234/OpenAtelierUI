@@ -1,3 +1,4 @@
+import copy
 import logging
 import json
 import time
@@ -8,7 +9,7 @@ from open_webui.internal.db import Base, get_db
 from open_webui.models.tags import TagModel, Tag, Tags
 from open_webui.env import SRC_LOG_LEVELS
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import BigInteger, Boolean, Column, String, Text, JSON
 from sqlalchemy import or_, func, select, and_, text
 from sqlalchemy.sql import exists
@@ -19,6 +20,157 @@ from sqlalchemy.sql import exists
 
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MODELS"])
+
+SAVED_WORK_META_KEY = "_mdk_private_saved_work"
+
+
+def _saved_work_marker(meta):
+    if not isinstance(meta, dict):
+        return None
+    marker = meta.get(SAVED_WORK_META_KEY)
+    if not isinstance(marker, dict):
+        return None
+    if type(marker.get("version")) is not int or marker["version"] != 1:
+        return None
+    if set(marker) != {"version", "last_read_at"}:
+        return None
+    last_read_at = marker.get("last_read_at")
+    if last_read_at is not None and (type(last_read_at) is not int or last_read_at < 0):
+        return None
+    return marker
+
+
+def _new_saved_work_meta(meta=None):
+    result = copy.deepcopy(meta) if isinstance(meta, dict) else {}
+    if SAVED_WORK_META_KEY not in result:
+        result[SAVED_WORK_META_KEY] = {"version": 1, "last_read_at": None}
+    return result
+
+
+def _public_chat_meta(meta):
+    result = copy.deepcopy(meta) if isinstance(meta, dict) else {}
+    if _saved_work_marker(result) is not None:
+        result.pop(SAVED_WORK_META_KEY, None)
+    return result
+
+
+def _saved_work_last_read(meta):
+    marker = _saved_work_marker(meta)
+    return marker.get("last_read_at") if marker else None
+
+
+def _updated_saved_work_read_meta(meta, read_at):
+    if type(read_at) is not int or read_at < 0:
+        return None
+    marker = _saved_work_marker(meta)
+    if marker is None:
+        return None
+    result = copy.deepcopy(meta)
+    result[SAVED_WORK_META_KEY]["last_read_at"] = read_at
+    return result
+
+
+def _normalize_private_chat_authors(chat, user, user_lookup=None):
+    result = copy.deepcopy(chat) if isinstance(chat, dict) else {}
+    user_id = getattr(user, "id", None)
+    profiles = {}
+
+    def author_profile(author_id):
+        if author_id not in profiles:
+            if author_id == user_id:
+                name = getattr(user, "name", None)
+                if name is None and user_lookup is not None:
+                    resolved = user_lookup(author_id)
+                    name = getattr(resolved, "name", None) if resolved else None
+                profiles[author_id] = {"id": author_id, "name": name}
+            elif user_lookup is not None:
+                resolved = user_lookup(author_id)
+                profiles[author_id] = (
+                    {"id": author_id, "name": getattr(resolved, "name", None)}
+                    if resolved
+                    else None
+                )
+            else:
+                profiles[author_id] = None
+        return profiles[author_id]
+
+    message_maps = []
+    history = result.get("history")
+    if isinstance(history, dict) and isinstance(history.get("messages"), dict):
+        message_maps.append(history["messages"])
+    flat_messages = result.get("messages")
+    if isinstance(flat_messages, list):
+        message_maps.append(flat_messages)
+
+    for collection in message_maps:
+        messages = collection.values() if isinstance(collection, dict) else collection
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            message["user_id"] = user_id
+            if message.get("role") == "user":
+                profile = author_profile(user_id)
+                if profile is not None:
+                    message["user"] = copy.deepcopy(profile)
+                else:
+                    message.pop("user", None)
+            else:
+                message.pop("user", None)
+    return result
+
+
+def _project_private_chat_authors(chat, user, user_lookup=None):
+    result = copy.deepcopy(chat) if isinstance(chat, dict) else {}
+    caller_id = getattr(user, "id", None)
+    profile_cache = {}
+
+    def profile_for(author_id):
+        if author_id not in profile_cache:
+            if author_id == caller_id:
+                profile_cache[author_id] = {
+                    "id": caller_id,
+                    "name": getattr(user, "name", None),
+                }
+            elif user_lookup is not None:
+                resolved = user_lookup(author_id)
+                profile_cache[author_id] = (
+                    {"id": getattr(resolved, "id", author_id), "name": getattr(resolved, "name", None)}
+                    if resolved
+                    else None
+                )
+            else:
+                profile_cache[author_id] = None
+        return profile_cache[author_id]
+
+    collections = []
+    history = result.get("history")
+    if isinstance(history, dict) and isinstance(history.get("messages"), dict):
+        collections.append(history["messages"])
+    flat_messages = result.get("messages")
+    if isinstance(flat_messages, list):
+        collections.append(flat_messages)
+    for collection in collections:
+        messages = collection.values() if isinstance(collection, dict) else collection
+        for message in messages:
+            if not isinstance(message, dict) or message.get("role") != "user":
+                continue
+            author_id = message.get("user_id")
+            if not isinstance(author_id, str) or not author_id:
+                continue
+            profile = profile_for(author_id)
+            if profile is not None:
+                message["user"] = copy.deepcopy(profile)
+    return result
+
+
+def _chat_current_message_id(chat):
+    if not isinstance(chat, dict):
+        return None
+    history = chat.get("history")
+    if not isinstance(history, dict):
+        return None
+    current_id = history.get("currentId")
+    return current_id if isinstance(current_id, str) else None
 
 
 class Chat(Base):
@@ -68,6 +220,11 @@ class ChatForm(BaseModel):
     chat: dict
 
 
+class PrivateChatForm(ChatForm):
+    variables: Optional[dict] = None
+    folder_id: Optional[str] = None
+
+
 class ChatImportForm(ChatForm):
     meta: Optional[dict] = {}
     pinned: Optional[bool] = False
@@ -97,6 +254,14 @@ class ChatResponse(BaseModel):
     folder_id: Optional[str] = None
 
 
+class PrivateChatResponse(ChatResponse):
+    variables: dict = Field(default_factory=dict)
+    tasks: Optional[list] = None
+    summary: Optional[str] = None
+    current_message_id: Optional[str] = None
+    context_usage: Optional[dict] = None
+
+
 class ChatTitleIdResponse(BaseModel):
     id: str
     title: str
@@ -104,8 +269,20 @@ class ChatTitleIdResponse(BaseModel):
     created_at: int
 
 
+class PrivateChatTitleIdResponse(ChatTitleIdResponse):
+    last_read_at: Optional[int] = None
+    snippet: Optional[str] = None
+    active: bool = False
+    archived: bool = False
+
+
 class ChatTable:
-    def insert_new_chat(self, user_id: str, form_data: ChatForm) -> Optional[ChatModel]:
+    def insert_new_chat(
+        self,
+        user_id: str,
+        form_data: ChatForm,
+        compatibility_saved_work: bool = False,
+    ) -> Optional[ChatModel]:
         with get_db() as db:
             id = str(uuid.uuid4())
             chat = ChatModel(
@@ -118,6 +295,7 @@ class ChatTable:
                         else "New Chat"
                     ),
                     "chat": form_data.chat,
+                    "meta": _new_saved_work_meta() if compatibility_saved_work else None,
                     "created_at": int(time.time()),
                     "updated_at": int(time.time()),
                 }
@@ -171,6 +349,27 @@ class ChatTable:
                 return ChatModel.model_validate(chat_item)
         except Exception:
             return None
+
+    def mark_private_saved_chat_read(self, id: str, user_id: str) -> bool:
+        try:
+            with get_db() as db:
+                chat_item = (
+                    db.query(Chat)
+                    .filter_by(id=id, user_id=user_id)
+                    .first()
+                )
+                if chat_item is None:
+                    return False
+                updated_meta = _updated_saved_work_read_meta(
+                    chat_item.meta, int(time.time())
+                )
+                if updated_meta is None:
+                    return False
+                chat_item.meta = updated_meta
+                db.commit()
+                return True
+        except Exception:
+            return False
 
     def update_chat_title_by_id(self, id: str, title: str) -> Optional[ChatModel]:
         chat = self.get_chat_by_id(id)
@@ -417,7 +616,7 @@ class ChatTable:
         include_archived: bool = False,
         skip: Optional[int] = None,
         limit: Optional[int] = None,
-    ) -> list[ChatTitleIdResponse]:
+    ) -> list[PrivateChatTitleIdResponse]:
         with get_db() as db:
             query = db.query(Chat).filter_by(user_id=user_id).filter_by(folder_id=None)
             query = query.filter(or_(Chat.pinned == False, Chat.pinned == None))
@@ -426,7 +625,12 @@ class ChatTable:
                 query = query.filter_by(archived=False)
 
             query = query.order_by(Chat.updated_at.desc()).with_entities(
-                Chat.id, Chat.title, Chat.updated_at, Chat.created_at
+                Chat.id,
+                Chat.title,
+                Chat.updated_at,
+                Chat.created_at,
+                Chat.meta,
+                Chat.archived,
             )
 
             if skip:
@@ -438,12 +642,16 @@ class ChatTable:
 
             # result has to be destrctured from sqlalchemy `row` and mapped to a dict since the `ChatModel`is not the returned dataclass.
             return [
-                ChatTitleIdResponse.model_validate(
+                PrivateChatTitleIdResponse.model_validate(
                     {
                         "id": chat[0],
                         "title": chat[1],
                         "updated_at": chat[2],
                         "created_at": chat[3],
+                        "last_read_at": _saved_work_last_read(chat[4]),
+                        "snippet": None,
+                        "active": False,
+                        "archived": bool(chat[5]),
                     }
                 )
                 for chat in all_chats
