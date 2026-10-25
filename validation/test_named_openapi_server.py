@@ -229,6 +229,27 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.namespace["named_tool_server_read_allowed"](allowed, self.user("user-2")))
         self.assertTrue(self.namespace["named_tool_server_read_allowed"](base, self.user(role="admin")))
         self.assertFalse(self.namespace["named_tool_server_read_allowed"](base, self.user()))
+        self.assertFalse(
+            self.namespace["named_tool_server_read_allowed"](
+                allowed, self.user(role="pending")
+            )
+        )
+        self.assertFalse(
+            self.namespace["named_tool_server_read_allowed"](
+                allowed, self.user(role="unknown")
+            )
+        )
+        empty_id_connection = self.grant_connection(base, "")
+        self.assertFalse(
+            self.namespace["named_tool_server_read_allowed"](
+                empty_id_connection, self.user("")
+            )
+        )
+        self.assertFalse(
+            self.namespace["named_tool_server_read_allowed"](
+                allowed, self.user("   ")
+            )
+        )
 
         unsupported_configs = [
             {},

@@ -121,8 +121,12 @@ def named_tool_server_catalog_ids(
 
 def named_tool_server_read_allowed(connection: dict, user: UserModel) -> bool:
     """Check only the measured exact user/read grant for a named server."""
-    if getattr(user, "role", None) == "admin":
+    role = getattr(user, "role", None)
+    if role == "admin":
         return True
+    user_id = getattr(user, "id", None)
+    if role != "user" or not isinstance(user_id, str) or not user_id.strip():
+        return False
     config = connection.get("config") if isinstance(connection, dict) else None
     grants = config.get("access_grants") if isinstance(config, dict) else None
     if not isinstance(grants, list) or len(grants) != 1:
@@ -136,8 +140,9 @@ def named_tool_server_read_allowed(connection: dict, user: UserModel) -> bool:
         return False
     return (
         grant.get("principal_type") == "user"
-        and grant.get("principal_id") == getattr(user, "id", None)
+        and grant.get("principal_id") == user_id
         and isinstance(grant.get("principal_id"), str)
+        and bool(grant.get("principal_id").strip())
         and grant.get("permission") == "read"
     )
 
