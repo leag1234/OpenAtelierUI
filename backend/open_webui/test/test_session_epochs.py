@@ -157,6 +157,43 @@ class SessionEpochTests(unittest.TestCase):
         self.assertEqual(reopened.execute('SELECT * FROM chat').fetchall(), chat_before)
         reopened.close()
 
+    def test_conditional_issue_requires_same_epoch_and_never_initializes_stale_state(self):
+        self.prepare()
+        original = epochs.issue_epoch(self.target, "synthetic-owner")
+        self.assertEqual(
+            epochs.issue_epoch(self.target, "synthetic-owner", expected_epoch=original),
+            original,
+        )
+
+        rotated = epochs.rotate_epoch(self.target, "synthetic-owner")
+        before_stale_issue = sqlite3.connect(self.target)
+        stale_rows_before = before_stale_issue.execute(
+            'SELECT id,session_stamp FROM auth ORDER BY id'
+        ).fetchall()
+        before_stale_issue.close()
+        with self.assertRaises(epochs.SessionEpochError) as stale:
+            epochs.issue_epoch(self.target, "synthetic-owner", expected_epoch=original)
+        self.assertEqual(stale.exception.code, "stale_session")
+        after_stale_issue = sqlite3.connect(self.target)
+        self.assertEqual(
+            after_stale_issue.execute('SELECT id,session_stamp FROM auth ORDER BY id').fetchall(),
+            stale_rows_before,
+        )
+        after_stale_issue.close()
+        self.assertEqual(
+            epochs.issue_epoch(self.target, "synthetic-owner", expected_epoch=rotated),
+            rotated,
+        )
+
+        cleared = sqlite3.connect(self.target)
+        cleared.execute('UPDATE auth SET session_stamp=NULL WHERE id="synthetic-owner"')
+        cleared.commit()
+        cleared.close()
+        with self.assertRaises(epochs.SessionEpochError) as cleared_stale:
+            epochs.issue_epoch(self.target, "synthetic-owner", expected_epoch=rotated)
+        self.assertEqual(cleared_stale.exception.code, "stale_session")
+        self.assertIsNone(epochs.get_epoch(self.target, "synthetic-owner"))
+
     def test_missing_user_never_creates_auth_or_epoch_rows(self):
         self.prepare()
         before = sqlite3.connect(self.target)

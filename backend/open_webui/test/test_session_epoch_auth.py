@@ -117,7 +117,7 @@ def _make_namespace(database_url: str, *, users=None, events=None):
     access_denied = "Access prohibited"
     messages = types.SimpleNamespace(
         API_KEY_NOT_ALLOWED="API key not allowed",
-        INVALID_TOKEN="Invalid token",
+        INVALID_TOKEN="Your session has expired or the token is invalid. Please sign in again.",
         UNAUTHORIZED="Unauthorized",
         ACCESS_PROHIBITED=access_denied,
     )
@@ -144,6 +144,8 @@ def _make_namespace(database_url: str, *, users=None, events=None):
         "UTC": timezone.utc,
         "MAX_EPOCH_BYTES": session_epochs.MAX_EPOCH_BYTES,
         "MAX_EPOCH_CHARS": session_epochs.MAX_EPOCH_CHARS,
+        "_VALIDATED_SESSION_STATE_MARKER": object(),
+        "_VALIDATED_SESSION_STATE_ATTRIBUTE": "_openatelier_validated_session_epoch",
         "SessionEpochError": session_epochs.SessionEpochError,
         "issue_epoch": session_epochs.issue_epoch,
         "validate_epoch": session_epochs.validate_epoch,
@@ -156,6 +158,7 @@ def _make_namespace(database_url: str, *, users=None, events=None):
         "_session_epoch_database_path",
         "_session_state_unavailable",
         "_valid_session_stamp_claim",
+        "get_validated_session_epoch",
         "revoke_user_session_epoch",
         "create_token",
         "decode_token",
@@ -184,6 +187,8 @@ def _request(cookie=None, *, path="/api/v1/users/me", api_key_enabled=False):
                 config=types.SimpleNamespace(
                     ENABLE_API_KEY_ENDPOINT_RESTRICTIONS=False,
                     API_KEY_ALLOWED_ENDPOINTS="",
+                    JWT_EXPIRES_IN=None,
+                    USER_PERMISSIONS={},
                 )
             )
         ),
@@ -207,6 +212,26 @@ def _prepared_db(path: Path):
     session_epochs.prepare_auth_session_stamp_copy(source, path)
 
 
+def _install_session_user_route(namespace):
+    route_path = ROOT / "routers" / "auths.py"
+    namespace.update(
+        {
+            "datetime": __import__("datetime"),
+            "time": __import__("time"),
+            "parse_duration": lambda _value: None,
+            "get_permissions": lambda *_args: {},
+            "WEBUI_AUTH_COOKIE_SAME_SITE": "lax",
+            "WEBUI_AUTH_COOKIE_SECURE": False,
+        }
+    )
+    selected = _function_nodes(route_path, {"get_session_user"})
+    exec(
+        compile(ast.Module(body=selected, type_ignores=[]), str(route_path), "exec"),
+        namespace,
+    )
+    return namespace["get_session_user"]
+
+
 class SessionEpochAuthTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -215,7 +240,15 @@ class SessionEpochAuthTests(unittest.TestCase):
         _prepared_db(self.database)
         self.events = []
         self.users = UsersStub(
-            {"synthetic-owner": types.SimpleNamespace(id="synthetic-owner", role="user")},
+            {
+                "synthetic-owner": types.SimpleNamespace(
+                    id="synthetic-owner",
+                    email="owner@example.invalid",
+                    name="Synthetic Owner",
+                    role="user",
+                    profile_image_url="",
+                )
+            },
             self.events,
         )
         self.namespace = _make_namespace(
@@ -241,6 +274,20 @@ class SessionEpochAuthTests(unittest.TestCase):
             )
             self.assertIs(user, self.users.users["synthetic-owner"])
             self.assertEqual(self.events, ["decode", "user_lookup", ("background", self.users.update_user_last_active_by_id, ("synthetic-owner",))])
+
+    def test_default_off_missing_user_keeps_configured_legacy_error_copy(self):
+        with patch.dict(os.environ, {}, clear=True):
+            token = self.namespace["create_token"]({"id": "synthetic-owner"})
+            self.users.users.clear()
+            with self.assertRaises(HTTPError) as missing_user:
+                self.namespace["get_current_user"](
+                    _request(), BackgroundTasks(self.events), Credentials("Bearer", token)
+                )
+        self.assertEqual(missing_user.exception.status_code, 401)
+        self.assertEqual(
+            missing_user.exception.detail,
+            "Your session has expired or the token is invalid. Please sign in again.",
+        )
 
     def test_enabled_issuance_preserves_expiry_payload_and_adds_stable_stamp_fresh_jti(self):
         payload = {"id": "synthetic-owner", "custom": ["unchanged"]}
@@ -275,6 +322,83 @@ class SessionEpochAuthTests(unittest.TestCase):
                     _request(), BackgroundTasks(self.events), Credentials("Bearer", token)
                 )
             self.assertEqual((stale.exception.status_code, stale.exception.detail), (401, "Invalid token"))
+
+    def test_auths_renewal_rejects_stale_admitted_request_without_promoting_epoch(self):
+        route = _install_session_user_route(self.namespace)
+        request = _request(path="/api/v1/auths/")
+        cookie = {}
+        response = types.SimpleNamespace(set_cookie=lambda **kwargs: cookie.update(kwargs))
+        with patch.dict(os.environ, {"OPENATELIER_SESSION_EPOCHS": "true"}, clear=True):
+            original = self.namespace["create_token"]({"id": "synthetic-owner"})
+            admitted = self.namespace["get_current_user"](
+                request, BackgroundTasks(self.events), Credentials("Bearer", original)
+            )
+            expected = self.namespace["get_validated_session_epoch"](
+                request, admitted.id
+            )
+            self.assertEqual(expected, self.namespace["jwt"].decoded[original]["session_stamp"])
+            self.namespace["revoke_user_session_epoch"]("synthetic-owner")
+            rotated = session_epochs.get_epoch(self.database, "synthetic-owner")
+            encoded_before = len(self.namespace["jwt"].encoded)
+
+            with self.assertRaises(HTTPError) as stale:
+                asyncio.run(route(request, response, admitted))
+
+            self.assertEqual((stale.exception.status_code, stale.exception.detail), (401, "Invalid token"))
+            self.assertEqual(len(self.namespace["jwt"].encoded), encoded_before)
+            self.assertEqual(session_epochs.get_epoch(self.database, "synthetic-owner"), rotated)
+            self.assertFalse(cookie)
+            with self.assertRaises(HTTPError) as old_token:
+                self.namespace["get_current_user"](
+                    _request(), BackgroundTasks(self.events), Credentials("Bearer", original)
+                )
+            self.assertEqual((old_token.exception.status_code, old_token.exception.detail), (401, "Invalid token"))
+
+            fresh = self.namespace["create_token"]({"id": "synthetic-owner"})
+            fresh_user = self.namespace["get_current_user"](
+                _request(), BackgroundTasks(self.events), Credentials("Bearer", fresh)
+            )
+            self.assertEqual(fresh_user.id, "synthetic-owner")
+
+    def test_auths_renewal_uses_validated_stamp_and_later_rotation_invalidates_it(self):
+        route = _install_session_user_route(self.namespace)
+        request = _request(path="/api/v1/auths/")
+        response = types.SimpleNamespace(set_cookie=lambda **_kwargs: None)
+        with patch.dict(os.environ, {"OPENATELIER_SESSION_EPOCHS": "1"}, clear=True):
+            original = self.namespace["create_token"]({"id": "synthetic-owner"})
+            admitted = self.namespace["get_current_user"](
+                request, BackgroundTasks(self.events), Credentials("Bearer", original)
+            )
+            original_stamp = self.namespace["jwt"].decoded[original]["session_stamp"]
+            renewed = asyncio.run(route(request, response, admitted))
+            renewed_token = renewed["token"]
+            self.assertEqual(
+                self.namespace["jwt"].decoded[renewed_token]["session_stamp"],
+                original_stamp,
+            )
+            self.assertEqual(
+                self.namespace["get_current_user"](
+                    _request(), BackgroundTasks(self.events), Credentials("Bearer", renewed_token)
+                ).id,
+                "synthetic-owner",
+            )
+
+            self.namespace["revoke_user_session_epoch"]("synthetic-owner")
+            with self.assertRaises(HTTPError) as revoked_after_issue:
+                self.namespace["get_current_user"](
+                    _request(), BackgroundTasks(self.events), Credentials("Bearer", renewed_token)
+                )
+            self.assertEqual(
+                (revoked_after_issue.exception.status_code, revoked_after_issue.exception.detail),
+                (401, "Invalid token"),
+            )
+            fresh = self.namespace["create_token"]({"id": "synthetic-owner"})
+            self.assertEqual(
+                self.namespace["get_current_user"](
+                    _request(), BackgroundTasks(self.events), Credentials("Bearer", fresh)
+                ).id,
+                "synthetic-owner",
+            )
 
     def test_missing_malformed_claims_and_unavailable_store_fail_closed(self):
         with patch.dict(os.environ, {"OPENATELIER_SESSION_EPOCHS": "on"}, clear=True):
@@ -408,12 +532,16 @@ class SessionEpochAuthTests(unittest.TestCase):
                     Credentials("Bearer", "sk-synthetic"),
                 )
             self.assertEqual(disabled.exception.status_code, 403)
+            request = _request(api_key_enabled=True)
             user = self.namespace["get_current_user"](
-                _request(api_key_enabled=True),
+                request,
                 BackgroundTasks(self.events),
                 Credentials("Bearer", "sk-synthetic"),
             )
         self.assertEqual(user.id, "api-user")
+        self.assertIsNone(
+            self.namespace["get_validated_session_epoch"](request, user.id)
+        )
         self.assertEqual(self.users.api_key_reads, ["sk-synthetic"])
         self.assertNotIn("decode", self.events)
 

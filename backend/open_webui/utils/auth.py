@@ -45,6 +45,8 @@ log.setLevel(SRC_LOG_LEVELS["OAUTH"])
 
 SESSION_SECRET = WEBUI_SECRET_KEY
 ALGORITHM = "HS256"
+_VALIDATED_SESSION_STATE_MARKER = object()
+_VALIDATED_SESSION_STATE_ATTRIBUTE = "_openatelier_validated_session_epoch"
 
 ##############
 # Auth Utils
@@ -162,6 +164,21 @@ def _valid_session_stamp_claim(value) -> bool:
         return False
 
 
+def get_validated_session_epoch(request: Request, user_id: str) -> Optional[str]:
+    """Return the epoch validated by this request's JWT dependency, if any."""
+    state = getattr(request, "state", None)
+    validated = getattr(state, _VALIDATED_SESSION_STATE_ATTRIBUTE, None)
+    if (
+        isinstance(validated, tuple)
+        and len(validated) == 3
+        and validated[0] is _VALIDATED_SESSION_STATE_MARKER
+        and validated[1] == user_id
+        and _valid_session_stamp_claim(validated[2])
+    ):
+        return validated[2]
+    return None
+
+
 def revoke_user_session_epoch(user_id: str) -> None:
     """Rotate one existing account epoch in the opt-in copied-profile experiment."""
     if not _session_epochs_enabled():
@@ -186,7 +203,12 @@ def get_password_hash(password):
     return pwd_context.hash(password)
 
 
-def create_token(data: dict, expires_delta: Union[timedelta, None] = None) -> str:
+def create_token(
+    data: dict,
+    expires_delta: Union[timedelta, None] = None,
+    *,
+    expected_session_stamp: Optional[str] = None,
+) -> str:
     payload = data.copy()
 
     if expires_delta:
@@ -198,8 +220,19 @@ def create_token(data: dict, expires_delta: Union[timedelta, None] = None) -> st
         if not isinstance(user_id, str) or not user_id or len(user_id) > 256:
             raise _session_state_unavailable()
         try:
-            payload["session_stamp"] = issue_epoch(_session_epoch_database_path(), user_id)
+            database_path = _session_epoch_database_path()
+            if expected_session_stamp is None:
+                payload["session_stamp"] = issue_epoch(database_path, user_id)
+            else:
+                payload["session_stamp"] = issue_epoch(
+                    database_path, user_id, expected_epoch=expected_session_stamp
+                )
         except SessionEpochError as error:
+            if error.code == "stale_session":
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid token",
+                ) from error
             raise _session_state_unavailable() from error
         except Exception as error:
             raise _session_state_unavailable() from error
@@ -241,6 +274,11 @@ def get_current_user(
     background_tasks: BackgroundTasks,
     auth_token: HTTPAuthorizationCredentials = Depends(bearer_security),
 ):
+    if _session_epochs_enabled():
+        state = getattr(request, "state", None)
+        if state is not None:
+            setattr(state, _VALIDATED_SESSION_STATE_ATTRIBUTE, None)
+
     token = None
 
     if auth_token is not None:
@@ -300,7 +338,7 @@ def get_current_user(
             ):
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail=ERROR_MESSAGES.INVALID_TOKEN,
+                    detail="Invalid token",
                 )
             try:
                 stamp_is_current = validate_epoch(
@@ -310,7 +348,7 @@ def get_current_user(
                 if error.code == "user_not_found":
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail=ERROR_MESSAGES.INVALID_TOKEN,
+                        detail="Invalid token",
                     ) from error
                 raise _session_state_unavailable() from error
             except Exception as error:
@@ -318,19 +356,29 @@ def get_current_user(
             if not stamp_is_current:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail=ERROR_MESSAGES.INVALID_TOKEN,
+                    detail="Invalid token",
                 )
         user = Users.get_user_by_id(data["id"])
         if user is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=ERROR_MESSAGES.INVALID_TOKEN,
+                detail=(
+                    "Invalid token"
+                    if _session_epochs_enabled()
+                    else ERROR_MESSAGES.INVALID_TOKEN
+                ),
             )
         else:
             # Refresh the user's last active timestamp asynchronously
             # to prevent blocking the request
             if background_tasks:
                 background_tasks.add_task(Users.update_user_last_active_by_id, user.id)
+            if _session_epochs_enabled():
+                setattr(
+                    request.state,
+                    _VALIDATED_SESSION_STATE_ATTRIBUTE,
+                    (_VALIDATED_SESSION_STATE_MARKER, data["id"], stamp_claim),
+                )
         return user
     else:
         raise HTTPException(

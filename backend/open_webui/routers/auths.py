@@ -37,6 +37,7 @@ from open_webui.utils.misc import parse_duration, validate_email_format
 from open_webui.utils.auth import (
     create_api_key,
     create_token,
+    get_validated_session_epoch,
     get_admin_user,
     get_verified_user,
     get_current_user,
@@ -77,10 +78,18 @@ async def get_session_user(
     if expires_delta:
         expires_at = int(time.time()) + int(expires_delta.total_seconds())
 
-    token = create_token(
-        data={"id": user.id},
-        expires_delta=expires_delta,
-    )
+    validated_session_stamp = get_validated_session_epoch(request, user.id)
+    if validated_session_stamp is None:
+        token = create_token(
+            data={"id": user.id},
+            expires_delta=expires_delta,
+        )
+    else:
+        token = create_token(
+            data={"id": user.id},
+            expires_delta=expires_delta,
+            expected_session_stamp=validated_session_stamp,
+        )
 
     datetime_expires_at = (
         datetime.datetime.fromtimestamp(expires_at, datetime.timezone.utc)

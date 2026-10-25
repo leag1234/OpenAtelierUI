@@ -182,15 +182,18 @@ def get_epoch(database_path: str | Path, user_id: str, *, busy_timeout: float = 
         connection.close()
 
 
-def issue_epoch(database_path: str | Path, user_id: str, *, busy_timeout: float = DEFAULT_BUSY_TIMEOUT, query_counter: dict | None = None) -> str:
-    """Return the stable epoch, initializing only an existing NULL auth row."""
+def issue_epoch(database_path: str | Path, user_id: str, *, expected_epoch: str | None = None, busy_timeout: float = DEFAULT_BUSY_TIMEOUT, query_counter: dict | None = None) -> str:
+    """Return the stable epoch, or require an exact validated epoch without initializing."""
     _check_user_id(user_id)
+    expected = _check_epoch(expected_epoch) if expected_epoch is not None else None
     connection = _connect_rw(database_path, busy_timeout=busy_timeout, query_counter=query_counter)
     try:
         _require_schema(connection)
         connection.execute("BEGIN IMMEDIATE")
         row = _read_row(connection, user_id)
         current = _check_epoch(row["session_stamp"], allow_null=True)
+        if expected is not None and current != expected:
+            raise SessionEpochError("stale_session", "stored session epoch no longer matches the validated token")
         if current is None:
             current = uuid.uuid4().hex
             result = connection.execute(
