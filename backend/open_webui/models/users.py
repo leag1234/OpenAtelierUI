@@ -1,4 +1,5 @@
 import time
+from datetime import date
 from typing import Optional
 
 from open_webui.internal.db import Base, JSONField, get_db
@@ -10,6 +11,11 @@ from open_webui.models.groups import Groups
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import BigInteger, Column, String, Text
+from open_webui.utils.imported_profile import (
+    read_user_profile_fields,
+    update_user_profile_fields,
+    user_profile_fields_enabled,
+)
 
 ####################
 # User DB Schema
@@ -60,6 +66,12 @@ class UserModel(BaseModel):
     oauth_sub: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ImportedProfileUserModel(UserModel):
+    bio: Optional[str] = None
+    gender: Optional[str] = None
+    date_of_birth: Optional[date] = None
 
 
 ####################
@@ -128,6 +140,16 @@ class UsersTable:
                 return None
 
     def get_user_by_id(self, id: str) -> Optional[UserModel]:
+        if user_profile_fields_enabled():
+            with get_db() as db:
+                user = db.query(User).filter_by(id=id).first()
+                if user is None:
+                    return None
+                model = UserModel.model_validate(user)
+                profile = read_user_profile_fields(db, id)
+                return ImportedProfileUserModel.model_validate(
+                    {**model.model_dump(), **profile}
+                )
         try:
             with get_db() as db:
                 user = db.query(User).filter_by(id=id).first()
@@ -270,6 +292,26 @@ class UsersTable:
                 # return UserModel(**user.dict())
         except Exception:
             return None
+
+    def update_imported_user_profile_by_id(
+        self,
+        id: str,
+        *,
+        name: str,
+        profile_image_url: str,
+        bio: Optional[str],
+        gender: Optional[str],
+        date_of_birth: Optional[date],
+    ) -> Optional[ImportedProfileUserModel]:
+        if not user_profile_fields_enabled():
+            raise RuntimeError("imported user profile updates are disabled")
+        with get_db() as db:
+            updated = update_user_profile_fields(
+                db, id, name, profile_image_url, bio, gender, date_of_birth
+            )
+        if not updated:
+            return None
+        return self.get_user_by_id(id)
 
     def update_user_settings_by_id(self, id: str, updated: dict) -> Optional[UserModel]:
         try:

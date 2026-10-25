@@ -1,11 +1,12 @@
 import logging
 import uuid
+from datetime import date
 from typing import Optional
 
 from open_webui.internal.db import Base, get_db
 from open_webui.models.users import UserModel, Users
 from open_webui.env import SRC_LOG_LEVELS
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import Boolean, Column, String, Text
 from open_webui.utils.auth import verify_password
 
@@ -76,6 +77,32 @@ class ProfileImageUrlForm(BaseModel):
 class UpdateProfileForm(BaseModel):
     profile_image_url: str
     name: str
+
+
+class ImportedProfileUpdateForm(UpdateProfileForm):
+    bio: Optional[str] = None
+    gender: Optional[str] = None
+    date_of_birth: Optional[date] = None
+
+    @field_validator("bio", "gender")
+    @classmethod
+    def validate_imported_profile_text(cls, value, info):
+        if value is None:
+            return value
+        maximum = 8192 if info.field_name == "bio" else 128
+        try:
+            valid = len(value.encode("utf-8", errors="strict")) <= maximum
+        except UnicodeError:
+            valid = False
+        if not valid:
+            raise ValueError("profile value exceeds the supported size")
+        return value
+
+
+class ImportedProfileUserResponse(UserResponse):
+    bio: Optional[str] = None
+    gender: Optional[str] = None
+    date_of_birth: Optional[date] = None
 
 
 class UpdatePasswordForm(BaseModel):

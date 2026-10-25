@@ -14,6 +14,8 @@ from open_webui.models.auths import (
     SigninForm,
     SigninResponse,
     SignupForm,
+    ImportedProfileUpdateForm,
+    ImportedProfileUserResponse,
     UpdatePasswordForm,
     UpdateProfileForm,
     UserResponse,
@@ -46,6 +48,7 @@ from open_webui.utils.auth import (
 )
 from open_webui.utils.webhook import post_webhook
 from open_webui.utils.access_control import get_permissions
+from open_webui.utils.imported_profile import user_profile_fields_enabled
 
 from typing import Optional, List
 
@@ -56,6 +59,8 @@ if ENABLE_LDAP.value:
     from ldap3.utils.conv import escape_filter_chars
 
 router = APIRouter()
+PROFILE_FIELDS_ENABLED = user_profile_fields_enabled()
+ProfileUpdateForm = ImportedProfileUpdateForm if PROFILE_FIELDS_ENABLED else UpdateProfileForm
 
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MAIN"])
@@ -70,7 +75,18 @@ class SessionUserResponse(Token, UserResponse):
     permissions: Optional[dict] = None
 
 
-@router.get("/", response_model=SessionUserResponse)
+class ImportedSessionUserResponse(SessionUserResponse):
+    bio: Optional[str] = None
+    gender: Optional[str] = None
+    date_of_birth: Optional[datetime.date] = None
+
+
+@router.get(
+    "/",
+    response_model=(
+        ImportedSessionUserResponse if PROFILE_FIELDS_ENABLED else SessionUserResponse
+    ),
+)
 async def get_session_user(
     request: Request, response: Response, user=Depends(get_current_user)
 ):
@@ -107,7 +123,7 @@ async def get_session_user(
         user.id, request.app.state.config.USER_PERMISSIONS
     )
 
-    return {
+    result = {
         "token": token,
         "token_type": "Bearer",
         "expires_at": expires_at,
@@ -118,6 +134,13 @@ async def get_session_user(
         "profile_image_url": user.profile_image_url,
         "permissions": user_permissions,
     }
+    if PROFILE_FIELDS_ENABLED:
+        result.update({
+            "bio": user.bio,
+            "gender": user.gender,
+            "date_of_birth": user.date_of_birth,
+        })
+    return result
 
 
 ############################
@@ -125,15 +148,30 @@ async def get_session_user(
 ############################
 
 
-@router.post("/update/profile", response_model=UserResponse)
+@router.post(
+    "/update/profile",
+    response_model=(
+        ImportedProfileUserResponse if PROFILE_FIELDS_ENABLED else UserResponse
+    ),
+)
 async def update_profile(
-    form_data: UpdateProfileForm, session_user=Depends(get_verified_user)
+    form_data: ProfileUpdateForm, session_user=Depends(get_verified_user)
 ):
     if session_user:
-        user = Users.update_user_by_id(
-            session_user.id,
-            {"profile_image_url": form_data.profile_image_url, "name": form_data.name},
-        )
+        if PROFILE_FIELDS_ENABLED:
+            user = Users.update_imported_user_profile_by_id(
+                session_user.id,
+                name=form_data.name,
+                profile_image_url=form_data.profile_image_url,
+                bio=form_data.bio,
+                gender=form_data.gender,
+                date_of_birth=form_data.date_of_birth,
+            )
+        else:
+            user = Users.update_user_by_id(
+                session_user.id,
+                {"profile_image_url": form_data.profile_image_url, "name": form_data.name},
+            )
         if user:
             return user
         else:

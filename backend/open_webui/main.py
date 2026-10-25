@@ -86,6 +86,10 @@ from open_webui.routers.retrieval import (
 )
 
 from open_webui.internal.db import Session, engine
+from open_webui.utils.imported_profile import (
+    user_profile_fields_enabled,
+    validate_prepared_user_profile_schema,
+)
 
 from open_webui.models.functions import Functions
 from open_webui.models.models import Models
@@ -427,6 +431,8 @@ https://github.com/open-webui/open-webui
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     start_logger()
+    if user_profile_fields_enabled():
+        validate_prepared_user_profile_schema(engine)
     if RESET_CONFIG_ON_START:
         reset_config()
 

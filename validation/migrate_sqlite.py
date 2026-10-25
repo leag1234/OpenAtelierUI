@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+from datetime import date
 import hashlib
 import importlib.util
 import json
@@ -86,6 +87,10 @@ USER_UNSUPPORTED = {
     "timezone", "presence_state", "status_emoji", "status_message",
     "status_expires_at", "oauth", "scim", "variables",
 }
+IMPORTED_USER_PROFILE_FIELDS = {"bio", "gender", "date_of_birth"}
+IMPORTED_USER_PROFILE_TYPES = {"bio": "TEXT", "gender": "TEXT", "date_of_birth": "DATE"}
+MAX_IMPORTED_USER_BIO_BYTES = 8192
+MAX_IMPORTED_USER_GENDER_BYTES = 128
 CHAT_UNSUPPORTED = {"tasks", "summary", "last_read_at", "current_message_id", "variables", "timer_at"}
 PRIVATE_CHAT_META_KEY = "_mdk_private_saved_work"
 PRIVATE_CHAT_META_VERSION = 1
@@ -432,6 +437,28 @@ def _is_empty(value) -> bool:
             return False
         return parsed is None or parsed is False or parsed == 0 or parsed == "" or parsed == {} or parsed == []
     return False
+
+
+def _valid_nullable_profile_string(value: object, maximum_bytes: int) -> bool:
+    if value is None:
+        return True
+    if not isinstance(value, str):
+        return False
+    try:
+        return len(value.encode("utf-8", errors="strict")) <= maximum_bytes
+    except UnicodeError:
+        return False
+
+
+def _valid_nullable_profile_date(value: object) -> bool:
+    if value is None:
+        return True
+    if not isinstance(value, str) or len(value) != 10:
+        return False
+    try:
+        return date.fromisoformat(value).isoformat() == value
+    except ValueError:
+        return False
 
 
 def _resource_bytes() -> int:
@@ -1124,7 +1151,12 @@ def _validate_object_domains(
     return acl
 
 
-def _validate_template(template: Path, *, require_named_tool_config: bool = False) -> dict:
+def _validate_template(
+    template: Path,
+    *,
+    require_named_tool_config: bool = False,
+    prepare_user_profile_fields: bool = False,
+) -> dict:
     connection = _connect_ro(template)
     try:
         tables = _tables(connection)
@@ -1135,6 +1167,11 @@ def _validate_template(template: Path, *, require_named_tool_config: bool = Fals
         for table, required in TARGET_REQUIRED.items():
             if table not in tables or not required.issubset(_columns(connection, table)):
                 raise MigrationError("old_template_schema_mismatch", f"old target template is missing required table/columns: {table}")
+        if prepare_user_profile_fields and IMPORTED_USER_PROFILE_FIELDS & set(_columns(connection, "user")):
+            raise MigrationError(
+                "old_template_profile_schema_unexpected",
+                "profile-enabled conversion requires an unprepared old template without profile columns",
+            )
         if require_named_tool_config and not _named_tool_target_config_schema(connection):
             raise MigrationError("old_template_named_config_schema_mismatch", "old target configuration schema is not the expected empty form")
         counts = {table: _count(connection, table) for table in tables}
@@ -1157,6 +1194,7 @@ def _inspect_source(
     *,
     include_private_chat_metadata: bool = False,
     include_named_tool_configuration: bool = False,
+    include_user_profile_fields: bool = False,
 ) -> dict:
     started = time.perf_counter()
     source = _db_path(source_db, label="source database")
@@ -1182,7 +1220,9 @@ def _inspect_source(
     }
     try:
         template_info = _validate_template(
-            template, require_named_tool_config=include_named_tool_configuration
+            template,
+            require_named_tool_config=include_named_tool_configuration,
+            prepare_user_profile_fields=include_user_profile_fields,
         )
         report["target_template"]["schema_fingerprint"] = template_info["fingerprint"]
     except MigrationError as error:
@@ -1215,6 +1255,7 @@ def _inspect_source(
             if table in tables and _count(connection, table) and not (table == "config" and include_named_tool_configuration):
                 _block(report, "unsupported_nonempty_domain_" + table, _count(connection, table), detail="full bytes are retained in the source archive; old target behavior is not implemented")
         valid_required = {name: name in tables and required.issubset(_columns(connection, name)) for name, required in SOURCE_REQUIRED.items()}
+        profile_fields_verified = False
         if valid_required.get("auth"):
             columns = _columns(connection, "auth")
             allowed = {"id", "email", "password", "active", "mfa", "session_stamp"}
@@ -1233,11 +1274,62 @@ def _inspect_source(
             extras = set(columns) - (SOURCE_REQUIRED["user"] | {"settings", "info"} | USER_UNSUPPORTED)
             if extras:
                 _block(report, "unknown_user_columns", len(extras), fatal=True)
+            if include_user_profile_fields:
+                if not IMPORTED_USER_PROFILE_FIELDS.issubset(columns):
+                    _block(report, "user_profile_source_schema_mismatch", 1, fatal=True)
+                else:
+                    malformed_schema = any(
+                        str(columns[field][2]).upper() != expected_type
+                        or columns[field][3] != 0
+                        for field, expected_type in IMPORTED_USER_PROFILE_TYPES.items()
+                    )
+                    if malformed_schema:
+                        _block(report, "user_profile_source_schema_mismatch", 1, fatal=True)
+                    else:
+                        profile_fields_verified = True
+                        for row in connection.execute('SELECT bio,gender,date_of_birth FROM "user"'):
+                            if not _valid_nullable_profile_string(row["bio"], MAX_IMPORTED_USER_BIO_BYTES):
+                                _block(report, "invalid_user_profile_bio", 1, fatal=True)
+                                profile_fields_verified = False
+                            if not _valid_nullable_profile_string(row["gender"], MAX_IMPORTED_USER_GENDER_BYTES):
+                                _block(report, "invalid_user_profile_gender", 1, fatal=True)
+                                profile_fields_verified = False
+                            if not _valid_nullable_profile_date(row["date_of_birth"]):
+                                _block(report, "invalid_user_profile_date_of_birth", 1, fatal=True)
+                                profile_fields_verified = False
             for row in connection.execute('SELECT * FROM "user"'):
                 for field in USER_UNSUPPORTED & set(columns):
+                    if (
+                        include_user_profile_fields
+                        and profile_fields_verified
+                        and field in IMPORTED_USER_PROFILE_FIELDS
+                    ):
+                        continue
                     if not _is_empty(row[field]):
                         fatal = field in {"oauth", "scim"}
                         _block(report, "unsupported_user_field_" + field, 1, fatal=fatal)
+        elif include_user_profile_fields:
+            _block(report, "user_profile_source_schema_mismatch", 1, fatal=True)
+        if include_user_profile_fields and profile_fields_verified:
+            _block(
+                report,
+                "user_profile_fields_prototype",
+                1,
+                detail="three nullable profile fields are prepared in a fresh target; other blockers keep cutover disabled",
+            )
+            report["user_profile_fields"] = {
+                "opt_in": True,
+                "prepared": True,
+                "selected_user_count": _count(connection, "user"),
+                "fields": ["bio", "gender", "date_of_birth"],
+            }
+        elif include_user_profile_fields:
+            report["user_profile_fields"] = {
+                "opt_in": True,
+                "prepared": False,
+                "selected_user_count": 0,
+                "fields": ["bio", "gender", "date_of_birth"],
+            }
         if valid_required.get("chat"):
             columns = _columns(connection, "chat")
             extras = set(columns) - TARGET_REQUIRED["chat"] - CHAT_UNSUPPORTED
@@ -1376,6 +1468,7 @@ def inspect_source(
     *,
     include_private_chat_metadata: bool = False,
     include_named_tool_configuration: bool = False,
+    include_user_profile_fields: bool = False,
 ) -> tuple[dict, list, dict, dict, dict]:
     """Inspect source inputs while preserving the original five-value API."""
     return _inspect_source(
@@ -1384,6 +1477,7 @@ def inspect_source(
         old_template,
         include_private_chat_metadata=include_private_chat_metadata,
         include_named_tool_configuration=include_named_tool_configuration,
+        include_user_profile_fields=include_user_profile_fields,
     )[:5]
 
 
@@ -1394,6 +1488,7 @@ def preview(
     *,
     include_private_chat_metadata: bool = False,
     include_named_tool_configuration: bool = False,
+    include_user_profile_fields: bool = False,
 ) -> dict:
     report, _, _, _, _ = inspect_source(
         source_db,
@@ -1401,6 +1496,7 @@ def preview(
         old_template,
         include_private_chat_metadata=include_private_chat_metadata,
         include_named_tool_configuration=include_named_tool_configuration,
+        include_user_profile_fields=include_user_profile_fields,
     )
     return report
 
@@ -1432,14 +1528,22 @@ def _copy_domains(
     group_memberships: dict[str, list[str]],
     private_chat_overrides: dict[str, dict[str, str]] | None = None,
     named_tool_config_data: dict | None = None,
+    include_user_profile_fields: bool = False,
 ) -> dict:
     counts = {}
     counts["auth"] = _insert_rows(source, target, "auth", {"id": "id", "email": "email", "password": "password", "active": "active"})
-    counts["user"] = _insert_rows(source, target, "user", {
+    user_mapping = {
         "id": "id", "name": "name", "email": "email", "role": "role", "profile_image_url": "profile_image_url",
         "api_key": None, "created_at": "created_at", "updated_at": "updated_at", "last_active_at": "last_active_at",
         "settings": "settings", "info": "info", "oauth_sub": None,
-    })
+    }
+    if include_user_profile_fields:
+        user_mapping.update({
+            "bio": "bio",
+            "gender": "gender",
+            "date_of_birth": "date_of_birth",
+        })
+    counts["user"] = _insert_rows(source, target, "user", user_mapping)
     counts["chat"] = _insert_rows(source, target, "chat", {
         "id": "id", "user_id": "user_id", "title": "title", "share_id": "share_id", "archived": "archived",
         "created_at": "created_at", "updated_at": "updated_at", "chat": "chat", "pinned": "pinned",
@@ -1508,6 +1612,7 @@ def convert(
     include_history_sidecar: bool = False,
     include_private_chat_metadata: bool = False,
     include_named_tool_configuration: bool = False,
+    include_user_profile_fields: bool = False,
     failpoint: Callable[[str], None] | None = None,
 ) -> dict:
     started = time.perf_counter()
@@ -1517,6 +1622,7 @@ def convert(
         old_template,
         include_private_chat_metadata=include_private_chat_metadata,
         include_named_tool_configuration=include_named_tool_configuration,
+        include_user_profile_fields=include_user_profile_fields,
     )
     source = Path(source_db).resolve(strict=True)
     template = Path(old_template).resolve(strict=True)
@@ -1562,14 +1668,21 @@ def convert(
         target_connection.row_factory = sqlite3.Row
         target_connection.execute("PRAGMA foreign_keys=ON")
         marker_before = _validate_template(
-            template, require_named_tool_config=include_named_tool_configuration
+            template,
+            require_named_tool_config=include_named_tool_configuration,
+            prepare_user_profile_fields=include_user_profile_fields,
         )["markers"]
         try:
             target_connection.execute("BEGIN IMMEDIATE")
+            if include_user_profile_fields:
+                target_connection.execute('ALTER TABLE "user" ADD COLUMN bio TEXT')
+                target_connection.execute('ALTER TABLE "user" ADD COLUMN gender TEXT')
+                target_connection.execute('ALTER TABLE "user" ADD COLUMN date_of_birth DATE')
             counts = _copy_domains(
                 source_connection, target_connection, upload_rows, runtime_root,
                 object_access, group_memberships, private_chat_overrides,
                 named_tool_config_data,
+                include_user_profile_fields=include_user_profile_fields,
             )
             if failpoint:
                 failpoint("after_rows_before_commit")
@@ -1594,6 +1707,30 @@ def convert(
             readback_counts = {table: _count(target_readback, table) for table in COPYABLE_TABLES}
             if named_tool_config_data is not None:
                 readback_counts["config"] = _count(target_readback, "config")
+            if include_user_profile_fields:
+                source_profile = _connect_ro(source)
+                try:
+                    source_values = [
+                        tuple(row)
+                        for row in source_profile.execute(
+                            'SELECT id,bio,gender,date_of_birth FROM "user" ORDER BY id'
+                        )
+                    ]
+                finally:
+                    source_profile.close()
+                target_values = [
+                    tuple(row)
+                    for row in target_readback.execute(
+                        'SELECT id,bio,gender,date_of_birth FROM "user" ORDER BY id'
+                    )
+                ]
+                if target_values != source_values:
+                    raise MigrationError(
+                        "user_profile_readback_mismatch",
+                        "prepared user profile fields failed exact readback verification",
+                        report,
+                    )
+                report["user_profile_fields"]["target_readback_exact"] = True
         finally:
             target_readback.close()
         if include_history_sidecar:
@@ -1692,6 +1829,11 @@ def main(argv: list[str] | None = None) -> int:
             action="store_true",
             help="map only the measured no-auth named-tool connection and its existing user/read grant",
         )
+        command.add_argument(
+            "--include-user-profile-fields",
+            action="store_true",
+            help="prepare the opt-in nullable bio/gender/date_of_birth fields on a fresh old-target copy",
+        )
     args = parser.parse_args(argv)
     try:
         if args.command == "preview":
@@ -1701,6 +1843,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.empty_old_target_template,
                 include_private_chat_metadata=args.include_private_chat_metadata,
                 include_named_tool_configuration=args.include_named_tool_configuration,
+                include_user_profile_fields=args.include_user_profile_fields,
             )
         else:
             report = convert(
@@ -1712,6 +1855,7 @@ def main(argv: list[str] | None = None) -> int:
                 include_history_sidecar=args.include_history_sidecar,
                 include_private_chat_metadata=args.include_private_chat_metadata,
                 include_named_tool_configuration=args.include_named_tool_configuration,
+                include_user_profile_fields=args.include_user_profile_fields,
             )
     except MigrationError as error:
         report = {"status": "refused", "error_code": error.code, **error.report}

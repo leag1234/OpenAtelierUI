@@ -1024,6 +1024,7 @@ class NamedToolConfigurationImportTests(unittest.TestCase):
         self.assertNotIn("headers", imported_connection)
         self.assertNotIn("forward_cookies", imported_connection)
 
+
     def test_bounded_alternate_named_connection_is_copied_exactly_without_fetching(self):
         selected = named_tool_connection("u1")
         selected["url"] = "http://[ABCD::1]:18081/service"
@@ -1497,6 +1498,231 @@ class NamedToolConfigurationImportTests(unittest.TestCase):
                 include_named_tool_configuration=True,
             )
         self.assertTrue(report["named_tool_configuration"]["old_defaults_verified"])
+
+
+class UserProfileFieldImportTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.source = self.root / "source.db"
+        self.template = self.root / "template.db"
+        self.uploads = self.root / "uploads"
+        build_source(self.source, self.uploads)
+        build_template(self.template)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def _add_profile_source_schema(self, *, bio="A synthetic biography", gender="Nonbinary", date_of_birth="1994-07-12"):
+        db = sqlite3.connect(self.source)
+        db.execute('ALTER TABLE "user" ADD COLUMN gender TEXT')
+        db.execute('ALTER TABLE "user" ADD COLUMN date_of_birth DATE')
+        db.execute(
+            'UPDATE "user" SET bio=?,gender=?,date_of_birth=? WHERE id=?',
+            (bio, gender, date_of_birth, "u1"),
+        )
+        db.commit()
+        db.close()
+
+    def test_opt_in_prepares_fresh_copy_and_verifies_exact_profile_values(self):
+        self._add_profile_source_schema()
+        reserved_info = {"bio": "Unrelated retained info value", "note": "preserve this key"}
+        db = sqlite3.connect(self.source)
+        db.execute('UPDATE "user" SET info=? WHERE id=?', (json.dumps(reserved_info), "u1"))
+        db.commit()
+        db.close()
+        source_hash, template_hash = digest(self.source), digest(self.template)
+        report = preview(
+            self.source, self.uploads, self.template,
+            include_user_profile_fields=True,
+        )
+        codes = {item["code"] for item in report["blockers"]}
+        self.assertFalse(report["fatal"])
+        self.assertFalse(report["cutover_eligible"])
+        self.assertIn("user_profile_fields_prototype", codes)
+        self.assertNotIn("unsupported_user_field_bio", codes)
+        self.assertNotIn("unsupported_user_field_gender", codes)
+        self.assertNotIn("unsupported_user_field_date_of_birth", codes)
+        self.assertEqual(report["user_profile_fields"]["selected_user_count"], 1)
+
+        target = self.root / "profile-target"
+        converted = convert(
+            self.source, self.uploads, self.template, target,
+            include_user_profile_fields=True,
+        )
+        self.assertFalse(converted["cutover_eligible"])
+        self.assertTrue(converted["user_profile_fields"]["target_readback_exact"])
+        self.assertEqual((digest(self.source), digest(self.template)), (source_hash, template_hash))
+        db = sqlite3.connect(target / "webui.db")
+        try:
+            columns = {row[1]: (row[2], row[3]) for row in db.execute('PRAGMA table_info("user")')}
+            self.assertEqual(columns["bio"], ("TEXT", 0))
+            self.assertEqual(columns["gender"], ("TEXT", 0))
+            self.assertEqual(columns["date_of_birth"], ("DATE", 0))
+            self.assertEqual(
+                db.execute('SELECT bio,gender,date_of_birth FROM "user" WHERE id=?', ("u1",)).fetchone(),
+                ("A synthetic biography", "Nonbinary", "1994-07-12"),
+            )
+            self.assertEqual(
+                json.loads(db.execute('SELECT info FROM "user" WHERE id=?', ("u1",)).fetchone()[0]),
+                reserved_info,
+            )
+        finally:
+            db.close()
+
+    def test_default_off_keeps_profile_values_blocked_and_target_schema_unchanged(self):
+        self._add_profile_source_schema()
+        source_hash, template_hash = digest(self.source), digest(self.template)
+        report = preview(self.source, self.uploads, self.template)
+        codes = {item["code"] for item in report["blockers"]}
+        self.assertIn("unsupported_user_field_bio", codes)
+        self.assertIn("unsupported_user_field_gender", codes)
+        self.assertIn("unsupported_user_field_date_of_birth", codes)
+        self.assertNotIn("user_profile_fields", report)
+
+        target = self.root / "profile-default-off-target"
+        converted = convert(self.source, self.uploads, self.template, target)
+        self.assertFalse(converted["cutover_eligible"])
+        db = sqlite3.connect(target / "webui.db")
+        try:
+            columns = {row[1] for row in db.execute('PRAGMA table_info("user")')}
+            self.assertTrue({"bio", "gender", "date_of_birth"}.isdisjoint(columns))
+        finally:
+            db.close()
+        self.assertEqual((digest(self.source), digest(self.template)), (source_hash, template_hash))
+
+    def test_profile_invalid_values_and_schema_refuse_before_target(self):
+        cases = (
+            ("bad-date", {"bio": "Biography", "gender": "X", "date_of_birth": "1994-7-12"}, "invalid_user_profile_date_of_birth"),
+            ("oversized-bio", {"bio": "x" * 8193, "gender": "X", "date_of_birth": "1994-07-12"}, "invalid_user_profile_bio"),
+            ("oversized-gender", {"bio": "Biography", "gender": "x" * 129, "date_of_birth": "1994-07-12"}, "invalid_user_profile_gender"),
+        )
+        for name, values, expected_code in cases:
+            with self.subTest(name=name):
+                source = self.root / (name + ".db")
+                uploads = self.root / (name + "-uploads")
+                build_source(source, uploads)
+                db = sqlite3.connect(source)
+                db.execute('ALTER TABLE "user" ADD COLUMN gender TEXT')
+                db.execute('ALTER TABLE "user" ADD COLUMN date_of_birth DATE')
+                db.execute(
+                    'UPDATE "user" SET bio=?,gender=?,date_of_birth=? WHERE id=?',
+                    (values["bio"], values["gender"], values["date_of_birth"], "u1"),
+                )
+                db.commit()
+                db.close()
+                source_hash, template_hash = digest(source), digest(self.template)
+                target = self.root / (name + "-target")
+                with self.assertRaises(MigrationError) as caught:
+                    convert(source, uploads, self.template, target, include_user_profile_fields=True)
+                self.assertEqual(caught.exception.code, "fatal_source_input")
+                self.assertIn(expected_code, {item["code"] for item in caught.exception.report["blockers"]})
+                self.assertFalse(target.exists())
+                self.assertEqual((digest(source), digest(self.template)), (source_hash, template_hash))
+
+    def test_missing_source_column_and_prepared_template_refuse_before_target(self):
+        source_hash, template_hash = digest(self.source), digest(self.template)
+        target = self.root / "missing-profile-schema-target"
+        with self.assertRaises(MigrationError) as caught:
+            convert(self.source, self.uploads, self.template, target, include_user_profile_fields=True)
+        self.assertIn(
+            "user_profile_source_schema_mismatch",
+            {item["code"] for item in caught.exception.report["blockers"]},
+        )
+        self.assertFalse(target.exists())
+        self.assertEqual((digest(self.source), digest(self.template)), (source_hash, template_hash))
+
+        self._add_profile_source_schema()
+        prepared_template = self.root / "prepared-template.db"
+        build_template(prepared_template)
+        db = sqlite3.connect(prepared_template)
+        db.execute('ALTER TABLE "user" ADD COLUMN bio TEXT')
+        db.commit()
+        db.close()
+        prepared_hash = digest(prepared_template)
+        second_target = self.root / "prepared-template-target"
+        with self.assertRaises(MigrationError) as prepared:
+            convert(
+                self.source, self.uploads, prepared_template, second_target,
+                include_user_profile_fields=True,
+            )
+        self.assertIn(
+            "old_template_profile_schema_unexpected",
+            {item["code"] for item in prepared.exception.report["blockers"]},
+        )
+        self.assertFalse(second_target.exists())
+        self.assertEqual(digest(prepared_template), prepared_hash)
+
+    def test_source_profile_column_types_must_match_supported_nullable_schema(self):
+        for name, gender_type, date_type in (
+            ("wrong-gender-type", "INTEGER", "DATE"),
+            ("wrong-date-type", "TEXT", "TEXT"),
+            ("nonnullable-profile-field", "TEXT NOT NULL DEFAULT ''", "DATE"),
+        ):
+            with self.subTest(name=name):
+                source = self.root / (name + ".db")
+                uploads = self.root / (name + "-uploads")
+                build_source(source, uploads)
+                db = sqlite3.connect(source)
+                db.execute('ALTER TABLE "user" ADD COLUMN gender ' + gender_type)
+                db.execute('ALTER TABLE "user" ADD COLUMN date_of_birth ' + date_type)
+                db.execute('UPDATE "user" SET bio=?,gender=?,date_of_birth=? WHERE id=?',
+                           ("Bio", "Gender", "1994-07-12", "u1"))
+                db.commit()
+                db.close()
+                original_hash = digest(source)
+                target = self.root / (name + "-target")
+                with self.assertRaises(MigrationError) as caught:
+                    convert(source, uploads, self.template, target, include_user_profile_fields=True)
+                self.assertIn(
+                    "user_profile_source_schema_mismatch",
+                    {item["code"] for item in caught.exception.report["blockers"]},
+                )
+                self.assertFalse(target.exists())
+                self.assertEqual(digest(source), original_hash)
+
+    def test_public_inspector_keeps_five_value_return_for_profile_opt_in(self):
+        self._add_profile_source_schema(bio="", gender=None, date_of_birth=None)
+        inspected = importer.inspect_source(
+            self.source,
+            self.uploads,
+            self.template,
+            include_user_profile_fields=True,
+        )
+        self.assertEqual(len(inspected), 5)
+        self.assertTrue(inspected[0]["user_profile_fields"]["prepared"])
+        self.assertEqual(
+            preview(self.source, self.uploads, self.template, include_user_profile_fields=True)[
+                "user_profile_fields"]["fields"],
+            ["bio", "gender", "date_of_birth"],
+        )
+
+    def test_cli_flag_prepares_only_the_requested_fresh_target(self):
+        self._add_profile_source_schema(bio="", gender=None, date_of_birth=None)
+        script = Path(__file__).with_name("migrate_sqlite.py")
+        common = [
+            sys.executable, str(script), "convert",
+            "--source-db", str(self.source),
+            "--uploads-root", str(self.uploads),
+            "--empty-old-target-template", str(self.template),
+            "--new-target-dir", str(self.root / "profile-cli-target"),
+            "--include-user-profile-fields",
+        ]
+        preview_result = subprocess.run(
+            [sys.executable, str(script), "preview", "--source-db", str(self.source),
+             "--uploads-root", str(self.uploads), "--empty-old-target-template", str(self.template),
+             "--include-user-profile-fields"],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(preview_result.returncode, 3, preview_result.stderr)
+        self.assertTrue(json.loads(preview_result.stdout)["user_profile_fields"]["prepared"])
+        result = subprocess.run(common, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 3, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertTrue(report["user_profile_fields"]["target_readback_exact"])
+        self.assertFalse(report["cutover_eligible"])
+        self.assertTrue((self.root / "profile-cli-target" / "webui.db").is_file())
 
 
 if __name__ == '__main__':
