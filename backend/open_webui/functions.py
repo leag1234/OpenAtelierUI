@@ -198,6 +198,19 @@ async def generate_function_chat_completion(
     model_id = form_data.get("model")
     model_info = Models.get_model_by_id(model_id)
 
+    if user.role == "user" and model_info and model_info.base_model_id:
+        selected_model = models.get(model_id, {})
+        if selected_model.get("pipe"):
+            from open_webui.config import BYPASS_MODEL_ACCESS_CONTROL
+
+            if not BYPASS_MODEL_ACCESS_CONTROL:
+                from open_webui.utils.models import check_model_access
+
+                # A readable preset must not grant access to its plugin-backed
+                # base model. Reuse the existing Model read policy on every
+                # request so revocation is effective without cache invalidation.
+                check_model_access(user, {"id": model_info.base_model_id})
+
     metadata = form_data.pop("metadata", {})
 
     files = metadata.get("files", [])
