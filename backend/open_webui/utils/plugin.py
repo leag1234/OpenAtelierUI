@@ -78,7 +78,8 @@ def load_tool_module_by_id(tool_id, content=None):
         content = tool.content
 
         content = replace_imports(content)
-        Tools.update_tool_by_id(tool_id, {"content": content})
+        if content != tool.content:
+            Tools.update_tool_by_id(tool_id, {"content": content})
     else:
         frontmatter = extract_frontmatter(content)
         # Install required packages found within the frontmatter
@@ -123,7 +124,8 @@ def load_function_module_by_id(function_id, content=None):
         content = function.content
 
         content = replace_imports(content)
-        Functions.update_function_by_id(function_id, {"content": content})
+        if content != function.content:
+            Functions.update_function_by_id(function_id, {"content": content})
     else:
         frontmatter = extract_frontmatter(content)
         install_frontmatter_requirements(frontmatter.get("requirements", ""))
