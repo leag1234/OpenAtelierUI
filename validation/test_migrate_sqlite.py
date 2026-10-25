@@ -1026,14 +1026,14 @@ class NamedToolConfigurationImportTests(unittest.TestCase):
 
     def test_bounded_alternate_named_connection_is_copied_exactly_without_fetching(self):
         selected = named_tool_connection("u1")
-        selected["url"] = "https://example.invalid:8443/service/"
+        selected["url"] = "http://[ABCD::1]:18081/service"
         selected["path"] = "api/openapi.json"
         selected["info"] = {
             "id": "community_tools",
             "name": "Community workshop tools",
             "description": "Synthetic tools — demonstration",
         }
-        self.assertTrue(importer._valid_named_tool_base_url("http://[::1]:18081/service"))
+        self.assertTrue(importer._valid_named_tool_base_url("http://[ABCD::1]:18081/service"))
         add_named_tool_configuration(self.source, selected)
         before = digest(self.source), digest(self.template)
         report = preview(

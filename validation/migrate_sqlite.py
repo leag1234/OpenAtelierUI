@@ -207,7 +207,7 @@ def _valid_named_tool_base_url(value: object) -> bool:
         return False
     if ":" in host:
         authority = re.fullmatch(r"\[([^\]]+)\](?::([0-9]+))?", parts.netloc)
-        if not authority or authority.group(1) != host:
+        if not authority or authority.group(1).lower() != host.lower():
             return False
         try:
             ipaddress.IPv6Address(host)
@@ -325,7 +325,7 @@ def _parse_named_tool_connection(connection: sqlite3.Connection) -> dict:
         or set(nested) != {"enable", "access_grants"}
         or nested.get("enable") is not True
     ):
-        raise MigrationError("named_tool_configuration_unsupported_shape", "selected named-tool configuration is outside the measured fixture profile")
+        raise MigrationError("named_tool_configuration_unsupported_shape", "selected named-tool configuration is outside the supported no-auth profile")
     grants = nested.get("access_grants")
     if not isinstance(grants, list) or len(grants) != 1 or not isinstance(grants[0], dict) or set(grants[0]) != {"principal_type", "principal_id", "permission"}:
         raise MigrationError("named_tool_configuration_unsupported_grant", "selected named-tool grant is outside the measured user/read profile")
