@@ -336,6 +336,14 @@ async def update_tools_by_id(
             detail=ERROR_MESSAGES.UNAUTHORIZED,
         )
 
+    if user.role != "admin" and not has_permission(
+        user.id, "workspace.tools", request.app.state.config.USER_PERMISSIONS
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ERROR_MESSAGES.UNAUTHORIZED,
+        )
+
     try:
         form_data.content = replace_imports(form_data.content)
         tool_module, frontmatter = load_tool_module_by_id(id, content=form_data.content)
