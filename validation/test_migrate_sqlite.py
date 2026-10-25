@@ -981,6 +981,69 @@ class NamedToolConfigurationImportTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_public_inspector_keeps_five_value_return_with_opt_in(self):
+        add_named_tool_configuration(self.source)
+        ordinary = importer.inspect_source(self.source, self.uploads, self.template)
+        opted_in = importer.inspect_source(
+            self.source,
+            self.uploads,
+            self.template,
+            include_named_tool_configuration=True,
+        )
+        self.assertEqual(len(ordinary), 5)
+        self.assertEqual(len(opted_in), 5)
+        self.assertEqual(opted_in[0]["named_tool_configuration"]["selected_connection_count"], 1)
+        self.assertEqual(preview(
+            self.source, self.uploads, self.template,
+            include_named_tool_configuration=True,
+        )["named_tool_configuration"]["selected_connection_count"], 1)
+
+    def test_optional_connection_fields_remain_absent_in_imported_config(self):
+        selected = named_tool_connection()
+        selected.pop("headers")
+        selected.pop("forward_cookies")
+        add_named_tool_configuration(self.source, selected)
+        report = preview(
+            self.source, self.uploads, self.template,
+            include_named_tool_configuration=True,
+        )
+        self.assertFalse(report["fatal"])
+        target = self.root / "optional-fields"
+        result = convert(
+            self.source, self.uploads, self.template, target,
+            include_named_tool_configuration=True,
+        )
+        self.assertFalse(result["fatal"])
+        db = sqlite3.connect(target / "webui.db")
+        try:
+            imported = json.loads(db.execute("SELECT data FROM config").fetchone()[0])
+        finally:
+            db.close()
+        imported_connection = imported["tool_server"]["connections"][0]
+        self.assertEqual(imported_connection, selected)
+        self.assertNotIn("headers", imported_connection)
+        self.assertNotIn("forward_cookies", imported_connection)
+
+    def test_duplicate_selected_user_identity_with_different_roles_refuses(self):
+        add_named_tool_configuration(self.source)
+        db = sqlite3.connect(self.source)
+        duplicate = list(db.execute('SELECT * FROM "user" WHERE id=?', ("u1",)).fetchone())
+        duplicate[3] = "admin"
+        db.execute('INSERT INTO "user" VALUES (' + ",".join("?" for _ in duplicate) + ")", duplicate)
+        db.commit()
+        db.close()
+        source_hash, template_hash = digest(self.source), digest(self.template)
+        target = self.root / "duplicate-selected-user"
+        with self.assertRaises(MigrationError) as caught:
+            convert(
+                self.source, self.uploads, self.template, target,
+                include_named_tool_configuration=True,
+            )
+        codes = {row["code"] for row in caught.exception.report["blockers"]}
+        self.assertIn("named_tool_configuration_grant_identity_invalid", codes)
+        self.assertFalse(target.exists())
+        self.assertEqual((digest(self.source), digest(self.template)), (source_hash, template_hash))
+
     def test_opt_in_preview_and_convert_preserve_named_identity_defaults_and_archive(self):
         add_named_tool_configuration(self.source, other_rows=377)
         before = digest(self.source), digest(self.template)

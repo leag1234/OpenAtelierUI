@@ -166,7 +166,7 @@ def _named_tool_target_config_schema(connection: sqlite3.Connection) -> bool:
     )
 
 
-def _parse_named_tool_connection(connection: sqlite3.Connection, user_roles: dict[str, str]) -> dict:
+def _parse_named_tool_connection(connection: sqlite3.Connection) -> dict:
     """Validate the one fixed synthetic no-auth member/read connection."""
     if "config" not in _tables(connection):
         raise MigrationError("named_tool_configuration_source_schema_mismatch", "selected configuration table is unavailable")
@@ -190,11 +190,12 @@ def _parse_named_tool_connection(connection: sqlite3.Connection, user_roles: dic
     if not isinstance(value, list) or len(value) != 1 or not isinstance(value[0], dict):
         raise MigrationError("named_tool_configuration_unsupported_shape", "exactly one named-tool connection is required")
     value = value[0]
-    expected_fields = {
+    required_fields = {
         "url", "path", "type", "spec_type", "spec", "auth_type", "key",
-        "config", "info", "headers", "forward_cookies",
+        "config", "info",
     }
-    if not isinstance(value, dict) or set(value) != expected_fields:
+    optional_fields = {"headers", "forward_cookies"}
+    if not isinstance(value, dict) or not required_fields.issubset(value) or set(value) - required_fields - optional_fields:
         raise MigrationError("named_tool_configuration_unsupported_shape", "selected named-tool configuration has unsupported fields")
     info = value.get("info")
     nested = value.get("config")
@@ -207,7 +208,7 @@ def _parse_named_tool_connection(connection: sqlite3.Connection, user_roles: dic
         or value.get("auth_type") != "none"
         or value.get("key") != ""
         or value.get("headers") not in (None, {})
-        or value.get("forward_cookies") is not False
+        or value.get("forward_cookies", False) is not False
         or not isinstance(info, dict)
         or set(info) != {"id", "name", "description"}
         or info.get("id") != "synthetic_openapi"
@@ -229,9 +230,13 @@ def _parse_named_tool_connection(connection: sqlite3.Connection, user_roles: dic
         not isinstance(principal_id, str)
         or not principal_id.strip()
         or principal_id == "*"
-        or user_roles.get(principal_id) != "user"
     ):
         raise MigrationError("named_tool_configuration_grant_identity_invalid", "selected grant must name an existing ordinary user with read permission")
+    identity_rows = connection.execute(
+        'SELECT role FROM "user" WHERE id=?', (principal_id,)
+    ).fetchall()
+    if len(identity_rows) != 1 or identity_rows[0][0] != "user":
+        raise MigrationError("named_tool_configuration_grant_identity_invalid", "selected grant must name one existing ordinary user with read permission")
     return value
 
 
@@ -1028,7 +1033,7 @@ def _validate_template(template: Path, *, require_named_tool_config: bool = Fals
         connection.close()
 
 
-def inspect_source(
+def _inspect_source(
     source_db: str | Path,
     uploads_root: str | Path,
     old_template: str | Path,
@@ -1183,11 +1188,7 @@ def inspect_source(
             defaults_hash = None
             if not report["fatal"] and valid_required.get("user"):
                 try:
-                    user_roles = {
-                        row[0]: row[1]
-                        for row in connection.execute('SELECT id,role FROM "user"')
-                    }
-                    selected_connection = _parse_named_tool_connection(connection, user_roles)
+                    selected_connection = _parse_named_tool_connection(connection)
                     defaults, defaults_source_hash, defaults_hash = _load_pinned_old_defaults()
                     target_config_data = json.loads(
                         json.dumps(defaults, sort_keys=True, separators=(",", ":"))
@@ -1251,6 +1252,24 @@ def inspect_source(
     return report, file_rows, object_access, group_memberships, private_chat_overrides, named_tool_config_data
 
 
+def inspect_source(
+    source_db: str | Path,
+    uploads_root: str | Path,
+    old_template: str | Path,
+    *,
+    include_private_chat_metadata: bool = False,
+    include_named_tool_configuration: bool = False,
+) -> tuple[dict, list, dict, dict, dict]:
+    """Inspect source inputs while preserving the original five-value API."""
+    return _inspect_source(
+        source_db,
+        uploads_root,
+        old_template,
+        include_private_chat_metadata=include_private_chat_metadata,
+        include_named_tool_configuration=include_named_tool_configuration,
+    )[:5]
+
+
 def preview(
     source_db: str | Path,
     uploads_root: str | Path,
@@ -1259,7 +1278,7 @@ def preview(
     include_private_chat_metadata: bool = False,
     include_named_tool_configuration: bool = False,
 ) -> dict:
-    report, _, _, _, _, _ = inspect_source(
+    report, _, _, _, _ = inspect_source(
         source_db,
         uploads_root,
         old_template,
@@ -1375,7 +1394,7 @@ def convert(
     failpoint: Callable[[str], None] | None = None,
 ) -> dict:
     started = time.perf_counter()
-    report, upload_rows, object_access, group_memberships, private_chat_overrides, named_tool_config_data = inspect_source(
+    report, upload_rows, object_access, group_memberships, private_chat_overrides, named_tool_config_data = _inspect_source(
         source_db,
         uploads_root,
         old_template,
