@@ -37,6 +37,7 @@ from open_webui.utils.misc import parse_duration, validate_email_format
 from open_webui.utils.auth import (
     create_api_key,
     create_token,
+    create_password_session_token,
     get_validated_session_context,
     get_admin_user,
     get_verified_user,
@@ -336,6 +337,7 @@ async def ldap_auth(request: Request, response: Response, form_data: LdapForm):
 
 @router.post("/signin", response_model=SessionUserResponse)
 async def signin(request: Request, response: Response, form_data: SigninForm):
+    password_authenticated = False
     if WEBUI_AUTH_TRUSTED_EMAIL_HEADER:
         if WEBUI_AUTH_TRUSTED_EMAIL_HEADER not in request.headers:
             raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_TRUSTED_HEADER)
@@ -374,18 +376,26 @@ async def signin(request: Request, response: Response, form_data: SigninForm):
             user = Auths.authenticate_user(admin_email.lower(), admin_password)
     else:
         user = Auths.authenticate_user(form_data.email.lower(), form_data.password)
+        password_authenticated = True
 
     if user:
 
         expires_delta = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
-        expires_at = None
-        if expires_delta:
-            expires_at = int(time.time()) + int(expires_delta.total_seconds())
-
-        token = create_token(
-            data={"id": user.id},
-            expires_delta=expires_delta,
+        password_session = (
+            create_password_session_token(user.id, expires_delta)
+            if password_authenticated
+            else None
         )
+        if password_session is not None:
+            token, expires_at = password_session
+        else:
+            expires_at = None
+            if expires_delta:
+                expires_at = int(time.time()) + int(expires_delta.total_seconds())
+            token = create_token(
+                data={"id": user.id},
+                expires_delta=expires_delta,
+            )
 
         datetime_expires_at = (
             datetime.datetime.fromtimestamp(expires_at, datetime.timezone.utc)

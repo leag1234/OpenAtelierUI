@@ -6,6 +6,7 @@ import hmac
 import hashlib
 import requests
 import os
+import time
 from pathlib import Path
 
 
@@ -259,6 +260,31 @@ def create_token(
 
     encoded_jwt = jwt.encode(payload, SESSION_SECRET, algorithm=ALGORITHM)
     return encoded_jwt
+
+
+def create_password_session_token(
+    user_id: str, expires_delta: Union[timedelta, None]
+) -> Optional[tuple[str, Optional[int]]]:
+    """Issue measured password-session context only in the opt-in profile."""
+    if not _session_epochs_enabled():
+        return None
+
+    issued_at = int(time.time())
+    payload = {
+        "id": user_id,
+        "typ": "session",
+        "auth_method": "password",
+        "mfa_verified": False,
+        "iat": issued_at,
+        "auth_time": issued_at,
+    }
+    expires_at = None
+    if expires_delta:
+        expires_at = issued_at + int(expires_delta.total_seconds())
+        if not 0 <= expires_at <= _MAX_SESSION_EXPIRATION:
+            raise _session_state_unavailable()
+        payload["exp"] = expires_at
+    return create_token(data=payload), expires_at
 
 
 def decode_token(token: str) -> Optional[dict]:

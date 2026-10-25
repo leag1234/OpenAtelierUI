@@ -10,6 +10,7 @@ import pathlib
 import sqlite3
 import sys
 import tempfile
+import time
 import types
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -55,6 +56,11 @@ class UsersStub:
     def get_user_by_api_key(self, key):
         self.api_key_reads.append(key)
         return types.SimpleNamespace(id="api-user", role="user")
+
+    def get_user_by_email(self, email):
+        return next(
+            (user for user in self.users.values() if user.email == email), None
+        )
 
     def update_user_last_active_by_id(self, user_id):
         self.events.append(("last_active", user_id))
@@ -139,6 +145,7 @@ def _make_namespace(database_url: str, *, users=None, events=None):
         "ALGORITHM": "HS256",
         "jwt": jwt_stub,
         "uuid": __import__("uuid"),
+        "time": time,
         "timedelta": timedelta,
         "datetime": datetime,
         "UTC": timezone.utc,
@@ -163,6 +170,7 @@ def _make_namespace(database_url: str, *, users=None, events=None):
         "get_validated_session_epoch",
         "revoke_user_session_epoch",
         "create_token",
+        "create_password_session_token",
         "decode_token",
         "get_current_user",
         "get_admin_user",
@@ -216,7 +224,8 @@ def _prepared_db(path: Path):
 
 def _install_session_user_route(namespace):
     route_path = ROOT / "routers" / "auths.py"
-    namespace.update(
+    route_namespace = dict(namespace)
+    route_namespace.update(
         {
             "datetime": __import__("datetime"),
             "time": __import__("time"),
@@ -229,9 +238,63 @@ def _install_session_user_route(namespace):
     selected = _function_nodes(route_path, {"get_session_user"})
     exec(
         compile(ast.Module(body=selected, type_ignores=[]), str(route_path), "exec"),
-        namespace,
+        route_namespace,
     )
-    return namespace["get_session_user"]
+    return route_namespace["get_session_user"]
+
+
+def _install_password_signin_route(namespace, *, user, authenticated_user=None):
+    route_path = ROOT / "routers" / "auths.py"
+    users = types.SimpleNamespace(
+        get_user_by_email=lambda _email: user,
+        get_num_users=lambda: 1,
+    )
+    auths = types.SimpleNamespace(
+        authenticate_user=lambda _email, _password: authenticated_user,
+        authenticate_user_by_trusted_header=lambda _email: user,
+    )
+    route_namespace = dict(namespace)
+    route_namespace.update(
+        {
+            "WEBUI_AUTH_TRUSTED_EMAIL_HEADER": "",
+            "WEBUI_AUTH_TRUSTED_NAME_HEADER": "",
+            "WEBUI_AUTH": True,
+            "Users": users,
+            "Auths": auths,
+            "parse_duration": lambda value: timedelta(weeks=4) if value == "4w" else None,
+            "get_permissions": lambda *_args: {"workspace": {"tools": False}},
+            "WEBUI_AUTH_COOKIE_SAME_SITE": "lax",
+            "WEBUI_AUTH_COOKIE_SECURE": False,
+            "ERROR_MESSAGES": types.SimpleNamespace(
+                INVALID_CRED="Invalid credentials",
+                INVALID_TRUSTED_HEADER="Invalid trusted header",
+            ),
+            "HTTPException": HTTPError,
+            "time": time,
+            "datetime": __import__("datetime"),
+        }
+    )
+    selected = _function_nodes(route_path, {"signin"})
+    exec(
+        compile(ast.Module(body=selected, type_ignores=[]), str(route_path), "exec"),
+        route_namespace,
+        route_namespace,
+    )
+    return route_namespace["signin"], users, auths, route_namespace
+
+
+def _signin_request(*, headers=None, expiry="4w"):
+    return types.SimpleNamespace(
+        headers={} if headers is None else headers,
+        app=types.SimpleNamespace(
+            state=types.SimpleNamespace(
+                config=types.SimpleNamespace(
+                    JWT_EXPIRES_IN=expiry,
+                    USER_PERMISSIONS={},
+                )
+            )
+        ),
+    )
 
 
 class SessionEpochAuthTests(unittest.TestCase):
@@ -305,6 +368,129 @@ class SessionEpochAuthTests(unittest.TestCase):
         self.assertEqual(first_payload["session_stamp"], second_payload["session_stamp"])
         self.assertNotEqual(first_payload["jti"], second_payload["jti"])
         self.assertEqual(self.namespace["jwt"].encoded[-1][2], "HS256")
+
+    def test_successful_ordinary_password_login_emits_one_consistent_server_context(self):
+        user = types.SimpleNamespace(
+            id="synthetic-owner",
+            email="owner@example.invalid",
+            name="Synthetic Owner",
+            role="user",
+            profile_image_url="",
+        )
+        route, _users, _auths, _route_namespace = _install_password_signin_route(
+            self.namespace, user=user, authenticated_user=user
+        )
+        cookie = {}
+        response = types.SimpleNamespace(set_cookie=lambda **kwargs: cookie.update(kwargs))
+        issuance_time = 1_790_000_000
+        with (
+            patch.dict(os.environ, {"OPENATELIER_SESSION_EPOCHS": "true"}, clear=True),
+            patch.object(time, "time", return_value=issuance_time) as clock,
+        ):
+            result = asyncio.run(
+                route(
+                    _signin_request(),
+                    response,
+                    types.SimpleNamespace(email=user.email, password="synthetic-only"),
+                )
+            )
+        claims = self.namespace["jwt"].decoded[result["token"]]
+        self.assertEqual(
+            set(claims),
+            {
+                "id",
+                "typ",
+                "auth_method",
+                "mfa_verified",
+                "iat",
+                "auth_time",
+                "exp",
+                "session_stamp",
+                "jti",
+            },
+        )
+        self.assertEqual(claims["typ"], "session")
+        self.assertEqual(claims["auth_method"], "password")
+        self.assertIs(claims["mfa_verified"], False)
+        self.assertEqual(claims["iat"], issuance_time)
+        self.assertEqual(claims["auth_time"], issuance_time)
+        self.assertEqual(claims["exp"] - claims["iat"], 2_419_200)
+        self.assertEqual(result["expires_at"], claims["exp"])
+        self.assertEqual(cookie["value"], result["token"])
+        self.assertEqual(clock.call_count, 1)
+
+    def test_failed_password_and_default_off_password_do_not_add_context(self):
+        user = types.SimpleNamespace(
+            id="synthetic-owner",
+            email="owner@example.invalid",
+            name="Synthetic Owner",
+            role="user",
+            profile_image_url="",
+        )
+        failed_route, _users, _auths, _route_namespace = _install_password_signin_route(
+            self.namespace, user=user, authenticated_user=None
+        )
+        with patch.dict(os.environ, {"OPENATELIER_SESSION_EPOCHS": "true"}, clear=True):
+            with self.assertRaises(HTTPError) as failed:
+                asyncio.run(
+                    failed_route(
+                        _signin_request(),
+                        types.SimpleNamespace(set_cookie=lambda **_kwargs: None),
+                        types.SimpleNamespace(email=user.email, password="wrong"),
+                    )
+                )
+        self.assertEqual(failed.exception.status_code, 400)
+        self.assertEqual(self.namespace["jwt"].encoded, [])
+
+        default_route, _users, _auths, default_namespace = _install_password_signin_route(
+            self.namespace, user=user, authenticated_user=user
+        )
+        with patch.dict(os.environ, {}, clear=True):
+            result = asyncio.run(
+                default_route(
+                    _signin_request(),
+                    types.SimpleNamespace(set_cookie=lambda **_kwargs: None),
+                    types.SimpleNamespace(email=user.email, password="synthetic-only"),
+                )
+            )
+        default_claims = self.namespace["jwt"].decoded[result["token"]]
+        self.assertEqual(set(default_claims), {"id", "exp"})
+
+    def test_trusted_header_and_auth_disabled_signin_remain_unlabelled(self):
+        user = types.SimpleNamespace(
+            id="synthetic-owner",
+            email="owner@example.invalid",
+            name="Synthetic Owner",
+            role="user",
+            profile_image_url="",
+        )
+        for mode in ("trusted_header", "auth_disabled"):
+            route, _users, _auths, route_namespace = _install_password_signin_route(
+                self.namespace, user=user, authenticated_user=user
+            )
+            if mode == "trusted_header":
+                route_namespace["WEBUI_AUTH_TRUSTED_EMAIL_HEADER"] = "X-Trusted-Email"
+                headers = {"X-Trusted-Email": user.email}
+            else:
+                route_namespace["WEBUI_AUTH_TRUSTED_EMAIL_HEADER"] = ""
+                route_namespace["WEBUI_AUTH"] = False
+                headers = {}
+            with self.subTest(mode=mode), patch.dict(
+                os.environ, {"OPENATELIER_SESSION_EPOCHS": "true"}, clear=True
+            ):
+                result = asyncio.run(
+                    route(
+                        _signin_request(headers=headers),
+                        types.SimpleNamespace(set_cookie=lambda **_kwargs: None),
+                        types.SimpleNamespace(email=user.email, password="synthetic-only"),
+                    )
+                )
+            claims = self.namespace["jwt"].decoded[result["token"]]
+            self.assertNotIn("typ", claims)
+            self.assertNotIn("auth_method", claims)
+            self.assertNotIn("mfa_verified", claims)
+            self.assertNotIn("iat", claims)
+            self.assertNotIn("auth_time", claims)
 
     def test_decode_precedes_stamp_check_and_user_lookup_and_revoke_invalidates(self):
         with patch.dict(os.environ, {"OPENATELIER_SESSION_EPOCHS": "1"}, clear=True):
