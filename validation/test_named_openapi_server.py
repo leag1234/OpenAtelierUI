@@ -728,7 +728,7 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
         connection = self.grant_connection(self.named_connection(), "user-1")
         connection["info"].update({
             "name": "Community workshop tools",
-            "description": "Bounded synthetic tools — atelier",
+            "description": "Bounded synthetic tools — workshop",
         })
         server = self.cache_entry(0, connection)
         server["openapi"]["info"] = {
@@ -739,7 +739,7 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
         member_rows = await self.catalog(connection, server, self.user())
         for row in (admin_rows[0], member_rows[0]):
             self.assertEqual(row["name"], "Community workshop tools")
-            self.assertEqual(row["meta"]["description"], "Bounded synthetic tools — atelier")
+            self.assertEqual(row["meta"]["description"], "Bounded synthetic tools — workshop")
 
         invalid = self.grant_connection(self.named_connection(), "user-1")
         invalid["info"]["name"] = "  "

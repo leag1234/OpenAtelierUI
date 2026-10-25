@@ -198,7 +198,6 @@ def _valid_named_tool_base_url(value: object) -> bool:
         or parts.password is not None
         or parts.query
         or parts.fragment
-        or parts.path not in {"", "/"}
         or parts.netloc.endswith(":")
         or (port is not None and not 1 <= port <= 65535)
     ):
@@ -207,24 +206,41 @@ def _valid_named_tool_base_url(value: object) -> bool:
     if not host or not host.isascii() or "%" in host or len(host) > 253:
         return False
     if ":" in host:
+        authority = re.fullmatch(r"\[([^\]]+)\](?::([0-9]+))?", parts.netloc)
+        if not authority or authority.group(1) != host:
+            return False
         try:
             ipaddress.IPv6Address(host)
         except ValueError:
             return False
-        return True
-    if re.fullmatch(r"[0-9.]+", host):
+    else:
+        authority = re.fullmatch(r"([^:\[\]]+)(?::([0-9]+))?", parts.netloc)
+        if not authority or authority.group(1).lower() != host.lower():
+            return False
+    if ":" not in host and re.fullmatch(r"[0-9.]+", host):
         try:
             ipaddress.IPv4Address(host)
         except ValueError:
             return False
+    elif ":" not in host:
+        labels = host.split(".")
+        if not all(
+            label
+            and len(label) <= 63
+            and re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?", label)
+            for label in labels
+        ):
+            return False
+
+    prefix = parts.path
+    if prefix in {"", "/"}:
         return True
-    labels = host.split(".")
-    return all(
-        label
-        and len(label) <= 63
-        and re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?", label)
-        for label in labels
-    )
+    if not prefix.startswith("/") or prefix.startswith("//"):
+        return False
+    relative_prefix = prefix[1:]
+    if relative_prefix.endswith("/"):
+        relative_prefix = relative_prefix[:-1]
+    return _valid_named_tool_path(relative_prefix)
 
 
 def _valid_named_tool_path(value: object) -> bool:

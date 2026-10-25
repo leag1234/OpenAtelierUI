@@ -1026,13 +1026,14 @@ class NamedToolConfigurationImportTests(unittest.TestCase):
 
     def test_bounded_alternate_named_connection_is_copied_exactly_without_fetching(self):
         selected = named_tool_connection("u1")
-        selected["url"] = "https://example.invalid"
+        selected["url"] = "https://example.invalid:8443/service/"
         selected["path"] = "api/openapi.json"
         selected["info"] = {
             "id": "community_tools",
             "name": "Community workshop tools",
-            "description": "Outils synthétiques — démonstration",
+            "description": "Synthetic tools — demonstration",
         }
+        self.assertTrue(importer._valid_named_tool_base_url("http://[::1]:18081/service"))
         add_named_tool_configuration(self.source, selected)
         before = digest(self.source), digest(self.template)
         report = preview(
@@ -1262,7 +1263,7 @@ class NamedToolConfigurationImportTests(unittest.TestCase):
         cases.append((unknown, "named_tool_configuration_unsupported_shape", False))
         credential = named_tool_connection(); credential["key"] = "synthetic-secret-marker"
         cases.append((credential, "named_tool_configuration_unsupported_shape", False))
-        bad_url = named_tool_connection(); bad_url["url"] = "https://example.invalid/spec.json"
+        bad_url = named_tool_connection(); bad_url["url"] = "https://example.invalid/spec/../openapi.json"
         cases.append((bad_url, "named_tool_configuration_unsupported_shape", False))
         group = named_tool_connection(); group["config"]["access_grants"][0]["principal_type"] = "group"
         cases.append((group, "named_tool_configuration_unsupported_grant", False))
@@ -1288,7 +1289,10 @@ class NamedToolConfigurationImportTests(unittest.TestCase):
             "https://user:pass@example.invalid",
             "https://example.invalid?token=x",
             "https://example.invalid#fragment",
-            "https://example.invalid/base/path",
+            "http://[::1]junk",
+            "http://[127.0.0.1]",
+            "http://[::1]:18081/service/../other",
+            "http://[::1]:18081/%2e%2e/other",
             " https://example.invalid",
         ):
             malformed_url = named_tool_connection(); malformed_url["url"] = bad_url
