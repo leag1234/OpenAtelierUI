@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import inspect
 import json
 import logging
@@ -1025,7 +1026,8 @@ async def get_models(
     all_models = await get_all_models(request, user=user)
 
     models = []
-    for model in all_models:
+    for source_model in all_models:
+        model = copy.deepcopy(source_model)
         # Filter out filter pipelines
         if "pipeline" in model and model["pipeline"].get("type", None) == "filter":
             continue
@@ -1057,6 +1059,12 @@ async def get_models(
     # Filter out models that the user does not have access to
     if user.role == "user" and not BYPASS_MODEL_ACCESS_CONTROL:
         models = get_filtered_models(models, user)
+
+    # Discovery exposes identity and metadata, but model parameters stay private.
+    for model in models:
+        info = model.get("info")
+        if isinstance(info, dict):
+            info["params"] = {}
 
     log.debug(
         f"/api/models returned filtered models accessible to the user: {json.dumps([model['id'] for model in models])}"

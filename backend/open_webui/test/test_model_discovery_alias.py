@@ -3,6 +3,7 @@
 
 import ast
 import asyncio
+import copy
 import json
 import logging
 import pathlib
@@ -33,6 +34,7 @@ def load_get_models():
         "Depends": lambda dependency: dependency,
         "get_verified_user": object(),
         "json": json,
+        "copy": copy,
         "log": logging.getLogger("model-discovery-source-test"),
     }
     exec(compile(module, str(MAIN_SOURCE), "exec"), namespace)
@@ -94,10 +96,20 @@ class ModelDiscoveryAliasTests(unittest.TestCase):
         self.assertIn("has_access", ast.unparse(function))
         names = ("owner_tool", "member_tool", "public_model", "private_model", "filter_pipe")
         entries = [
-            {"id": name, "name": name, "info": {"meta": {"tags": []}}, "tags": []}
+            {
+                "id": name,
+                "name": name,
+                "info": {
+                    "meta": {"tags": [], "description": "synthetic metadata"},
+                    "params": {"temperature": 0.25, "seed": 17},
+                    "nested": {"retained": ["source value"]},
+                },
+                "tags": [],
+            }
             for name in names
         ]
         entries[-1]["pipeline"] = {"type": "filter"}
+        cached_snapshot = copy.deepcopy(entries)
         records = {
             "owner_tool": ModelRecord("owner", {}),
             "member_tool": ModelRecord("someone-else", {"read": {"user_ids": ["member"]}}),
@@ -124,8 +136,8 @@ class ModelDiscoveryAliasTests(unittest.TestCase):
 
         async def discover(user_id, role="user"):
             user = types.SimpleNamespace(id=user_id, role=role)
-            positional = await handler(request, user)
-            keyword = await handler(request=request, user=user)
+            positional = await handler(request, user, True)
+            keyword = await handler(request=request, user=user, refresh=True)
             self.assertEqual(positional, keyword)
             return positional
 
@@ -145,6 +157,18 @@ class ModelDiscoveryAliasTests(unittest.TestCase):
         self.assertEqual(
             {item["id"] for item in admin["data"]},
             {"owner_tool", "member_tool", "public_model", "private_model"},
+        )
+        for response in (member, unrelated, owner, admin):
+            for item in response["data"]:
+                self.assertEqual(item["info"]["params"], {})
+                self.assertEqual(item["info"]["meta"]["description"], "synthetic metadata")
+        member_item = next(item for item in member["data"] if item["id"] == "member_tool")
+        member_item["info"]["nested"]["retained"].append("response-only mutation")
+        self.assertEqual(entries, cached_snapshot)
+        # A later invocation still sees the full cached parameters after discovery.
+        self.assertEqual(
+            {entry["id"]: entry["info"]["params"] for entry in entries},
+            {name: {"temperature": 0.25, "seed": 17} for name in names},
         )
 
 

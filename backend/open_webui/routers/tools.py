@@ -411,6 +411,11 @@ async def get_tools_valves_spec_by_id(
 ):
     tools = Tools.get_tool_by_id(id)
     if tools:
+        if user.role != "admin" and tools.user_id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=ERROR_MESSAGES.UNAUTHORIZED,
+            )
         if id in request.app.state.TOOLS:
             tools_module = request.app.state.TOOLS[id]
         else:

@@ -61,6 +61,31 @@ class ToolStore:
         return {"token": "owner-only-synthetic-config", "timeout": 7}
 
 
+class SpecState:
+    loader_calls = 0
+    schema_calls = 0
+
+    @classmethod
+    def load(cls, identity):
+        cls.loader_calls += 1
+        return SimpleNamespace(Valves=cls), None
+
+    @classmethod
+    def schema(cls):
+        cls.schema_calls += 1
+        return {"title": "Synthetic private valves schema"}
+
+
+class ProbeCache(dict):
+    def __init__(self):
+        super().__init__()
+        self.contains_calls = 0
+
+    def __contains__(self, key):
+        self.contains_calls += 1
+        return super().__contains__(key)
+
+
 class ModelRow:
     def __init__(self, access_control):
         self.id = "model-synthetic"
@@ -113,19 +138,23 @@ def _route_namespace():
     return {
         "Depends": lambda value: value,
         "get_verified_user": lambda: None,
+        "Request": object,
         "HTTPException": HTTPError,
         "status": SimpleNamespace(HTTP_401_UNAUTHORIZED=401, HTTP_400_BAD_REQUEST=400),
         "ERROR_MESSAGES": SimpleNamespace(UNAUTHORIZED="unauthorized", NOT_FOUND="not found", DEFAULT=lambda value="error": value),
         "Tools": ToolStore,
+        "load_tool_module_by_id": SpecState.load,
         "Models": ModelStore,
         "has_access": has_access,
         "access_grants_for_acl": access_grants_for_acl,
     }
 
 
-tool_route = compile_functions(
-    ROOT / "backend/open_webui/routers/tools.py", {"get_tools_valves_by_id"}, _route_namespace()
-)["get_tools_valves_by_id"]
+tool_routes = compile_functions(
+    ROOT / "backend/open_webui/routers/tools.py", {"get_tools_valves_by_id", "get_tools_valves_spec_by_id"}, _route_namespace()
+)
+tool_route = tool_routes["get_tools_valves_by_id"]
+tool_spec_route = tool_routes["get_tools_valves_spec_by_id"]
 model_routes = compile_functions(
     ROOT / "backend/open_webui/routers/models.py", {"_model_access_fields", "get_model_by_id"}, _route_namespace()
 )
@@ -149,6 +178,39 @@ class PrivateConfigurationRouteTests(unittest.IsolatedAsyncioTestCase):
                 ToolStore.config_reads = 0
                 self.assertEqual(await tool_route("tool-shared", user), expected)
                 self.assertEqual(ToolStore.config_reads, 1)
+
+    async def test_valves_spec_denies_before_cache_probe_or_module_load(self):
+        for identity, access_control in (
+            ("reader", {"read": {"user_ids": ["reader"]}}),
+            ("public-reader", None),
+            ("unrelated", {"read": {"user_ids": ["reader"]}}),
+        ):
+            with self.subTest(identity=identity, access_control=access_control):
+                ToolStore.row.access_control = access_control
+                SpecState.loader_calls = 0
+                SpecState.schema_calls = 0
+                cache = ProbeCache()
+                request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(TOOLS=cache)))
+                with self.assertRaises(HTTPError) as caught:
+                    await tool_spec_route(request, "tool-shared", User(identity))
+                self.assertEqual(caught.exception.status_code, 401)
+                self.assertEqual(cache.contains_calls, 0)
+                self.assertEqual(SpecState.loader_calls, 0)
+                self.assertEqual(SpecState.schema_calls, 0)
+                self.assertEqual(cache, {})
+        ToolStore.row.access_control = {"read": {"user_ids": ["reader"]}}
+
+    async def test_valves_spec_owner_and_admin_receive_schema(self):
+        for user in (User("owner"), User("administrator", "admin")):
+            with self.subTest(role=user.role):
+                SpecState.loader_calls = 0
+                SpecState.schema_calls = 0
+                cache = ProbeCache()
+                request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(TOOLS=cache)))
+                self.assertEqual(await tool_spec_route(request, "tool-shared", user), {"title": "Synthetic private valves schema"})
+                self.assertEqual(SpecState.loader_calls, 1)
+                self.assertEqual(SpecState.schema_calls, 1)
+                self.assertIn("tool-shared", cache)
 
     async def test_model_reader_gets_response_only_empty_params(self):
         ModelStore.row = ModelRow({"read": {"user_ids": ["reader"]}})
