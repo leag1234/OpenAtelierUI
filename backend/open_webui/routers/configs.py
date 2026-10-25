@@ -129,7 +129,8 @@ async def verify_tool_servers_config(
             token = request.state.token.credentials
 
         url = f"{form_data.url}/{form_data.path}"
-        return await get_tool_server_data(token, url)
+        result = await get_tool_server_data(token, url)
+        return result["openapi"]
     except Exception as e:
         raise HTTPException(
             status_code=400,
