@@ -144,7 +144,7 @@ async def get_model_by_id(id: str, user=Depends(get_verified_user)):
 async def get_model_history(id: str, page: int = 1, user=Depends(get_verified_user)):
     model = Models.get_model_by_id(id)
     if not model:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.NOT_FOUND)
+        raise HTTPException(status_code=404, detail="We could not find what you're looking for :/")
     if user.role != "admin" and model.user_id != user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
     try:
@@ -159,7 +159,7 @@ async def get_model_history(id: str, page: int = 1, user=Depends(get_verified_us
 async def get_model_history_version(id: str, version_id: str, user=Depends(get_verified_user)):
     model = Models.get_model_by_id(id)
     if not model:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.NOT_FOUND)
+        raise HTTPException(status_code=404, detail="We could not find what you're looking for :/")
     if user.role != "admin" and model.user_id != user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
     try:

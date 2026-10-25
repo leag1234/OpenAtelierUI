@@ -28,8 +28,8 @@ class HistoryNotFound(Exception):
     """Resource/version is absent from the imported history dataset."""
 
 
-def _connect(path: Path) -> sqlite3.Connection:
-    uri = path.as_uri() + "?mode=ro&immutable=1"
+def _connect(path: Path, *, immutable: bool = False) -> sqlite3.Connection:
+    uri = path.as_uri() + "?mode=ro" + ("&immutable=1" if immutable else "")
     connection = sqlite3.connect(uri, uri=True, timeout=1)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA query_only=ON")
@@ -37,10 +37,10 @@ def _connect(path: Path) -> sqlite3.Connection:
     return connection
 
 
-def _regular_database(path: Path, maximum: int) -> None:
+def _regular_database(path: Path, maximum: int, *, reject_sidecars: bool = True) -> None:
     if path.is_symlink() or not path.is_file() or path.stat().st_size > maximum:
         raise HistoryUnavailable("Imported history is unavailable")
-    if any(Path(str(path) + suffix).exists() for suffix in ("-wal", "-shm", "-journal")):
+    if reject_sidecars and any(Path(str(path) + suffix).exists() for suffix in ("-wal", "-shm", "-journal")):
         raise HistoryUnavailable("Imported history is unavailable")
 
 
@@ -54,7 +54,7 @@ def _row_fingerprint(kind: str, row: sqlite3.Row | dict) -> str:
 
 
 def _target_row(target_db: Path, kind: str, resource_id: str):
-    connection = _connect(target_db)
+    connection = _connect(target_db, immutable=False)
     try:
         row = connection.execute(f'SELECT * FROM "{kind}" WHERE id=?', (resource_id,)).fetchone()
         if row is None:
@@ -71,9 +71,9 @@ def write_history_sidecar(source_db: str | Path, target_db: str | Path, output: 
     source_path, target_path, output_path = Path(source_db), Path(target_db), Path(output)
     if output_path.exists() or output_path.is_symlink():
         raise ValueError("history sidecar destination already exists")
-    source = sqlite3.connect(f"file:{source_path.resolve()}?mode=ro&immutable=1", uri=True, timeout=1)
+    source = sqlite3.connect(source_path.resolve().as_uri() + "?mode=ro&immutable=1", uri=True, timeout=1)
     source.row_factory = sqlite3.Row
-    target = sqlite3.connect(f"file:{target_path.resolve()}?mode=ro&immutable=1", uri=True, timeout=1)
+    target = sqlite3.connect(target_path.resolve().as_uri() + "?mode=ro&immutable=1", uri=True, timeout=1)
     target.row_factory = sqlite3.Row
     output_path.parent.mkdir(parents=True, exist_ok=True)
     destination = sqlite3.connect(output_path)
@@ -137,45 +137,72 @@ def write_history_sidecar(source_db: str | Path, target_db: str | Path, output: 
 
 
 def _open_verified(data_dir: str | Path, database_url: str, kind: str, resource_id: str, owner_id: str):
-    if os.environ.get("OPEN_WEBUI_IMPORTED_HISTORY_READS") != "1":
-        raise HistoryUnavailable("Imported history is unavailable")
-    if not database_url.startswith("sqlite:///"):
-        raise HistoryUnavailable("Imported history is unavailable")
-    data_root = Path(data_dir)
-    app_db = data_root / "webui.db"
-    configured_db = unquote(database_url[len("sqlite:///"):].split("?", 1)[0])
-    if not Path(configured_db).is_absolute() or Path(configured_db).resolve() != app_db.resolve():
-        raise HistoryUnavailable("Imported history is unavailable")
-    sidecar = data_root / "imported-history.sqlite"
-    _regular_database(app_db, 64 * 1024 * 1024)
-    _regular_database(sidecar, MAX_DATASET_BYTES)
-    connection = _connect(sidecar)
+    connection = None
     try:
+        if os.environ.get("OPEN_WEBUI_IMPORTED_HISTORY_READS") != "1":
+            raise HistoryUnavailable("Imported history is unavailable")
+        if not database_url.startswith("sqlite:///"):
+            raise HistoryUnavailable("Imported history is unavailable")
+        data_root = Path(data_dir)
+        app_db = data_root / "webui.db"
+        configured_db = unquote(database_url[len("sqlite:///"):].split("?", 1)[0])
+        if not Path(configured_db).is_absolute() or Path(configured_db).resolve() != app_db.resolve():
+            raise HistoryUnavailable("Imported history is unavailable")
+        sidecar = data_root / "imported-history.sqlite"
+        _regular_database(app_db, 64 * 1024 * 1024, reject_sidecars=False)
+        _regular_database(sidecar, MAX_DATASET_BYTES)
+        connection = _connect(sidecar, immutable=True)
         manifest = connection.execute("SELECT * FROM history_manifest WHERE kind=? AND resource_id=?", (kind, resource_id)).fetchone()
         if manifest is None:
             connection.close()
+            connection = None
             raise HistoryNotFound()
         if manifest["owner_id"] != owner_id:
             connection.close()
+            connection = None
             raise HistoryUnavailable("Imported history is stale")
+        manifest_count = manifest["row_count"]
+        if not isinstance(manifest_count, int) or isinstance(manifest_count, bool) or not 0 <= manifest_count <= MAX_REVISIONS:
+            connection.close()
+            connection = None
+            raise HistoryUnavailable("Imported history is unavailable")
         active = _target_row(app_db, kind, resource_id)
         if active.get("user_id") != owner_id or _row_fingerprint(kind, active) != manifest["fingerprint"]:
             connection.close()
+            connection = None
             raise HistoryUnavailable("Imported history is stale")
         count = connection.execute(f'SELECT COUNT(*) FROM "{kind}_history" WHERE {kind}_id=?', (resource_id,)).fetchone()[0]
         total = connection.execute(f'SELECT COUNT(*) FROM "{kind}_history"').fetchone()[0]
         if count != manifest["row_count"] or total > MAX_REVISIONS:
             connection.close()
+            connection = None
             raise HistoryUnavailable("Imported history is unavailable")
         return connection, manifest
-    except (sqlite3.Error, OSError, ValueError, HistoryUnavailable) as error:
-        connection.close()
-        if isinstance(error, HistoryUnavailable):
-            raise
+    except HistoryNotFound:
+        if connection is not None:
+            connection.close()
+        raise
+    except HistoryUnavailable:
+        if connection is not None:
+            connection.close()
+        raise
+    except (sqlite3.Error, OSError, ValueError, OverflowError, TypeError, RuntimeError) as error:
+        if connection is not None:
+            connection.close()
         raise HistoryUnavailable("Imported history is unavailable") from error
 
 
 def _project(connection, kind: str, row, user_lookup):
+    if (
+        not isinstance(row["id"], str)
+        or not isinstance(row[f"{kind}_id"], str)
+        or not isinstance(row["user_id"], str)
+        or (row["parent_id"] is not None and not isinstance(row["parent_id"], str))
+        or (row["commit_message"] is not None and not isinstance(row["commit_message"], str))
+        or not isinstance(row["created_at"], int)
+        or isinstance(row["created_at"], bool)
+    ):
+        raise HistoryUnavailable("Imported history is unavailable")
     user = user_lookup(row["user_id"])
     return {
         "id": row["id"], f"{kind}_id": row[f"{kind}_id"], "parent_id": row["parent_id"],
@@ -188,6 +215,9 @@ def list_history(data_dir: str | Path, database_url: str, kind: str, resource, p
     connection, manifest = _open_verified(data_dir, database_url, kind, resource.id, resource.user_id)
     try:
         normalized_page = max(1, page)
+        page_count = (manifest["row_count"] + PAGE_SIZE - 1) // PAGE_SIZE
+        if normalized_page > page_count:
+            return []
         offset = (normalized_page - 1) * PAGE_SIZE
         rows = connection.execute(f'SELECT * FROM "{kind}_history" WHERE {kind}_id=? ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?', (resource.id, PAGE_SIZE, offset)).fetchall()
         result = [_project(connection, kind, row, user_lookup) for row in rows]
@@ -206,10 +236,14 @@ def get_history(data_dir: str | Path, database_url: str, kind: str, resource, ve
         row = connection.execute(f'SELECT * FROM "{kind}_history" WHERE {kind}_id=? AND id=?', (resource.id, version_id)).fetchone()
         if row is None:
             raise HistoryNotFound()
-        if len(row["snapshot"].encode("utf-8")) > MAX_SNAPSHOT_BYTES:
+        snapshot_text = row["snapshot"]
+        if not isinstance(snapshot_text, str) or len(snapshot_text.encode("utf-8")) > MAX_SNAPSHOT_BYTES:
             raise HistoryUnavailable("Imported history is unavailable")
         result = _project(connection, kind, row, user_lookup)
-        result["snapshot"] = json.loads(row["snapshot"])
+        snapshot = json.loads(snapshot_text)
+        if not isinstance(snapshot, dict):
+            raise HistoryUnavailable("Imported history is unavailable")
+        result["snapshot"] = snapshot
         if len(json.dumps(result, separators=(",", ":")).encode("utf-8")) > MAX_RESPONSE_BYTES:
             raise HistoryUnavailable("Imported history response is unavailable")
         return result

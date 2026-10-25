@@ -249,7 +249,7 @@ async def get_tools_by_id(id: str, user=Depends(get_verified_user)):
 async def get_tool_history(id: str, page: int = 1, user=Depends(get_verified_user)):
     tool = Tools.get_tool_by_id(id)
     if not tool:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.NOT_FOUND)
+        raise HTTPException(status_code=404, detail="Not found")
     if user.role != "admin" and tool.user_id != user.id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
     try:
@@ -264,7 +264,7 @@ async def get_tool_history(id: str, page: int = 1, user=Depends(get_verified_use
 async def get_tool_history_version(id: str, version_id: str, user=Depends(get_verified_user)):
     tool = Tools.get_tool_by_id(id)
     if not tool:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.NOT_FOUND)
+        raise HTTPException(status_code=404, detail="Not found")
     if user.role != "admin" and tool.user_id != user.id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
     try:

@@ -5,13 +5,17 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import hashlib
 import importlib.util
 import json
 import os
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import unittest
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -101,6 +105,7 @@ class ImportedHistoryTests(unittest.TestCase):
         self.assertTrue(all("snapshot" not in row for row in page_one))
         self.assertEqual(page_one[0]["user"], {"name": "Synthetic User"})
         self.assertEqual(list_history(self.data_dir, self.database_url, "tool", self.resource("tool"), 0, self.user_lookup), page_one)
+        self.assertEqual(list_history(self.data_dir, self.database_url, "tool", self.resource("tool"), 10**100, self.user_lookup), [])
 
     def test_detail_preserves_inert_snapshot_and_rejects_cross_resource_ids(self):
         detail = get_history(self.data_dir, self.database_url, "tool", self.resource("tool"), self.tool_ids[-1], self.user_lookup)
@@ -154,22 +159,119 @@ class ImportedHistoryTests(unittest.TestCase):
         with self.assertRaises(HistoryUnavailable):
             list_history(self.data_dir, "sqlite:////tmp/other.db", "tool", self.resource("tool"), 1, self.user_lookup)
 
-    def test_route_source_checks_owner_before_history_reader_call(self):
+    def test_open_failure_is_unavailable_not_server_error(self):
+        from unittest.mock import patch
+        with patch.object(_HELPER, "_connect", side_effect=PermissionError("synthetic unreadable database")):
+            with self.assertRaises(HistoryUnavailable):
+                list_history(self.data_dir, self.database_url, "tool", self.resource("tool"), 1, self.user_lookup)
+
+    def test_live_database_lock_is_respected_and_times_out(self):
+        lock_script = (
+            "import sqlite3,sys,time; c=sqlite3.connect(sys.argv[1],timeout=1); "
+            "c.execute('BEGIN EXCLUSIVE'); print('locked',flush=True); time.sleep(5)"
+        )
+        writer = subprocess.Popen(
+            [sys.executable, "-c", lock_script, str(self.target / "webui.db")],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        started = time.monotonic()
+        try:
+            self.assertEqual(writer.stdout.readline().strip(), "locked")
+            with self.assertRaises(HistoryUnavailable):
+                list_history(self.data_dir, self.database_url, "tool", self.resource("tool"), 1, self.user_lookup)
+            self.assertGreaterEqual(time.monotonic() - started, 0.8)
+        finally:
+            writer.terminate()
+            writer.wait(timeout=2)
+            writer.stdout.close()
+            writer.stderr.close()
+
+    def test_snapshot_must_remain_json_object_and_oversized_sidecar_refuses(self):
+        sidecar = sqlite3.connect(self.target / "imported-history.sqlite")
+        sidecar.execute("UPDATE tool_history SET snapshot='[]' WHERE id=?", (self.tool_ids[-1],))
+        sidecar.commit()
+        sidecar.close()
+        with self.assertRaises(HistoryUnavailable):
+            get_history(self.data_dir, self.database_url, "tool", self.resource("tool"), self.tool_ids[-1], self.user_lookup)
+        path = self.target / "imported-history.sqlite"
+        with path.open("ab") as stream:
+            stream.truncate(8 * 1024 * 1024 + 1)
+        with self.assertRaises(HistoryUnavailable):
+            list_history(self.data_dir, self.database_url, "tool", self.resource("tool"), 1, self.user_lookup)
+
+    def _extract_route(self, filename, function_name, resource, user, helper_calls, *, missing=False, helper_error=None):
         base = Path(__file__).resolve().parents[1] / "backend" / "open_webui" / "routers"
-        for filename, routes, helper_name in (
-            ("tools.py", ("get_tool_history", "get_tool_history_version"), "list_imported_tool_history"),
-            ("models.py", ("get_model_history", "get_model_history_version"), "list_imported_model_history"),
+        tree = ast.parse((base / filename).read_text(encoding="utf-8"))
+        node = next(item for item in tree.body if isinstance(item, ast.AsyncFunctionDef) and item.name == function_name)
+        node.decorator_list = []
+
+        class RouteHTTPException(Exception):
+            def __init__(self, status_code, detail=None):
+                super().__init__(detail)
+                self.status_code = status_code
+                self.detail = detail
+
+        def reader(*args):
+            helper_calls.append(args)
+            if helper_error:
+                raise helper_error
+            return ["history"]
+
+        namespace = {
+            "Depends": lambda _dependency: None,
+            "get_verified_user": lambda: None,
+            "HTTPException": RouteHTTPException,
+            "status": SimpleNamespace(HTTP_401_UNAUTHORIZED=401, HTTP_403_FORBIDDEN=403),
+            "ERROR_MESSAGES": SimpleNamespace(ACCESS_PROHIBITED="access prohibited", NOT_FOUND="not found"),
+            "Tools": SimpleNamespace(get_tool_by_id=lambda _id: None if missing else resource),
+            "Models": SimpleNamespace(get_model_by_id=lambda _id: None if missing else resource),
+            "Users": SimpleNamespace(get_user_by_id=self.user_lookup),
+            "DATA_DIR": self.data_dir,
+            "DATABASE_URL": self.database_url,
+            "HistoryNotFound": HistoryNotFound,
+            "HistoryUnavailable": HistoryUnavailable,
+            "list_imported_tool_history": reader,
+            "get_imported_tool_history": reader,
+            "list_imported_model_history": reader,
+            "get_imported_model_history": reader,
+        }
+        exec(compile(ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[])), str(base / filename), "exec"), namespace)
+        route = namespace[function_name]
+        if function_name.endswith("_version"):
+            return asyncio.run(route(resource.id, "version-1", user=user))
+        if "model" in function_name:
+            return asyncio.run(route(resource.id, user=user))
+        return asyncio.run(route(resource.id, user=user))
+
+    def test_extracted_routes_enforce_access_before_reader_and_match_missing_errors(self):
+        for filename, kind, id_field, list_name, detail_name, expected_denial in (
+            ("tools.py", "tool", "tool-private", "get_tool_history", "get_tool_history_version", 401),
+            ("models.py", "model", "model-private", "get_model_history", "get_model_history_version", 403),
         ):
-            tree = ast.parse((base / filename).read_text(encoding="utf-8"))
-            functions = {node.name: node for node in tree.body if isinstance(node, ast.AsyncFunctionDef)}
-            for name in routes:
-                node = functions[name]
-                calls = [item.lineno for item in ast.walk(node) if isinstance(item, ast.Call) and isinstance(item.func, ast.Name) and item.func.id.startswith(("list_imported_", "get_imported_"))]
-                checks = [item.lineno for item in ast.walk(node) if isinstance(item, ast.Compare) and any(isinstance(op, ast.NotEq) for op in item.ops)]
-                self.assertTrue(calls, name)
-                self.assertTrue(checks, name)
-                self.assertLess(min(checks), min(calls), name)
-            self.assertIn(helper_name, (base / filename).read_text(encoding="utf-8"))
+            resource = SimpleNamespace(id=id_field, user_id="u1")
+            for function_name in (list_name, detail_name):
+                for user in (SimpleNamespace(id="u1", role="user"), SimpleNamespace(id="admin", role="admin")):
+                    calls = []
+                    self.assertEqual(self._extract_route(filename, function_name, resource, user, calls), ["history"])
+                    self.assertEqual(len(calls), 1)
+                calls = []
+                with self.assertRaises(Exception) as denied:
+                    self._extract_route(filename, function_name, resource, SimpleNamespace(id="other", role="user"), calls)
+                self.assertEqual(denied.exception.status_code, expected_denial)
+                self.assertEqual(calls, [])
+
+                calls = []
+                with self.assertRaises(Exception) as missing:
+                    self._extract_route(filename, function_name, resource, SimpleNamespace(id="u1", role="user"), calls, missing=True)
+                self.assertEqual(missing.exception.status_code, 404)
+                self.assertEqual(missing.exception.detail, "Not found" if kind == "tool" else "We could not find what you're looking for :/")
+                self.assertEqual(calls, [])
+
+                calls = []
+                with self.assertRaises(Exception) as unavailable:
+                    self._extract_route(filename, function_name, resource, SimpleNamespace(id="u1", role="user"), calls, helper_error=HistoryUnavailable("unavailable"))
+                self.assertEqual(unavailable.exception.status_code, 503)
+                self.assertEqual(calls and len(calls), 1)
 
 
 if __name__ == "__main__":
