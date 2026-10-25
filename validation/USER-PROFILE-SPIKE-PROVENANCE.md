@@ -103,3 +103,25 @@ that failed receipt is retained. This slice does not change auth/session
 stamps or claim that issue is resolved. This is a component spike only, not
 migration certification, full runtime qualification, or a durable
 schema/default decision.
+
+## Follow-up harness and refusal-output correction
+
+The primary regression replay found that the older AST-extracted session-epoch
+route test did not seed the new `PROFILE_FIELDS_ENABLED` module global. The
+route therefore raised `NameError` in that test namespace. The harness now
+explicitly supplies `False`, keeping this legacy suite on the default-off path;
+no application fallback or auth behavior changed.
+
+The same review found that newly bounded profile lookup/read/update wrappers
+chained underlying database exceptions into rendered tracebacks. Those wrappers
+now suppress displayed causes while retaining the generic `ImportedProfileError`
+message and rollback behavior. A synthetic trigger failure test checks that a
+marker in the database exception does not appear in formatted output. This is a
+bounded refusal-output check, not a claim that all application logging or
+exceptions are sanitized.
+
+The first host run of the new traceback assertion used a newer one-argument
+`traceback.format_exception` signature and failed before checking the refusal.
+The test now uses the three-argument form available in the repository's Python
+runtime; the focused profile suite passes with the marker-redaction assertion
+executed.

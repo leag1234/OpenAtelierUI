@@ -143,6 +143,9 @@ def _make_namespace(database_url: str, *, users=None, events=None):
         "bearer_security": object(),
         "SESSION_SECRET": "synthetic-test-key",
         "ALGORITHM": "HS256",
+        # The extracted route uses this new module flag; keep this legacy
+        # session-epoch harness explicitly on its historical default-off path.
+        "PROFILE_FIELDS_ENABLED": False,
         "jwt": jwt_stub,
         "uuid": __import__("uuid"),
         "time": time,

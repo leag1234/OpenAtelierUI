@@ -17,6 +17,7 @@ import sys
 import tempfile
 import types
 import unittest
+import traceback
 from pathlib import Path
 from typing import Optional
 
@@ -260,16 +261,23 @@ class ImportedProfileStorageTests(unittest.TestCase):
             )
         self.assertEqual(connection.execute('SELECT name FROM "user" WHERE id="u1"').fetchone()[0], "Synthetic User")
 
+        secret_marker = "synthetic-profile-parameter-marker"
         connection.execute(
             '''CREATE TRIGGER fail_profile_update BEFORE UPDATE ON "user"
-               WHEN OLD.id='u1' BEGIN SELECT RAISE(ABORT,'synthetic failure'); END'''
+               WHEN OLD.id='u1' BEGIN SELECT RAISE(ABORT,'synthetic-profile-parameter-marker'); END'''
         )
         connection.commit()
         with self.assertRaises(self.module.ImportedProfileError) as caught:
             self.module.update_user_profile_fields(
                 session, "u1", "Changed", "/changed.png", "Changed bio", None, None
             )
-        self.assertIsInstance(caught.exception.__cause__, sqlite3.IntegrityError)
+        rendered = "".join(
+            traceback.format_exception(
+                type(caught.exception), caught.exception, caught.exception.__traceback__
+            )
+        )
+        self.assertNotIn(secret_marker, rendered)
+        self.assertIn("prepared user profile update is unavailable", rendered)
         self.assertGreaterEqual(session.rollbacks, 1)
         connection.close()
 

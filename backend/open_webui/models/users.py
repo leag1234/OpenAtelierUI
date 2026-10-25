@@ -159,7 +159,7 @@ class UsersTable:
             except ImportedProfileError:
                 raise
             except Exception as error:
-                raise ImportedProfileError("prepared user profile lookup is unavailable") from error
+                raise ImportedProfileError("prepared user profile lookup is unavailable") from None
         try:
             with get_db() as db:
                 user = db.query(User).filter_by(id=id).first()

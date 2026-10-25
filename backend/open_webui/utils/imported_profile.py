@@ -97,7 +97,7 @@ def read_user_profile_fields(session, user_id):
     except ImportedProfileError:
         raise
     except Exception as error:
-        raise ImportedProfileError("prepared user profile data is unavailable") from error
+        raise ImportedProfileError("prepared user profile data is unavailable") from None
 
 
 def update_user_profile_fields(session, user_id, name, profile_image_url, bio, gender, date_of_birth):
@@ -132,5 +132,5 @@ def update_user_profile_fields(session, user_id, name, profile_image_url, bio, g
         raise
     except Exception as error:
         session.rollback()
-        raise ImportedProfileError("prepared user profile update is unavailable") from error
+        raise ImportedProfileError("prepared user profile update is unavailable") from None
     return True
