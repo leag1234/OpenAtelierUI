@@ -1,4 +1,6 @@
+import importlib
 import importlib.metadata
+import importlib.util
 import json
 import logging
 import os
@@ -36,10 +38,19 @@ DOCKER = os.environ.get("DOCKER", "False").lower() == "true"
 # device type embedding models - "cpu" (default), "cuda" (nvidia gpu required) or "mps" (apple silicon) - choosing this right can lead to better performance
 USE_CUDA = os.environ.get("USE_CUDA_DOCKER", "false")
 
+
+def _load_torch():
+    """Load and cache the real torch module only for a requested capability."""
+    torch_module = globals().get("torch")
+    if torch_module is None:
+        torch_module = importlib.import_module("torch")
+        globals()["torch"] = torch_module
+    return torch_module
+
+
 if USE_CUDA.lower() == "true":
     try:
-        import torch
-
+        torch = _load_torch()
         assert torch.cuda.is_available(), "CUDA not available"
         DEVICE_TYPE = "cuda"
     except Exception as e:
@@ -53,13 +64,13 @@ if USE_CUDA.lower() == "true":
 else:
     DEVICE_TYPE = "cpu"
 
-try:
-    import torch
-
-    if torch.backends.mps.is_available() and torch.backends.mps.is_built():
-        DEVICE_TYPE = "mps"
-except Exception:
-    pass
+if sys.platform == "darwin":
+    try:
+        torch = _load_torch()
+        if torch.backends.mps.is_available() and torch.backends.mps.is_built():
+            DEVICE_TYPE = "mps"
+    except Exception:
+        pass
 
 ####################################
 # LOGGING
@@ -496,3 +507,23 @@ PIP_PACKAGE_INDEX_OPTIONS = os.getenv("PIP_PACKAGE_INDEX_OPTIONS", "").split()
 ####################################
 
 EXTERNAL_PWA_MANIFEST_URL = os.environ.get("EXTERNAL_PWA_MANIFEST_URL")
+
+
+def __getattr__(name):
+    if name == "torch":
+        return _load_torch()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _torch_is_installed():
+    try:
+        return importlib.util.find_spec("torch") is not None
+    except (ImportError, ValueError):
+        return False
+
+
+# Preserve normal public-global wildcard exports while making the optional
+# torch export resolve lazily when installed consumers explicitly request it.
+__all__ = [name for name in globals() if not name.startswith("_")]
+if ("torch" in globals() or _torch_is_installed()) and "torch" not in __all__:
+    __all__.append("torch")
