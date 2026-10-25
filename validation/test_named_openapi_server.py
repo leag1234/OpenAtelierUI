@@ -95,8 +95,16 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
             "openapi": {"info": {"title": "Synthetic server"}},
         }
 
-    def invoke(self, connections, servers, requested_id, role="admin"):
-        config = type("Config", (), {"TOOL_SERVER_CONNECTIONS": connections})()
+    def invoke(self, connections, servers, requested_id, role="admin", refuse_config=False):
+        if refuse_config:
+            class Config:
+                @property
+                def TOOL_SERVER_CONNECTIONS(self):
+                    raise AssertionError("local tool selection read server configuration")
+
+            config = Config()
+        else:
+            config = type("Config", (), {"TOOL_SERVER_CONNECTIONS": connections})()
         state = type("State", (), {
             "config": config,
             "TOOL_SERVERS": servers,
@@ -135,8 +143,19 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
         # canonical server ID; the ambiguity is rejected before callable creation.
         self.assertEqual(self.invoke([connection], [server], "server:synthetic_openapi", "admin"), {})
         self.assertEqual(self.invoke([connection], [server], "server:00", "admin"), {})
-        self.assertEqual(self.local_lookup_calls, ["server:synthetic_openapi", "server:00"])
+        padded_alias = "server:" + ("0" * 5000) + "0"
+        self.assertEqual(self.invoke([connection], [server], padded_alias, "admin"), {})
+        self.assertEqual(
+            self.local_lookup_calls,
+            ["server:synthetic_openapi", "server:00", padded_alias],
+        )
         self.assertEqual(self.server_calls, [])
+        huge_numeric = "server:" + ("9" * 5000)
+        self.assertIsNone(
+            self.namespace["resolve_tool_server_reference"](
+                huge_numeric, [connection], [server], "admin"
+            )
+        )
 
     async def test_disabled_stale_duplicate_and_malformed_named_configs_fail_closed(self):
         good = self.named_connection()
@@ -178,6 +197,11 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
         self.local_collision = True
         self.assertEqual(self.invoke([connection], [server], "server:local_tool", "user"), {})
         self.assertEqual(self.local_lookup_calls[-1], "server:local_tool")
+
+    async def test_local_tool_does_not_read_server_configuration(self):
+        self.local_collision = True
+        self.assertEqual(self.invoke([], [], "local_tool", "user", refuse_config=True), {})
+        self.assertEqual(self.local_lookup_calls, ["local_tool"])
 
     async def test_distinct_sparse_config_indices_keep_the_original_connection_index(self):
         legacy = {"type": "openapi", "url": "https://example.invalid/old.json", "config": {"enable": True}}

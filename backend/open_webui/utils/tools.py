@@ -138,7 +138,7 @@ def resolve_tool_server_reference(
         return connections[named_index], matches[0]
 
     suffix = tool_id[len("server:"):]
-    if not suffix.isascii() or not suffix.isdecimal():
+    if not suffix.isascii() or not suffix.isdecimal() or len(suffix) > 10:
         return None
     index = int(suffix)
     if index >= len(connections) or index in named_indices:
@@ -158,13 +158,10 @@ def is_reserved_named_server_reference(tool_id: str, connections: list) -> bool:
         attempted, server_id = _named_server_config(connection)
         if not attempted:
             continue
-        if (
-            suffix.isascii()
-            and suffix.isdecimal()
-            and len(suffix) <= 10
-            and int(suffix) == index
-        ):
-            return True
+        if suffix.isascii() and suffix.isdecimal():
+            canonical_index = suffix.lstrip("0") or "0"
+            if canonical_index == str(index):
+                return True
         info = connection.get("info") if isinstance(connection, dict) else None
         raw_id = info.get("id") if isinstance(info, dict) else None
         if isinstance(raw_id, str) and suffix == raw_id:
@@ -199,8 +196,17 @@ def get_tools(
     tools_dict = {}
 
     for tool_id in tool_ids:
-        connections = request.app.state.config.TOOL_SERVER_CONNECTIONS
-        reserved_named = is_reserved_named_server_reference(tool_id, connections)
+        is_server_reference = isinstance(tool_id, str) and tool_id.startswith("server:")
+        connections = (
+            request.app.state.config.TOOL_SERVER_CONNECTIONS
+            if is_server_reference
+            else None
+        )
+        reserved_named = (
+            is_reserved_named_server_reference(tool_id, connections)
+            if is_server_reference
+            else False
+        )
         # Named server IDs are a separate namespace. Never let a local plugin row
         # with the same textual ID shadow the server or bypass its role gate.
         if reserved_named and user.role != "admin":
@@ -210,7 +216,7 @@ def get_tools(
             continue
         tool = None if reserved_named else Tools.get_tool_by_id(tool_id)
         if tool is None:
-            if tool_id.startswith("server:"):
+            if is_server_reference:
                 resolved_server = resolve_tool_server_reference(
                     tool_id,
                     connections,
