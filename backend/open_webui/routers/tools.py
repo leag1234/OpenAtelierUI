@@ -22,7 +22,11 @@ from open_webui.utils.plugin import load_tool_module_by_id, replace_imports
 from open_webui.config import CACHE_DIR
 from open_webui.constants import ERROR_MESSAGES
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from open_webui.utils.tools import get_tool_specs, named_tool_server_catalog_ids
+from open_webui.utils.tools import (
+    get_tool_specs,
+    named_tool_server_catalog_ids,
+    named_tool_server_read_allowed,
+)
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_access, has_permission
 from open_webui.utils.access_grants import (
@@ -73,6 +77,7 @@ async def get_tools(request: Request, user=Depends(get_verified_user)):
     named_catalog_ids, named_indices = named_tool_server_catalog_ids(
         connections, request.app.state.TOOL_SERVERS
     )
+    named_server_object_ids = set()
     for server in request.app.state.TOOL_SERVERS:
         server_idx = server.get("idx")
         if not isinstance(server_idx, int) or isinstance(server_idx, bool):
@@ -84,38 +89,42 @@ async def get_tools(request: Request, user=Depends(get_verified_user)):
             continue
         if server_idx in named_indices:
             catalog_id = named_catalog_ids.get(server_idx)
-            if catalog_id is None or user.role != "admin":
+            if catalog_id is None or not named_tool_server_read_allowed(
+                connection, user
+            ):
                 continue
         else:
             catalog_id = f"server:{server_idx}"
         connection_config = connection.get("config")
         if not isinstance(connection_config, dict):
             connection_config = {}
-        tools.append(
-            ToolUserResponse(
-                **{
-                    "id": catalog_id,
-                    "user_id": catalog_id,
-                    "name": server["openapi"]
+        tool_response = ToolUserResponse(
+            **{
+                "id": catalog_id,
+                "user_id": catalog_id,
+                "name": server["openapi"]
+                .get("info", {})
+                .get("title", "Tool Server"),
+                "meta": {
+                    "description": server["openapi"]
                     .get("info", {})
-                    .get("title", "Tool Server"),
-                    "meta": {
-                        "description": server["openapi"]
-                        .get("info", {})
-                        .get("description", ""),
-                    },
-                    "access_control": connection_config.get("access_control", None),
-                    "updated_at": int(time.time()),
-                    "created_at": int(time.time()),
-                }
-            )
+                    .get("description", ""),
+                },
+                "access_control": connection_config.get("access_control", None),
+                "updated_at": int(time.time()),
+                "created_at": int(time.time()),
+            }
         )
+        tools.append(tool_response)
+        if server_idx in named_indices:
+            named_server_object_ids.add(id(tool_response))
 
     if user.role != "admin":
         tools = [
             tool
             for tool in tools
-            if tool.user_id == user.id
+            if id(tool) in named_server_object_ids
+            or tool.user_id == user.id
             or has_access(user.id, "read", tool.access_control)
         ]
 
@@ -126,6 +135,20 @@ async def get_tools(request: Request, user=Depends(get_verified_user)):
         response["specs"] = getattr(tool, "specs", [])
         response["user"] = None
         response.update(_tool_access_fields(tool, user))
+        if id(tool) in named_server_object_ids:
+            # Match only the measured named-server metadata keys and empty grant
+            # projection. Do not expose the configured connection permission.
+            response = {
+                "access_grants": [],
+                "created_at": response.get("created_at"),
+                "id": response.get("id"),
+                "meta": response.get("meta"),
+                "name": response.get("name"),
+                "updated_at": response.get("updated_at"),
+                "user": None,
+                "user_id": response.get("user_id"),
+                "version_id": None,
+            }
         responses.append(response)
     return responses
 

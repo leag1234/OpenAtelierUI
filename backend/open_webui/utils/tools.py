@@ -119,8 +119,31 @@ def named_tool_server_catalog_ids(
     return catalog_ids, named_indices
 
 
+def named_tool_server_read_allowed(connection: dict, user: UserModel) -> bool:
+    """Check only the measured exact user/read grant for a named server."""
+    if getattr(user, "role", None) == "admin":
+        return True
+    config = connection.get("config") if isinstance(connection, dict) else None
+    grants = config.get("access_grants") if isinstance(config, dict) else None
+    if not isinstance(grants, list) or len(grants) != 1:
+        return False
+    grant = grants[0]
+    if not isinstance(grant, dict) or set(grant) != {
+        "principal_type",
+        "principal_id",
+        "permission",
+    }:
+        return False
+    return (
+        grant.get("principal_type") == "user"
+        and grant.get("principal_id") == getattr(user, "id", None)
+        and isinstance(grant.get("principal_id"), str)
+        and grant.get("permission") == "read"
+    )
+
+
 def resolve_tool_server_reference(
-    tool_id: str, connections: list, servers: list, user_role: str
+    tool_id: str, connections: list, servers: list, user: UserModel
 ) -> Optional[tuple[dict, dict]]:
     """Resolve canonical named IDs or preserve legacy numeric IDs safely."""
     if not isinstance(tool_id, str) or not tool_id.startswith("server:"):
@@ -129,8 +152,7 @@ def resolve_tool_server_reference(
     named_by_id = {tool_id_value: index for index, tool_id_value in catalog_ids.items()}
     named_index = named_by_id.get(tool_id)
     if named_index is not None:
-        # Named server sharing forms are unmeasured; fail closed for every non-admin.
-        if user_role != "admin":
+        if not named_tool_server_read_allowed(connections[named_index], user):
             return None
         matches = [server for server in servers if server.get("idx") == named_index]
         if len(matches) != 1:
@@ -207,21 +229,23 @@ def get_tools(
             if is_server_reference
             else False
         )
+        resolved_named_server = None
         # Named server IDs are a separate namespace. Never let a local plugin row
         # with the same textual ID shadow the server or bypass its role gate.
-        if reserved_named and user.role != "admin":
-            continue
+        if reserved_named:
+            resolved_named_server = resolve_tool_server_reference(
+                tool_id, connections, request.app.state.TOOL_SERVERS, user
+            )
+            if resolved_named_server is None:
+                continue
         if reserved_named and Tools.get_tool_by_id(tool_id) is not None:
             # Reject ambiguous local/server IDs before constructing a callable.
             continue
         tool = None if reserved_named else Tools.get_tool_by_id(tool_id)
         if tool is None:
             if is_server_reference:
-                resolved_server = resolve_tool_server_reference(
-                    tool_id,
-                    connections,
-                    request.app.state.TOOL_SERVERS,
-                    user.role,
+                resolved_server = resolved_named_server or resolve_tool_server_reference(
+                    tool_id, connections, request.app.state.TOOL_SERVERS, user
                 )
                 if resolved_server is None:
                     continue

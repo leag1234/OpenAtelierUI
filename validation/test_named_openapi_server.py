@@ -6,6 +6,8 @@ import inspect
 import json
 import logging
 import re
+import time
+from types import SimpleNamespace
 import unittest
 from functools import partial, update_wrapper
 from pathlib import Path
@@ -14,6 +16,7 @@ from typing import Awaitable, Callable, Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 UTILS_SOURCE = ROOT / "backend/open_webui/utils/tools.py"
+ROUTER_SOURCE = ROOT / "backend/open_webui/routers/tools.py"
 
 
 def _load_functions(path, names, namespace):
@@ -50,6 +53,7 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
                 "_named_server_config",
                 "_tool_server_connection_binding",
                 "named_tool_server_catalog_ids",
+                "named_tool_server_read_allowed",
                 "resolve_tool_server_reference",
                 "is_reserved_named_server_reference",
                 "get_async_tool_function_and_apply_extra_params",
@@ -95,7 +99,30 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
             "openapi": {"info": {"title": "Synthetic server"}},
         }
 
-    def invoke(self, connections, servers, requested_id, role="admin", refuse_config=False):
+    def grant_connection(self, connection, principal_id):
+        return dict(
+            connection,
+            config={
+                **connection.get("config", {}),
+                "access_grants": [
+                    {
+                        "principal_type": "user",
+                        "principal_id": principal_id,
+                        "permission": "read",
+                    }
+                ],
+            },
+        )
+
+    def invoke(
+        self,
+        connections,
+        servers,
+        requested_id,
+        role="admin",
+        refuse_config=False,
+        user_id="user-1",
+    ):
         if refuse_config:
             class Config:
                 @property
@@ -112,8 +139,73 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
         })()
         app = type("App", (), {"state": state})()
         request = type("RequestValue", (), {"app": app, "state": type("RequestState", (), {"token": None})()})()
-        user = type("User", (), {"role": role, "id": "user-1"})()
+        user = type("User", (), {"role": role, "id": user_id})()
         return self.namespace["get_tools"](request, [requested_id], user, {"__user__": {}})
+
+    def load_catalog_route(self, tool_rows):
+        class ResponseRecord:
+            def __init__(self, **fields):
+                self.__dict__.update(fields)
+
+            def model_dump(self, exclude=None):
+                fields = dict(self.__dict__)
+                for key in exclude or ():
+                    fields.pop(key, None)
+                return fields
+
+        namespace = {
+            "router": SimpleNamespace(get=lambda *_args, **_kwargs: lambda function: function),
+            "Request": object,
+            "Depends": lambda dependency: dependency,
+            "get_verified_user": lambda: None,
+            "time": time,
+            "Tools": type("CatalogTools", (), {"get_tools": staticmethod(lambda: list(tool_rows))}),
+            "ToolUserResponse": ResponseRecord,
+            "named_tool_server_catalog_ids": self.namespace["named_tool_server_catalog_ids"],
+            "named_tool_server_read_allowed": self.namespace["named_tool_server_read_allowed"],
+            "get_tool_servers_data": lambda *_args, **_kwargs: None,
+            "has_access": lambda *_args, **_kwargs: False,
+            "_tool_access_fields": lambda _tool, _user: {
+                "access_grants": [{"legacy": True}],
+                "write_access": False,
+            },
+        }
+        _load_functions(ROUTER_SOURCE, {"get_tools"}, namespace)
+        return namespace["get_tools"]
+
+    async def catalog(self, connection, server, user, local_rows=()):
+        config = type("Config", (), {"TOOL_SERVER_CONNECTIONS": [connection]})()
+        state = type("State", (), {"config": config, "TOOL_SERVERS": [server]})()
+        request = type(
+            "RequestValue",
+            (),
+            {"app": type("App", (), {"state": state})()},
+        )()
+        return await self.load_catalog_route(local_rows)(request, user)
+
+    def user(self, user_id="user-1", role="user"):
+        return type("User", (), {"role": role, "id": user_id})()
+
+    def local_tool_record(self, tool_id="server:synthetic_openapi", user_id="user-1"):
+        class LocalTool:
+            def __init__(self):
+                self.id = tool_id
+                self.user_id = user_id
+                self.name = "Local colliding tool"
+                self.meta = {"description": "Local row"}
+                self.access_control = {"read": {"user_ids": [user_id]}}
+                self.created_at = 10
+                self.updated_at = 11
+                self.content = "local source"
+                self.specs = [{"name": "local"}]
+
+            def model_dump(self, exclude=None):
+                fields = dict(self.__dict__)
+                for key in exclude or ():
+                    fields.pop(key, None)
+                return fields
+
+        return LocalTool()
 
     async def test_admin_gets_canonical_named_id_and_executes_cached_spec(self):
         connection = self.named_connection()
@@ -126,6 +218,112 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
         await tools["echo"]["callable"](value="hello")
         self.assertEqual(len(self.server_calls), 1)
         self.assertEqual(self.server_calls[0]["name"], "echo")
+
+    async def test_only_exact_fresh_user_read_grant_allows_member_selection(self):
+        base = self.named_connection()
+        allowed = self.grant_connection(base, "user-1")
+        reassigned = self.grant_connection(base, "user-2")
+        server = self.cache_entry(0, base)
+
+        self.assertTrue(self.namespace["named_tool_server_read_allowed"](allowed, self.user()))
+        self.assertFalse(self.namespace["named_tool_server_read_allowed"](allowed, self.user("user-2")))
+        self.assertTrue(self.namespace["named_tool_server_read_allowed"](base, self.user(role="admin")))
+        self.assertFalse(self.namespace["named_tool_server_read_allowed"](base, self.user()))
+
+        unsupported_configs = [
+            {},
+            {"access_grants": None},
+            {"access_grants": []},
+            {"access_grants": "bad"},
+            {"access_grants": [{"principal_type": "user", "principal_id": "user-1", "permission": "write"}]},
+            {"access_grants": [{"principal_type": "group", "principal_id": "group-1", "permission": "read"}]},
+            {"access_grants": [{"principal_type": "user", "principal_id": "*", "permission": "read"}]},
+            {"access_grants": [{"principal_type": "user", "principal_id": "user-1", "permission": "read", "extra": True}]},
+            {"access_grants": [
+                {"principal_type": "user", "principal_id": "user-1", "permission": "read"},
+                {"principal_type": "user", "principal_id": "user-2", "permission": "read"},
+            ]},
+        ]
+        for config in unsupported_configs:
+            with self.subTest(config=config):
+                self.assertFalse(
+                    self.namespace["named_tool_server_read_allowed"](
+                        dict(base, config=config), self.user()
+                    )
+                )
+
+        member_call = self.invoke(
+            [allowed], [server], "server:synthetic_openapi", role="user", user_id="user-1"
+        )
+        self.assertEqual(set(member_call), {"echo"})
+        self.assertEqual(
+            self.invoke(
+                [reassigned], [server], "server:synthetic_openapi", role="user", user_id="user-1"
+            ),
+            {},
+        )
+        self.assertEqual(
+            self.invoke([base], [server], "server:synthetic_openapi", role="user", user_id="user-1"),
+            {},
+        )
+        self.assertEqual(
+            set(
+                self.invoke(
+                    [reassigned], [server], "server:synthetic_openapi", role="user", user_id="user-2"
+                )
+            ),
+            {"echo"},
+        )
+        self.assertEqual(
+            self.invoke([allowed], [server], "server:0", role="user", user_id="user-1"),
+            {},
+        )
+
+    async def test_catalog_uses_fresh_grant_and_projects_only_named_objects(self):
+        base = self.named_connection()
+        allowed = self.grant_connection(base, "user-1")
+        server = self.cache_entry(0, base)
+        local = self.local_tool_record()
+
+        member_rows = await self.catalog(allowed, server, self.user(), [local])
+        self.assertEqual(len(member_rows), 2)
+        local_row = next(row for row in member_rows if "version_id" not in row)
+        named_row = next(row for row in member_rows if "version_id" in row)
+        self.assertIn("content", local_row)
+        self.assertIn("specs", local_row)
+        self.assertEqual(local_row["access_grants"], [{"legacy": True}])
+        self.assertEqual(
+            set(named_row),
+            {"access_grants", "created_at", "id", "meta", "name", "updated_at", "user", "user_id", "version_id"},
+        )
+        self.assertEqual(named_row["access_grants"], [])
+        self.assertIsNone(named_row["version_id"])
+        self.assertNotIn("user-1", repr(named_row))
+
+        unrelated_rows = await self.catalog(allowed, server, self.user("user-2"), [local])
+        self.assertEqual(unrelated_rows, [])
+        denied_rows = await self.catalog(base, server, self.user(), [local])
+        self.assertEqual(denied_rows, [member_rows[0]])
+
+    async def test_legacy_numeric_catalog_keeps_legacy_metadata_shape(self):
+        connection = {
+            "type": "openapi",
+            "url": "https://example.invalid/legacy.json",
+            "config": {"enable": True},
+        }
+        server = {
+            "idx": 0,
+            "url": connection["url"],
+            "specs": [],
+            "openapi": {"info": {"title": "Legacy"}},
+        }
+        rows = await self.catalog(connection, server, self.user(role="admin"))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["id"], "server:0")
+        self.assertIn("access_control", rows[0])
+        self.assertIn("content", rows[0])
+        self.assertIn("specs", rows[0])
+        self.assertNotIn("version_id", rows[0])
 
     async def test_non_admin_and_numeric_alias_never_construct_callable_or_local_fallback(self):
         connection = self.named_connection()
@@ -147,13 +345,16 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.invoke([connection], [server], padded_alias, "admin"), {})
         self.assertEqual(
             self.local_lookup_calls,
-            ["server:synthetic_openapi", "server:00", padded_alias],
+            ["server:synthetic_openapi"],
         )
         self.assertEqual(self.server_calls, [])
         huge_numeric = "server:" + ("9" * 5000)
         self.assertIsNone(
             self.namespace["resolve_tool_server_reference"](
-                huge_numeric, [connection], [server], "admin"
+                huge_numeric,
+                [connection],
+                [server],
+                type("User", (), {"role": "admin", "id": "user-1"})(),
             )
         )
 
@@ -209,7 +410,15 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
         servers = [self.cache_entry(1, named)]
         catalog, _ = self.namespace["named_tool_server_catalog_ids"]([legacy, named], servers)
         self.assertEqual(catalog, {1: "server:named"})
-        self.assertIs(self.namespace["resolve_tool_server_reference"]("server:named", [legacy, named], servers, "admin")[0], named)
+        self.assertIs(
+            self.namespace["resolve_tool_server_reference"](
+                "server:named",
+                [legacy, named],
+                servers,
+                type("User", (), {"role": "admin", "id": "user-1"})(),
+            )[0],
+            named,
+        )
 
 
 if __name__ == "__main__":
