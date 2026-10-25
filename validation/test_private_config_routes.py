@@ -209,7 +209,12 @@ def _route_namespace():
         "Request": object,
         "HTTPException": HTTPError,
         "status": SimpleNamespace(HTTP_401_UNAUTHORIZED=401, HTTP_400_BAD_REQUEST=400),
-        "ERROR_MESSAGES": SimpleNamespace(UNAUTHORIZED="unauthorized", NOT_FOUND="not found", DEFAULT=lambda value="error": value),
+        "ERROR_MESSAGES": SimpleNamespace(
+            UNAUTHORIZED="unauthorized",
+            ACCESS_PROHIBITED="You do not have permission to access this resource. Please contact your administrator for assistance.",
+            NOT_FOUND="not found",
+            DEFAULT=lambda value="error": value,
+        ),
         "Tools": ToolStore,
         "load_tool_module_by_id": SpecState.load,
         "Models": ModelStore,
@@ -220,10 +225,11 @@ def _route_namespace():
 
 tool_routes = compile_functions(
     ROOT / "backend/open_webui/routers/tools.py",
-    {"_tool_access_fields", "get_tools_valves_by_id", "get_tools_valves_spec_by_id", "get_tools_user_valves_by_id", "get_tools_user_valves_spec_by_id", "update_tools_user_valves_by_id"},
+    {"_tool_access_fields", "get_tools_by_id", "get_tools_valves_by_id", "get_tools_valves_spec_by_id", "get_tools_user_valves_by_id", "get_tools_user_valves_spec_by_id", "update_tools_user_valves_by_id"},
     _route_namespace(),
 )
 tool_route = tool_routes["get_tools_valves_by_id"]
+tool_by_id_route = tool_routes["get_tools_by_id"]
 tool_spec_route = tool_routes["get_tools_valves_spec_by_id"]
 user_valves_route = tool_routes["get_tools_user_valves_by_id"]
 user_valves_spec_route = tool_routes["get_tools_user_valves_spec_by_id"]
@@ -248,6 +254,7 @@ class PrivateConfigurationRouteTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(HTTPError) as caught:
                     await tool_route("tool-shared", User(identity))
                 self.assertEqual(caught.exception.status_code, 401)
+                self.assertEqual(caught.exception.detail, "You do not have permission to access this resource. Please contact your administrator for assistance.")
                 self.assertEqual(ToolStore.config_reads, 0)
 
     async def test_valves_owner_and_admin_keep_exact_values(self):
@@ -273,6 +280,7 @@ class PrivateConfigurationRouteTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(HTTPError) as caught:
                     await tool_spec_route(request, "tool-shared", User(identity))
                 self.assertEqual(caught.exception.status_code, 401)
+                self.assertEqual(caught.exception.detail, "You do not have permission to access this resource. Please contact your administrator for assistance.")
                 self.assertEqual(cache.contains_calls, 0)
                 self.assertEqual(SpecState.loader_calls, 0)
                 self.assertEqual(SpecState.schema_calls, 0)
@@ -311,6 +319,7 @@ class PrivateConfigurationRouteTests(unittest.IsolatedAsyncioTestCase):
                     with self.assertRaises(HTTPError) as caught:
                         await user_valves_route("tool-shared", User(identity, role))
                     self.assertEqual(caught.exception.status_code, 401)
+                    self.assertEqual(caught.exception.detail, "You do not have permission to access this resource. Please contact your administrator for assistance.")
                     self.assertEqual(ToolStore.user_config_reads, 0)
         ToolStore.row.access_control = {"read": {"user_ids": ["reader"]}}
 
@@ -339,6 +348,7 @@ class PrivateConfigurationRouteTests(unittest.IsolatedAsyncioTestCase):
                     with self.assertRaises(HTTPError) as caught:
                         await user_valves_spec_route(request, "tool-shared", user)
                     self.assertEqual(caught.exception.status_code, 401)
+                    self.assertEqual(caught.exception.detail, "You do not have permission to access this resource. Please contact your administrator for assistance.")
                     self.assertEqual(cache.contains_calls, 0)
                     self.assertEqual(SpecState.loader_calls, 0)
                     self.assertEqual(SpecState.schema_calls, 0)
@@ -361,7 +371,7 @@ class PrivateConfigurationRouteTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(HTTPError) as caught:
                     await update_user_valves_route(request, "tool-shared", {}, User(identity))
                 self.assertEqual(caught.exception.status_code, 401)
-                self.assertEqual(caught.exception.detail, "unauthorized")
+                self.assertEqual(caught.exception.detail, "You do not have permission to access this resource. Please contact your administrator for assistance.")
                 self.assertEqual(cache.contains_calls, 0)
                 self.assertEqual(SpecState.loader_calls, 0)
                 self.assertEqual(cache, {})
@@ -474,7 +484,15 @@ class PrivateConfigurationRouteTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPError) as caught:
             await model_route("model-synthetic", User("unrelated"))
         self.assertEqual(caught.exception.status_code, 401)
+        self.assertEqual(caught.exception.detail, "You do not have permission to access this resource. Please contact your administrator for assistance.")
         self.assertEqual(ModelStore.row.params, before)
+
+    async def test_unrelated_private_tool_read_uses_access_prohibited_copy(self):
+        ToolStore.row.access_control = {"read": {"user_ids": ["reader"]}}
+        with self.assertRaises(HTTPError) as caught:
+            await tool_by_id_route("tool-shared", User("unrelated"))
+        self.assertEqual(caught.exception.status_code, 401)
+        self.assertEqual(caught.exception.detail, "You do not have permission to access this resource. Please contact your administrator for assistance.")
 
 
 if __name__ == "__main__":

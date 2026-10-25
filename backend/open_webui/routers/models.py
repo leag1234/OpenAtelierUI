@@ -123,7 +123,7 @@ async def get_model_by_id(id: str, user=Depends(get_verified_user)):
             return response
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=ERROR_MESSAGES.UNAUTHORIZED,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
     else:
         raise HTTPException(

@@ -229,7 +229,7 @@ async def get_tools_by_id(id: str, user=Depends(get_verified_user)):
             return response
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=ERROR_MESSAGES.UNAUTHORIZED,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
     else:
         raise HTTPException(
@@ -383,7 +383,7 @@ async def get_tools_valves_by_id(id: str, user=Depends(get_verified_user)):
         if user.role != "admin" and tools.user_id != user.id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=ERROR_MESSAGES.UNAUTHORIZED,
+                detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
             )
         try:
             valves = Tools.get_tool_valves_by_id(id)
@@ -414,7 +414,7 @@ async def get_tools_valves_spec_by_id(
         if user.role != "admin" and tools.user_id != user.id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=ERROR_MESSAGES.UNAUTHORIZED,
+                detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
             )
         if id in request.app.state.TOOLS:
             tools_module = request.app.state.TOOLS[id]
@@ -501,7 +501,7 @@ async def get_tools_user_valves_by_id(id: str, user=Depends(get_verified_user)):
         ):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=ERROR_MESSAGES.UNAUTHORIZED,
+                detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
             )
         try:
             user_valves = Tools.get_user_valves_by_id_and_user_id(id, user.id)
@@ -531,7 +531,7 @@ async def get_tools_user_valves_spec_by_id(
         ):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=ERROR_MESSAGES.UNAUTHORIZED,
+                detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
             )
         if id in request.app.state.TOOLS:
             tools_module = request.app.state.TOOLS[id]
@@ -564,7 +564,7 @@ async def update_tools_user_valves_by_id(
         ):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=ERROR_MESSAGES.UNAUTHORIZED,
+                detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
             )
         if id in request.app.state.TOOLS:
             tools_module = request.app.state.TOOLS[id]
