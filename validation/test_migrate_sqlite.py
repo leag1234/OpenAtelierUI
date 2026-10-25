@@ -371,6 +371,53 @@ class ImporterTests(unittest.TestCase):
         self.assertFalse(target.exists())
         self.assertEqual((digest(self.source), digest(self.template)), (source_hash, template_hash))
 
+    def test_opt_in_malformed_graph_keeps_structured_fatal_refusal(self):
+        db = sqlite3.connect(self.source)
+        raw = db.execute("SELECT chat FROM chat WHERE id='c1'").fetchone()[0]
+        payload = json.loads(raw)
+        payload['history']['messages']['a'] = None
+        db.execute("UPDATE chat SET chat=? WHERE id='c1'", (json.dumps(payload),))
+        db.commit()
+        db.close()
+        source_hash, template_hash = digest(self.source), digest(self.template)
+        report = preview(self.source, self.uploads, self.template, include_private_chat_metadata=True)
+        codes = {item['code'] for item in report['blockers']}
+        self.assertTrue(report['fatal'])
+        self.assertIn('inconsistent_chat_graph', codes)
+        target = self.root / 'refused-malformed-opt-in'
+        with self.assertRaises(MigrationError) as caught:
+            convert(self.source, self.uploads, self.template, target, include_private_chat_metadata=True)
+        self.assertEqual(caught.exception.code, 'fatal_source_input')
+        self.assertFalse(target.exists())
+        self.assertEqual((digest(self.source), digest(self.template)), (source_hash, template_hash))
+        script = Path(__file__).with_name('migrate_sqlite.py')
+        result = subprocess.run([
+            sys.executable, str(script), 'convert', '--source-db', str(self.source),
+            '--uploads-root', str(self.uploads), '--empty-old-target-template', str(self.template),
+            '--new-target-dir', str(target), '--include-private-chat-metadata',
+        ], text=True, capture_output=True)
+        self.assertEqual(result.returncode, 3)
+        self.assertNotIn('Traceback', result.stderr)
+        self.assertEqual(json.loads(result.stdout)['error_code'], 'fatal_source_input')
+        self.assertFalse(target.exists())
+
+    def test_opt_in_missing_user_profile_schema_keeps_structured_refusal(self):
+        db = sqlite3.connect(self.source)
+        db.execute('DROP TABLE "user"')
+        db.commit()
+        db.close()
+        source_hash, template_hash = digest(self.source), digest(self.template)
+        report = preview(self.source, self.uploads, self.template, include_private_chat_metadata=True)
+        self.assertTrue(report['fatal'])
+        codes = {item['code'] for item in report['blockers']}
+        self.assertIn('source_schema_mismatch_user', codes)
+        target = self.root / 'refused-missing-user-schema'
+        with self.assertRaises(MigrationError) as caught:
+            convert(self.source, self.uploads, self.template, target, include_private_chat_metadata=True)
+        self.assertEqual(caught.exception.code, 'fatal_source_input')
+        self.assertFalse(target.exists())
+        self.assertEqual((digest(self.source), digest(self.template)), (source_hash, template_hash))
+
     def test_fresh_target_and_separate_exact_source_archive(self):
         target = self.root / 'candidate'
         source_hash, template_hash = digest(self.source), digest(self.template)

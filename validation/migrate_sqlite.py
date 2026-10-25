@@ -210,7 +210,11 @@ def _source_file_rows(connection: sqlite3.Connection, uploads_root: str | Path, 
     ids = [row.get("id") for row in rows]
     if len(ids) != len(set(ids)):
         _block(report, "duplicate_file_ids", len(ids) - len(set(ids)), fatal=True)
-    users = {row[0] for row in connection.execute('SELECT id FROM "user"')}
+    users = (
+        {row[0] for row in connection.execute('SELECT id FROM "user"')}
+        if "user" in _tables(connection) and "id" in _columns(connection, "user")
+        else set()
+    )
     resolved = []
     total_bytes = 0
     for row in rows:
@@ -993,7 +997,8 @@ def inspect_source(source_db: str | Path, uploads_root: str | Path, old_template
         _validate_chat(connection, report, include_private_chat_metadata=include_private_chat_metadata)
         private_chat_overrides = (
             _private_chat_metadata_overrides(connection, report)
-            if include_private_chat_metadata and valid_required.get("chat") and valid_required.get("chat_message")
+            if (include_private_chat_metadata and not report["fatal"] and valid_required.get("chat")
+                    and valid_required.get("chat_message") and valid_required.get("user"))
             else {}
         )
         file_rows = _source_file_rows(connection, upload_root, report) if valid_required.get("file") else []
