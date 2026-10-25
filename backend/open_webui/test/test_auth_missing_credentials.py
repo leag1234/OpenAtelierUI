@@ -111,6 +111,7 @@ def make_auth():
             "HTTPException": HTTPError,
             "bearer_security": object(),
             "Users": users,
+            "_session_epochs_enabled": lambda: False,
             "ERROR_MESSAGES": messages,
             "status": status,
             "decode_token": lambda token: {

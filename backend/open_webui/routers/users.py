@@ -19,7 +19,12 @@ from open_webui.env import SRC_LOG_LEVELS
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
-from open_webui.utils.auth import get_admin_user, get_password_hash, get_verified_user
+from open_webui.utils.auth import (
+    get_admin_user,
+    get_password_hash,
+    get_verified_user,
+    revoke_user_session_epoch,
+)
 from open_webui.utils.access_control import get_permissions
 
 
@@ -243,6 +248,12 @@ class UserResponse(BaseModel):
     name: str
     profile_image_url: str
     active: Optional[bool] = None
+
+
+@router.post("/{user_id}/sessions/revoke")
+async def revoke_user_sessions(user_id: str, user=Depends(get_admin_user)):
+    revoke_user_session_epoch(user_id)
+    return None
 
 
 @router.get("/{user_id}", response_model=UserResponse)

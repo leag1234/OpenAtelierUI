@@ -569,6 +569,11 @@ async def signout(request: Request, response: Response):
     return {"status": True}
 
 
+@router.post("/signout")
+async def signout_post(request: Request, response: Response):
+    return await signout(request, response)
+
+
 ############################
 # AddUser
 ############################

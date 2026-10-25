@@ -6,6 +6,8 @@ import hmac
 import hashlib
 import requests
 import os
+from pathlib import Path
+from urllib.parse import unquote
 
 
 from datetime import datetime, timedelta
@@ -21,11 +23,20 @@ from open_webui.env import (
     TRUSTED_SIGNATURE_KEY,
     STATIC_DIR,
     SRC_LOG_LEVELS,
+    DATABASE_URL,
 )
 
 from fastapi import BackgroundTasks, Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from passlib.context import CryptContext
+from open_webui.utils.session_epochs import (
+    MAX_EPOCH_BYTES,
+    MAX_EPOCH_CHARS,
+    SessionEpochError,
+    issue_epoch,
+    rotate_epoch,
+    validate_epoch,
+)
 
 
 logging.getLogger("passlib").setLevel(logging.ERROR)
@@ -105,6 +116,67 @@ bearer_security = HTTPBearer(auto_error=False)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
+def _session_epochs_enabled() -> bool:
+    return os.environ.get("OPENATELIER_SESSION_EPOCHS", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _session_epoch_database_path() -> Path:
+    try:
+        if not isinstance(DATABASE_URL, str):
+            raise ValueError("unsupported SQLite URL")
+        driver, separator, database_path = DATABASE_URL.partition(":///")
+        if not separator or (driver != "sqlite" and not driver.startswith("sqlite+")):
+            raise ValueError("unsupported SQLite URL")
+        if (
+            not database_path
+            or database_path == ":memory:"
+            or "?" in database_path
+            or "#" in database_path
+        ):
+            raise ValueError("unsupported SQLite URL")
+        path = Path(unquote(database_path))
+        if not path.is_absolute():
+            raise ValueError("SQLite path must be absolute")
+        return path
+    except Exception as error:
+        raise SessionEpochError(
+            "unsupported_database_url",
+            "session epochs require an absolute file-backed SQLite DATABASE_URL",
+        ) from error
+
+
+def _session_state_unavailable() -> HTTPException:
+    return HTTPException(status_code=503, detail="Session state unavailable")
+
+
+def _valid_session_stamp_claim(value) -> bool:
+    if not isinstance(value, str) or not value or len(value) > MAX_EPOCH_CHARS:
+        return False
+    try:
+        return len(value.encode("utf-8", errors="strict")) <= MAX_EPOCH_BYTES
+    except UnicodeEncodeError:
+        return False
+
+
+def revoke_user_session_epoch(user_id: str) -> None:
+    """Rotate one existing account epoch in the opt-in copied-profile experiment."""
+    if not _session_epochs_enabled():
+        raise _session_state_unavailable()
+    try:
+        rotate_epoch(_session_epoch_database_path(), user_id)
+    except SessionEpochError as error:
+        if error.code == "user_not_found":
+            raise HTTPException(status_code=404, detail="User not found") from error
+        raise _session_state_unavailable() from error
+    except Exception as error:
+        raise _session_state_unavailable() from error
+
+
 def verify_password(plain_password, hashed_password):
     return (
         pwd_context.verify(plain_password, hashed_password) if hashed_password else None
@@ -121,6 +193,18 @@ def create_token(data: dict, expires_delta: Union[timedelta, None] = None) -> st
     if expires_delta:
         expire = datetime.now(UTC) + expires_delta
         payload.update({"exp": expire})
+
+    if _session_epochs_enabled():
+        user_id = payload.get("id")
+        if not isinstance(user_id, str) or not user_id or len(user_id) > 256:
+            raise _session_state_unavailable()
+        try:
+            payload["session_stamp"] = issue_epoch(_session_epoch_database_path(), user_id)
+        except SessionEpochError as error:
+            raise _session_state_unavailable() from error
+        except Exception as error:
+            raise _session_state_unavailable() from error
+        payload["jti"] = str(uuid.uuid4())
 
     encoded_jwt = jwt.encode(payload, SESSION_SECRET, algorithm=ALGORITHM)
     return encoded_jwt
@@ -206,6 +290,37 @@ def get_current_user(
         )
 
     if data is not None and "id" in data:
+        if _session_epochs_enabled():
+            user_id = data.get("id")
+            stamp_claim = data.get("session_stamp")
+            if (
+                not isinstance(user_id, str)
+                or not user_id
+                or len(user_id) > 256
+                or not _valid_session_stamp_claim(stamp_claim)
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=ERROR_MESSAGES.INVALID_TOKEN,
+                )
+            try:
+                stamp_is_current = validate_epoch(
+                    _session_epoch_database_path(), user_id, stamp_claim
+                )
+            except SessionEpochError as error:
+                if error.code == "user_not_found":
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail=ERROR_MESSAGES.INVALID_TOKEN,
+                    ) from error
+                raise _session_state_unavailable() from error
+            except Exception as error:
+                raise _session_state_unavailable() from error
+            if not stamp_is_current:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=ERROR_MESSAGES.INVALID_TOKEN,
+                )
         user = Users.get_user_by_id(data["id"])
         if user is None:
             raise HTTPException(
