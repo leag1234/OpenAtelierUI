@@ -47,6 +47,7 @@ SESSION_SECRET = WEBUI_SECRET_KEY
 ALGORITHM = "HS256"
 _VALIDATED_SESSION_STATE_MARKER = object()
 _VALIDATED_SESSION_STATE_ATTRIBUTE = "_openatelier_validated_session_epoch"
+_MAX_SESSION_EXPIRATION = 253402300799  # 9999-12-31T23:59:59Z
 
 ##############
 # Auth Utils
@@ -164,19 +165,37 @@ def _valid_session_stamp_claim(value) -> bool:
         return False
 
 
-def get_validated_session_epoch(request: Request, user_id: str) -> Optional[str]:
-    """Return the epoch validated by this request's JWT dependency, if any."""
+def get_validated_session_context(request: Request, user_id: str):
+    """Return the exact token context validated by this request's JWT dependency."""
     state = getattr(request, "state", None)
     validated = getattr(state, _VALIDATED_SESSION_STATE_ATTRIBUTE, None)
-    if (
-        isinstance(validated, tuple)
-        and len(validated) == 3
-        and validated[0] is _VALIDATED_SESSION_STATE_MARKER
-        and validated[1] == user_id
-        and _valid_session_stamp_claim(validated[2])
-    ):
-        return validated[2]
+    if isinstance(validated, tuple) and validated and validated[0] is _VALIDATED_SESSION_STATE_MARKER:
+        if (
+            len(validated) == 5
+            and validated[1] == user_id
+            and _valid_session_stamp_claim(validated[2])
+            and isinstance(validated[3], str)
+            and bool(validated[3])
+            and (
+                validated[4] is None
+                or (
+                    type(validated[4]) is int
+                    and 0 <= validated[4] <= _MAX_SESSION_EXPIRATION
+                )
+            )
+        ):
+            return validated[3], validated[4], validated[2]
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        )
     return None
+
+
+def get_validated_session_epoch(request: Request, user_id: str) -> Optional[str]:
+    """Return the epoch validated by this request's JWT dependency, if any."""
+    context = get_validated_session_context(request, user_id)
+    return context[2] if context is not None else None
 
 
 def revoke_user_session_epoch(user_id: str) -> None:
@@ -328,6 +347,20 @@ def get_current_user(
 
     if data is not None and "id" in data:
         if _session_epochs_enabled():
+            if "typ" in data and data["typ"] != "session":
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid token",
+                )
+            expiration = data.get("exp")
+            if "exp" in data and (
+                type(expiration) is not int
+                or not 0 <= expiration <= _MAX_SESSION_EXPIRATION
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid token",
+                )
             user_id = data.get("id")
             stamp_claim = data.get("session_stamp")
             if (
@@ -377,7 +410,13 @@ def get_current_user(
                 setattr(
                     request.state,
                     _VALIDATED_SESSION_STATE_ATTRIBUTE,
-                    (_VALIDATED_SESSION_STATE_MARKER, data["id"], stamp_claim),
+                    (
+                        _VALIDATED_SESSION_STATE_MARKER,
+                        data["id"],
+                        stamp_claim,
+                        token,
+                        expiration if "exp" in data else None,
+                    ),
                 )
         return user
     else:

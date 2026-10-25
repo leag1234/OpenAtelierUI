@@ -146,6 +146,7 @@ def _make_namespace(database_url: str, *, users=None, events=None):
         "MAX_EPOCH_CHARS": session_epochs.MAX_EPOCH_CHARS,
         "_VALIDATED_SESSION_STATE_MARKER": object(),
         "_VALIDATED_SESSION_STATE_ATTRIBUTE": "_openatelier_validated_session_epoch",
+        "_MAX_SESSION_EXPIRATION": 253402300799,
         "SessionEpochError": session_epochs.SessionEpochError,
         "issue_epoch": session_epochs.issue_epoch,
         "validate_epoch": session_epochs.validate_epoch,
@@ -158,6 +159,7 @@ def _make_namespace(database_url: str, *, users=None, events=None):
         "_session_epoch_database_path",
         "_session_state_unavailable",
         "_valid_session_stamp_claim",
+        "get_validated_session_context",
         "get_validated_session_epoch",
         "revoke_user_session_epoch",
         "create_token",
@@ -323,7 +325,88 @@ class SessionEpochAuthTests(unittest.TestCase):
                 )
             self.assertEqual((stale.exception.status_code, stale.exception.detail), (401, "Invalid token"))
 
-    def test_auths_renewal_rejects_stale_admitted_request_without_promoting_epoch(self):
+    def test_enabled_profile_rejects_explicit_wrong_purpose_before_epoch_or_user_lookup(self):
+        with patch.dict(os.environ, {"OPENATELIER_SESSION_EPOCHS": "true"}, clear=True):
+            token = self.namespace["create_token"]({"id": "synthetic-owner"})
+            claims = dict(self.namespace["jwt"].decoded[token])
+            for purpose in ("refresh", None, ["session"], 7):
+                malformed = f"purpose-{len(self.namespace['jwt'].decoded)}"
+                self.namespace["jwt"].decoded[malformed] = dict(claims, typ=purpose)
+                request = _request()
+                self.events.clear()
+                with self.subTest(purpose=repr(purpose)):
+                    with self.assertRaises(HTTPError) as caught:
+                        self.namespace["get_current_user"](
+                            request,
+                            BackgroundTasks(self.events),
+                            Credentials("Bearer", malformed),
+                        )
+                    self.assertEqual(
+                        (caught.exception.status_code, caught.exception.detail),
+                        (401, "Invalid token"),
+                    )
+                    self.assertEqual(self.events, ["decode"])
+                    self.assertIsNone(
+                        self.namespace["get_validated_session_context"](
+                            request, "synthetic-owner"
+                        )
+                    )
+
+            for expiration in (
+                "1900000000",
+                None,
+                True,
+                1.5,
+                -1,
+                253402300800,
+                10**100,
+            ):
+                malformed_expiry = f"expiry-{len(self.namespace['jwt'].decoded)}"
+                payload = dict(claims, typ="session", exp=expiration)
+                self.namespace["jwt"].decoded[malformed_expiry] = payload
+                self.events.clear()
+                with self.subTest(expiration=repr(expiration)):
+                    with self.assertRaises(HTTPError) as caught:
+                        self.namespace["get_current_user"](
+                            _request(),
+                            BackgroundTasks(self.events),
+                            Credentials("Bearer", malformed_expiry),
+                        )
+                    self.assertEqual(
+                        (caught.exception.status_code, caught.exception.detail),
+                        (401, "Invalid token"),
+                    )
+                    self.assertEqual(self.events, ["decode"])
+
+    def test_marked_context_cannot_be_replayed_for_another_user_or_corrupted_expiry(self):
+        route = _install_session_user_route(self.namespace)
+        request = _request(path="/api/v1/auths/")
+        response = types.SimpleNamespace(set_cookie=lambda **_kwargs: None)
+        with patch.dict(os.environ, {"OPENATELIER_SESSION_EPOCHS": "true"}, clear=True):
+            token = self.namespace["create_token"]({"id": "synthetic-owner"})
+            owner = self.namespace["get_current_user"](
+                request, BackgroundTasks(self.events), Credentials("Bearer", token)
+            )
+            before = len(self.namespace["jwt"].encoded)
+            with self.assertRaises(HTTPError) as cross_user:
+                asyncio.run(
+                    route(request, response, types.SimpleNamespace(id="other-user"))
+                )
+            self.assertEqual(
+                (cross_user.exception.status_code, cross_user.exception.detail),
+                (401, "Invalid token"),
+            )
+            validated = request.state._openatelier_validated_session_epoch
+            request.state._openatelier_validated_session_epoch = (*validated[:4], True)
+            with self.assertRaises(HTTPError) as malformed:
+                asyncio.run(route(request, response, owner))
+            self.assertEqual(
+                (malformed.exception.status_code, malformed.exception.detail),
+                (401, "Invalid token"),
+            )
+            self.assertEqual(len(self.namespace["jwt"].encoded), before)
+
+    def test_auths_session_read_after_rotation_returns_only_old_token(self):
         route = _install_session_user_route(self.namespace)
         request = _request(path="/api/v1/auths/")
         cookie = {}
@@ -341,13 +424,20 @@ class SessionEpochAuthTests(unittest.TestCase):
             rotated = session_epochs.get_epoch(self.database, "synthetic-owner")
             encoded_before = len(self.namespace["jwt"].encoded)
 
-            with self.assertRaises(HTTPError) as stale:
-                asyncio.run(route(request, response, admitted))
+            result = asyncio.run(route(request, response, admitted))
 
-            self.assertEqual((stale.exception.status_code, stale.exception.detail), (401, "Invalid token"))
+            self.assertEqual(result["token"], original)
             self.assertEqual(len(self.namespace["jwt"].encoded), encoded_before)
+            self.assertEqual(cookie["value"], original)
             self.assertEqual(session_epochs.get_epoch(self.database, "synthetic-owner"), rotated)
-            self.assertFalse(cookie)
+            with self.assertRaises(HTTPError) as guarded_issuer:
+                self.namespace["create_token"](
+                    {"id": "synthetic-owner"}, expected_session_stamp=expected
+                )
+            self.assertEqual(
+                (guarded_issuer.exception.status_code, guarded_issuer.exception.detail),
+                (401, "Invalid token"),
+            )
             with self.assertRaises(HTTPError) as old_token:
                 self.namespace["get_current_user"](
                     _request(), BackgroundTasks(self.events), Credentials("Bearer", original)
@@ -360,36 +450,53 @@ class SessionEpochAuthTests(unittest.TestCase):
             )
             self.assertEqual(fresh_user.id, "synthetic-owner")
 
-    def test_auths_renewal_uses_validated_stamp_and_later_rotation_invalidates_it(self):
+    def test_auths_session_read_preserves_exact_token_and_expiry_without_issuance(self):
         route = _install_session_user_route(self.namespace)
         request = _request(path="/api/v1/auths/")
-        response = types.SimpleNamespace(set_cookie=lambda **_kwargs: None)
+        cookie = {}
+        response = types.SimpleNamespace(set_cookie=lambda **kwargs: cookie.update(kwargs))
         with patch.dict(os.environ, {"OPENATELIER_SESSION_EPOCHS": "1"}, clear=True):
-            original = self.namespace["create_token"]({"id": "synthetic-owner"})
+            expiration = 1_900_000_000
+            self.namespace["create_token"]({"id": "synthetic-owner"})
+            original = self.namespace["jwt"].encode(
+                {
+                    "id": "synthetic-owner",
+                    "typ": "session",
+                    "exp": expiration,
+                    "session_stamp": session_epochs.get_epoch(
+                        self.database, "synthetic-owner"
+                    ),
+                },
+                "synthetic-test-key",
+                algorithm="HS256",
+            )
             admitted = self.namespace["get_current_user"](
                 request, BackgroundTasks(self.events), Credentials("Bearer", original)
             )
-            original_stamp = self.namespace["jwt"].decoded[original]["session_stamp"]
-            renewed = asyncio.run(route(request, response, admitted))
-            renewed_token = renewed["token"]
+            encoded_before = len(self.namespace["jwt"].encoded)
+            returned = asyncio.run(route(request, response, admitted))
+            self.assertEqual(returned["token"], original)
+            self.assertEqual(returned["expires_at"], expiration)
+            self.assertEqual(cookie["value"], original)
             self.assertEqual(
-                self.namespace["jwt"].decoded[renewed_token]["session_stamp"],
-                original_stamp,
+                cookie["expires"],
+                datetime.fromtimestamp(expiration, timezone.utc),
             )
+            self.assertEqual(len(self.namespace["jwt"].encoded), encoded_before)
             self.assertEqual(
                 self.namespace["get_current_user"](
-                    _request(), BackgroundTasks(self.events), Credentials("Bearer", renewed_token)
+                    _request(), BackgroundTasks(self.events), Credentials("Bearer", original)
                 ).id,
                 "synthetic-owner",
             )
 
             self.namespace["revoke_user_session_epoch"]("synthetic-owner")
-            with self.assertRaises(HTTPError) as revoked_after_issue:
+            with self.assertRaises(HTTPError) as revoked_after_read:
                 self.namespace["get_current_user"](
-                    _request(), BackgroundTasks(self.events), Credentials("Bearer", renewed_token)
+                    _request(), BackgroundTasks(self.events), Credentials("Bearer", original)
                 )
             self.assertEqual(
-                (revoked_after_issue.exception.status_code, revoked_after_issue.exception.detail),
+                (revoked_after_read.exception.status_code, revoked_after_read.exception.detail),
                 (401, "Invalid token"),
             )
             fresh = self.namespace["create_token"]({"id": "synthetic-owner"})
@@ -399,6 +506,20 @@ class SessionEpochAuthTests(unittest.TestCase):
                 ).id,
                 "synthetic-owner",
             )
+
+    def test_default_off_session_read_keeps_legacy_token_issuance_path(self):
+        route = _install_session_user_route(self.namespace)
+        request = _request(path="/api/v1/auths/")
+        response = types.SimpleNamespace(set_cookie=lambda **_kwargs: None)
+        with patch.dict(os.environ, {}, clear=True):
+            original = self.namespace["create_token"]({"id": "synthetic-owner"})
+            user = self.namespace["get_current_user"](
+                request, BackgroundTasks(self.events), Credentials("Bearer", original)
+            )
+            encoded_before = len(self.namespace["jwt"].encoded)
+            result = asyncio.run(route(request, response, user))
+        self.assertNotEqual(result["token"], original)
+        self.assertEqual(len(self.namespace["jwt"].encoded), encoded_before + 1)
 
     def test_missing_malformed_claims_and_unavailable_store_fail_closed(self):
         with patch.dict(os.environ, {"OPENATELIER_SESSION_EPOCHS": "on"}, clear=True):

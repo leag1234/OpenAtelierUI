@@ -37,7 +37,7 @@ from open_webui.utils.misc import parse_duration, validate_email_format
 from open_webui.utils.auth import (
     create_api_key,
     create_token,
-    get_validated_session_epoch,
+    get_validated_session_context,
     get_admin_user,
     get_verified_user,
     get_current_user,
@@ -73,27 +73,22 @@ class SessionUserResponse(Token, UserResponse):
 async def get_session_user(
     request: Request, response: Response, user=Depends(get_current_user)
 ):
-    expires_delta = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
-    expires_at = None
-    if expires_delta:
-        expires_at = int(time.time()) + int(expires_delta.total_seconds())
-
-    validated_session_stamp = get_validated_session_epoch(request, user.id)
-    if validated_session_stamp is None:
-        token = create_token(
-            data={"id": user.id},
-            expires_delta=expires_delta,
-        )
+    validated_session_context = get_validated_session_context(request, user.id)
+    if validated_session_context is not None:
+        token, expires_at, _validated_session_stamp = validated_session_context
     else:
+        expires_delta = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
+        expires_at = None
+        if expires_delta:
+            expires_at = int(time.time()) + int(expires_delta.total_seconds())
         token = create_token(
             data={"id": user.id},
             expires_delta=expires_delta,
-            expected_session_stamp=validated_session_stamp,
         )
 
     datetime_expires_at = (
         datetime.datetime.fromtimestamp(expires_at, datetime.timezone.utc)
-        if expires_at
+        if expires_at is not None
         else None
     )
 
