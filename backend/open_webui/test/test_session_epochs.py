@@ -46,6 +46,24 @@ def build_old_auth_db(path: Path, *, with_chat: bool = True, existing_stamp: boo
     db.close()
 
 
+def build_ambiguous_auth_db(path: Path, *, composite_primary_key: bool) -> None:
+    db = sqlite3.connect(path)
+    primary = ", PRIMARY KEY (id, email)" if composite_primary_key else ""
+    db.executescript(f"""
+      CREATE TABLE auth (
+        id VARCHAR(255) NOT NULL,
+        email TEXT NOT NULL,
+        password TEXT NOT NULL,
+        active INTEGER NOT NULL{primary}
+      );
+      INSERT INTO auth VALUES
+        ('synthetic-duplicate','first@example.invalid','bcrypt-placeholder',1),
+        ('synthetic-duplicate','second@example.invalid','bcrypt-placeholder',1);
+    """)
+    db.commit()
+    db.close()
+
+
 class SessionEpochTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -167,6 +185,61 @@ class SessionEpochTests(unittest.TestCase):
         with self.assertRaises(epochs.SessionEpochError) as caught:
             epochs.prepare_auth_session_stamp_copy(already_prepared, self.root / "already-prepared-target.db")
         self.assertEqual(caught.exception.code, "session_stamp_already_present")
+
+    def test_copy_refuses_nonunique_or_composite_auth_identity_without_touching_inputs(self):
+        for composite in (False, True):
+            with self.subTest(composite_primary_key=composite):
+                source = self.root / ("composite-source.db" if composite else "duplicate-source.db")
+                target = self.root / ("composite-target.db" if composite else "duplicate-target.db")
+                build_ambiguous_auth_db(source, composite_primary_key=composite)
+                source_hash = digest(source)
+                with self.assertRaises(epochs.SessionEpochError) as caught:
+                    epochs.prepare_auth_session_stamp_copy(source, target)
+                self.assertEqual(caught.exception.code, "auth_identity_schema_ambiguous")
+                self.assertEqual(digest(source), source_hash)
+                self.assertFalse(target.exists())
+
+    def test_component_refuses_prepared_tables_without_a_sole_id_primary_key(self):
+        for composite in (False, True):
+            with self.subTest(composite_primary_key=composite):
+                path = self.root / ("prepared-composite.db" if composite else "prepared-duplicate.db")
+                primary = ", PRIMARY KEY (id, email)" if composite else ""
+                db = sqlite3.connect(path)
+                db.executescript(f"""
+                  CREATE TABLE auth (
+                    id TEXT NOT NULL,
+                    email TEXT NOT NULL,
+                    password TEXT NOT NULL,
+                    active INTEGER NOT NULL,
+                    session_stamp TEXT{primary}
+                  );
+                  INSERT INTO auth VALUES
+                    ('synthetic-duplicate','first@example.invalid','bcrypt-placeholder',1,'epoch-a'),
+                    ('synthetic-duplicate','second@example.invalid','bcrypt-placeholder',1,'epoch-b');
+                """)
+                db.commit()
+                db.close()
+                with self.assertRaises(epochs.SessionEpochError) as caught:
+                    epochs.get_epoch(path, "synthetic-duplicate")
+                self.assertEqual(caught.exception.code, "auth_identity_schema_ambiguous")
+
+    def test_varchar_id_single_primary_key_remains_supported(self):
+        source = self.root / "varchar-source.db"
+        target = self.root / "varchar-target.db"
+        db = sqlite3.connect(source)
+        db.executescript("""
+          CREATE TABLE auth (
+            id VARCHAR(255) PRIMARY KEY,
+            email TEXT NOT NULL,
+            password TEXT NOT NULL,
+            active INTEGER NOT NULL
+          );
+          INSERT INTO auth VALUES ('synthetic-owner','owner@example.invalid','bcrypt-placeholder',1);
+        """)
+        db.commit()
+        db.close()
+        epochs.prepare_auth_session_stamp_copy(source, target)
+        self.assertEqual(epochs.issue_epoch(target, "synthetic-owner"), epochs.issue_epoch(target, "synthetic-owner"))
 
     def test_malformed_stamp_fails_closed_without_changing_row(self):
         self.prepare()
