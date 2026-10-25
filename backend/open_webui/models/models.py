@@ -255,6 +255,24 @@ class ModelsTable:
             log.exception(f"Failed to update the model by id {id}: {e}")
             return None
 
+    def update_model_access_control_by_id(
+        self, id: str, access_control: Optional[dict]
+    ) -> Optional[ModelModel]:
+        try:
+            with get_db() as db:
+                db.query(Model).filter_by(id=id).update(
+                    {"access_control": access_control, "updated_at": int(time.time())}
+                )
+                db.commit()
+                model = db.get(Model, id)
+                if not model:
+                    return None
+                db.refresh(model)
+                return ModelModel.model_validate(model)
+        except Exception as e:
+            log.exception(f"Failed to update model access by id {id}: {e}")
+            return None
+
     def delete_model_by_id(self, id: str) -> bool:
         try:
             with get_db() as db:

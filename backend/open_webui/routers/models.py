@@ -13,9 +13,21 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_access, has_permission
+from open_webui.utils.access_grants import access_control_for_grants, access_grants_for_acl
 
 
 router = APIRouter()
+
+
+def _model_access_fields(model, user):
+    owner_or_admin = model.user_id == user.id or user.role == "admin"
+    return {
+        "access_grants": access_grants_for_acl(
+            model.access_control, "model", model.id, model.created_at
+        ),
+        "write_access": owner_or_admin
+        or has_access(user.id, "write", model.access_control),
+    }
 
 
 ###########################
@@ -23,12 +35,19 @@ router = APIRouter()
 ###########################
 
 
-@router.get("/", response_model=list[ModelUserResponse])
+@router.get("/")
 async def get_models(id: Optional[str] = None, user=Depends(get_verified_user)):
     if user.role == "admin":
-        return Models.get_models()
+        models = Models.get_models()
     else:
-        return Models.get_models_by_user_id(user.id)
+        models = Models.get_models_by_user_id(user.id)
+    responses = []
+    for model in models:
+        response = model.model_dump()
+        response.update(_model_access_fields(model, user))
+        response["user"] = None
+        responses.append(response)
+    return responses
 
 
 ###########################
@@ -46,7 +65,7 @@ async def get_base_models(user=Depends(get_admin_user)):
 ############################
 
 
-@router.post("/create", response_model=Optional[ModelModel])
+@router.post("/create")
 async def create_new_model(
     request: Request,
     form_data: ModelForm,
@@ -70,7 +89,10 @@ async def create_new_model(
     else:
         model = Models.insert_new_model(form_data, user.id)
         if model:
-            return model
+            response = model.model_dump()
+            response.update(_model_access_fields(model, user))
+            response["user"] = None
+            return response
         else:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -84,7 +106,7 @@ async def create_new_model(
 
 
 # Note: We're not using the typical url path param here, but instead using a query parameter to allow '/' in the id
-@router.get("/model", response_model=Optional[ModelResponse])
+@router.get("/model")
 async def get_model_by_id(id: str, user=Depends(get_verified_user)):
     model = Models.get_model_by_id(id)
     if model:
@@ -93,12 +115,53 @@ async def get_model_by_id(id: str, user=Depends(get_verified_user)):
             or model.user_id == user.id
             or has_access(user.id, "read", model.access_control)
         ):
-            return model
+            response = model.model_dump()
+            response.update(_model_access_fields(model, user))
+            response["user"] = None
+            return response
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ERROR_MESSAGES.UNAUTHORIZED,
+        )
     else:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
+
+
+@router.post("/model/access/update")
+async def update_model_access_by_id(
+    form_data: dict, user=Depends(get_verified_user)
+):
+    id = form_data.get("id")
+    if not isinstance(id, str) or not id.strip():
+        raise HTTPException(status_code=422, detail="id must be a nonempty string")
+    model = Models.get_model_by_id(id)
+    if not model:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+    if model.user_id != user.id and user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+        )
+    try:
+        access_control = access_control_for_grants(form_data.get("access_grants"))
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error))
+    model = Models.update_model_access_control_by_id(id, access_control)
+    if not model:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ERROR_MESSAGES.DEFAULT("Error updating model access"),
+        )
+    response = model.model_dump()
+    response.update(_model_access_fields(model, user))
+    response["user"] = None
+    return response
 
 
 ############################
@@ -141,7 +204,7 @@ async def toggle_model_by_id(id: str, user=Depends(get_verified_user)):
 ############################
 
 
-@router.post("/model/update", response_model=Optional[ModelModel])
+@router.post("/model/update")
 async def update_model_by_id(
     id: str,
     form_data: ModelForm,
@@ -165,8 +228,17 @@ async def update_model_by_id(
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
 
+    form_data.access_control = model.access_control
     model = Models.update_model_by_id(id, form_data)
-    return model
+    if not model:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ERROR_MESSAGES.DEFAULT("Error updating model"),
+        )
+    response = model.model_dump()
+    response.update(_model_access_fields(model, user))
+    response["user"] = None
+    return response
 
 
 ############################

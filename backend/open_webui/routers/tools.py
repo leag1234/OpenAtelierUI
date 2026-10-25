@@ -17,6 +17,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from open_webui.utils.tools import get_tool_specs
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_access, has_permission
+from open_webui.utils.access_grants import (
+    access_control_for_grants,
+    access_grants_for_acl,
+    preserve_access_control_for_update,
+)
 from open_webui.env import SRC_LOG_LEVELS
 
 from open_webui.utils.tools import get_tool_servers_data
@@ -27,12 +32,23 @@ log.setLevel(SRC_LOG_LEVELS["MAIN"])
 
 router = APIRouter()
 
+
+def _tool_access_fields(tool, user):
+    owner_or_admin = tool.user_id == user.id or user.role == "admin"
+    return {
+        "access_grants": access_grants_for_acl(
+            tool.access_control, "tool", tool.id, tool.created_at
+        ),
+        "write_access": owner_or_admin
+        or has_access(user.id, "write", tool.access_control),
+    }
+
 ############################
 # GetTools
 ############################
 
 
-@router.get("/", response_model=list[ToolUserResponse])
+@router.get("/")
 async def get_tools(request: Request, user=Depends(get_verified_user)):
 
     if not request.app.state.TOOL_SERVERS:
@@ -78,7 +94,15 @@ async def get_tools(request: Request, user=Depends(get_verified_user)):
             or has_access(user.id, "read", tool.access_control)
         ]
 
-    return tools
+    responses = []
+    for tool in tools:
+        response = tool.model_dump(exclude={"content"})
+        response["content"] = None
+        response["specs"] = getattr(tool, "specs", [])
+        response["user"] = None
+        response.update(_tool_access_fields(tool, user))
+        responses.append(response)
+    return responses
 
 
 ############################
@@ -86,13 +110,21 @@ async def get_tools(request: Request, user=Depends(get_verified_user)):
 ############################
 
 
-@router.get("/list", response_model=list[ToolUserResponse])
+@router.get("/list")
 async def get_tool_list(user=Depends(get_verified_user)):
     if user.role == "admin":
         tools = Tools.get_tools()
     else:
         tools = Tools.get_tools_by_user_id(user.id, "write")
-    return tools
+    responses = []
+    for tool in tools:
+        response = tool.model_dump(exclude={"content"})
+        response["content"] = None
+        response["specs"] = getattr(tool, "specs", [])
+        response["user"] = None
+        response.update(_tool_access_fields(tool, user))
+        responses.append(response)
+    return responses
 
 
 ############################
@@ -111,7 +143,7 @@ async def export_tools(user=Depends(get_admin_user)):
 ############################
 
 
-@router.post("/create", response_model=Optional[ToolResponse])
+@router.post("/create")
 async def create_new_tools(
     request: Request,
     form_data: ToolForm,
@@ -152,7 +184,10 @@ async def create_new_tools(
             tool_cache_dir.mkdir(parents=True, exist_ok=True)
 
             if tools:
-                return tools
+                response = tools.model_dump(exclude={"content", "specs"})
+                response.update(_tool_access_fields(tools, user))
+                response["user"] = None
+                return response
             else:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -176,7 +211,7 @@ async def create_new_tools(
 ############################
 
 
-@router.get("/id/{id}", response_model=Optional[ToolModel])
+@router.get("/id/{id}")
 async def get_tools_by_id(id: str, user=Depends(get_verified_user)):
     tools = Tools.get_tool_by_id(id)
 
@@ -186,7 +221,16 @@ async def get_tools_by_id(id: str, user=Depends(get_verified_user)):
             or tools.user_id == user.id
             or has_access(user.id, "read", tools.access_control)
         ):
-            return tools
+            response = tools.model_dump()
+            response.update(_tool_access_fields(tools, user))
+            response["user"] = None
+            if tools.user_id != user.id and user.role != "admin":
+                response.pop("content", None)
+            return response
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ERROR_MESSAGES.UNAUTHORIZED,
+        )
     else:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -194,12 +238,43 @@ async def get_tools_by_id(id: str, user=Depends(get_verified_user)):
         )
 
 
+@router.post("/id/{id}/access/update")
+async def update_tools_access_by_id(
+    id: str, form_data: dict, user=Depends(get_verified_user)
+):
+    tool = Tools.get_tool_by_id(id)
+    if not tool:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+    if tool.user_id != user.id and user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ERROR_MESSAGES.UNAUTHORIZED,
+        )
+    try:
+        access_control = access_control_for_grants(form_data.get("access_grants"))
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error))
+    tool = Tools.update_tool_by_id(id, {"access_control": access_control})
+    if not tool:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ERROR_MESSAGES.DEFAULT("Error updating tool access"),
+        )
+    response = tool.model_dump()
+    response.update(_tool_access_fields(tool, user))
+    response["user"] = None
+    return response
+
+
 ############################
 # UpdateToolsById
 ############################
 
 
-@router.post("/id/{id}/update", response_model=Optional[ToolModel])
+@router.post("/id/{id}/update")
 async def update_tools_by_id(
     request: Request,
     id: str,
@@ -238,12 +313,16 @@ async def update_tools_by_id(
             **form_data.model_dump(exclude={"id"}),
             "specs": specs,
         }
+        updated = preserve_access_control_for_update(updated, tools.access_control)
 
         log.debug(updated)
         tools = Tools.update_tool_by_id(id, updated)
 
         if tools:
-            return tools
+            response = tools.model_dump()
+            response.update(_tool_access_fields(tools, user))
+            response["user"] = None
+            return response
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
