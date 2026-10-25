@@ -82,6 +82,10 @@ class ModelDiscoveryAliasTests(unittest.TestCase):
             argument for argument in function.args.args if argument.arg == "refresh"
         )
         self.assertEqual(ast.unparse(refresh_argument.annotation), "Optional[bool]")
+        self.assertEqual(
+            [argument.arg for argument in function.args.args],
+            ["request", "user", "refresh"],
+        )
         self.assertTrue(asyncio.iscoroutinefunction(handler))
 
     def test_existing_aggregate_filters_private_targeted_public_and_pipeline_models(self):
@@ -120,7 +124,10 @@ class ModelDiscoveryAliasTests(unittest.TestCase):
 
         async def discover(user_id, role="user"):
             user = types.SimpleNamespace(id=user_id, role=role)
-            return await handler(request=request, user=user)
+            positional = await handler(request, user)
+            keyword = await handler(request=request, user=user)
+            self.assertEqual(positional, keyword)
+            return positional
 
         member = asyncio.run(discover("member"))
         unrelated = asyncio.run(discover("unrelated"))
