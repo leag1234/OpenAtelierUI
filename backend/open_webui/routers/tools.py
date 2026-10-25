@@ -115,7 +115,7 @@ async def get_tool_list(user=Depends(get_verified_user)):
     if user.role == "admin":
         tools = Tools.get_tools()
     else:
-        tools = Tools.get_tools_by_user_id(user.id, "write")
+        tools = Tools.get_tools_by_user_id(user.id, "read")
     responses = []
     for tool in tools:
         response = tool.model_dump(exclude={"content"})
@@ -494,6 +494,15 @@ async def update_tools_valves_by_id(
 async def get_tools_user_valves_by_id(id: str, user=Depends(get_verified_user)):
     tools = Tools.get_tool_by_id(id)
     if tools:
+        if (
+            user.role != "admin"
+            and tools.user_id != user.id
+            and not has_access(user.id, "read", tools.access_control)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=ERROR_MESSAGES.UNAUTHORIZED,
+            )
         try:
             user_valves = Tools.get_user_valves_by_id_and_user_id(id, user.id)
             return user_valves
@@ -515,6 +524,15 @@ async def get_tools_user_valves_spec_by_id(
 ):
     tools = Tools.get_tool_by_id(id)
     if tools:
+        if (
+            user.role != "admin"
+            and tools.user_id != user.id
+            and not has_access(user.id, "read", tools.access_control)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=ERROR_MESSAGES.UNAUTHORIZED,
+            )
         if id in request.app.state.TOOLS:
             tools_module = request.app.state.TOOLS[id]
         else:
@@ -539,6 +557,15 @@ async def update_tools_user_valves_by_id(
     tools = Tools.get_tool_by_id(id)
 
     if tools:
+        if (
+            user.role != "admin"
+            and tools.user_id != user.id
+            and not has_access(user.id, "read", tools.access_control)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=ERROR_MESSAGES.UNAUTHORIZED,
+            )
         if id in request.app.state.TOOLS:
             tools_module = request.app.state.TOOLS[id]
         else:

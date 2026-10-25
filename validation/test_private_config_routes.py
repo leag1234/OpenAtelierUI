@@ -50,6 +50,9 @@ class ToolRow:
 class ToolStore:
     row = ToolRow()
     config_reads = 0
+    user_config_reads = 0
+    user_valve_updates = []
+    user_valve_values = {}
 
     @classmethod
     def get_tool_by_id(cls, identity):
@@ -60,15 +63,37 @@ class ToolStore:
         cls.config_reads += 1
         return {"token": "owner-only-synthetic-config", "timeout": 7}
 
+    @classmethod
+    def get_user_valves_by_id_and_user_id(cls, identity, user_id):
+        cls.user_config_reads += 1
+        return {}
+
+    @classmethod
+    def update_user_valves_by_id_and_user_id(cls, identity, user_id, valves):
+        cls.user_valve_updates.append((identity, user_id, copy.deepcopy(valves)))
+        cls.user_valve_values[(identity, user_id)] = copy.deepcopy(valves)
+
+
+class SyntheticUserValves:
+    def __init__(self, **values):
+        self.values = values
+
+    def model_dump(self):
+        return copy.deepcopy(self.values)
+
 
 class SpecState:
     loader_calls = 0
     schema_calls = 0
+    user_valves_enabled = False
 
     @classmethod
     def load(cls, identity):
         cls.loader_calls += 1
-        return SimpleNamespace(Valves=cls), None
+        module = SimpleNamespace(Valves=cls)
+        if cls.user_valves_enabled:
+            module.UserValves = SyntheticUserValves
+        return module, None
 
     @classmethod
     def schema(cls):
@@ -84,6 +109,49 @@ class ProbeCache(dict):
     def __contains__(self, key):
         self.contains_calls += 1
         return super().__contains__(key)
+
+
+class ListedTool:
+    def __init__(self, identity, access_control):
+        self.id = identity
+        self.user_id = "owner"
+        self.name = "Synthetic " + identity
+        self.access_control = access_control
+        self.meta = {"description": "synthetic metadata"}
+        self.created_at = 123
+        self.updated_at = 124
+        self.specs = [{"name": "run"}]
+
+    def model_dump(self, exclude=None):
+        data = {
+            "id": self.id,
+            "user_id": self.user_id,
+            "name": self.name,
+            "meta": self.meta,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "content": "synthetic source",
+            "access_control": self.access_control,
+        }
+        return {key: value for key, value in data.items() if not exclude or key not in exclude}
+
+
+class ToolListStore:
+    rows = [
+        ListedTool("private", {}),
+        ListedTool("targeted", {"read": {"user_ids": ["reader"]}}),
+        ListedTool("public", None),
+    ]
+    requested_permissions = []
+
+    @classmethod
+    def get_tools(cls):
+        return list(cls.rows)
+
+    @classmethod
+    def get_tools_by_user_id(cls, identity, permission):
+        cls.requested_permissions.append(permission)
+        return [row for row in cls.rows if row.user_id == identity or has_access(identity, permission, row.access_control)]
 
 
 class ModelRow:
@@ -151,10 +219,21 @@ def _route_namespace():
 
 
 tool_routes = compile_functions(
-    ROOT / "backend/open_webui/routers/tools.py", {"get_tools_valves_by_id", "get_tools_valves_spec_by_id"}, _route_namespace()
+    ROOT / "backend/open_webui/routers/tools.py",
+    {"_tool_access_fields", "get_tools_valves_by_id", "get_tools_valves_spec_by_id", "get_tools_user_valves_by_id", "get_tools_user_valves_spec_by_id", "update_tools_user_valves_by_id"},
+    _route_namespace(),
 )
 tool_route = tool_routes["get_tools_valves_by_id"]
 tool_spec_route = tool_routes["get_tools_valves_spec_by_id"]
+user_valves_route = tool_routes["get_tools_user_valves_by_id"]
+user_valves_spec_route = tool_routes["get_tools_user_valves_spec_by_id"]
+update_user_valves_route = tool_routes["update_tools_user_valves_by_id"]
+list_namespace = _route_namespace()
+list_namespace["Tools"] = ToolListStore
+list_namespace["_tool_access_fields"] = tool_routes["_tool_access_fields"]
+tool_list_route = compile_functions(
+    ROOT / "backend/open_webui/routers/tools.py", {"get_tool_list"}, list_namespace
+)["get_tool_list"]
 model_routes = compile_functions(
     ROOT / "backend/open_webui/routers/models.py", {"_model_access_fields", "get_model_by_id"}, _route_namespace()
 )
@@ -211,6 +290,162 @@ class PrivateConfigurationRouteTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(SpecState.loader_calls, 1)
                 self.assertEqual(SpecState.schema_calls, 1)
                 self.assertIn("tool-shared", cache)
+
+    async def test_user_valve_values_require_resource_read_before_storage(self):
+        cases = (
+            ("owner", "user", {}, True),
+            ("administrator", "admin", {}, True),
+            ("reader", "user", {"read": {"user_ids": ["reader"]}}, True),
+            ("public-reader", "user", None, True),
+            ("unrelated", "user", {"read": {"user_ids": ["reader"]}}, False),
+            ("private-reader", "user", {}, False),
+        )
+        for identity, role, access_control, allowed in cases:
+            with self.subTest(identity=identity, access_control=access_control):
+                ToolStore.row.access_control = access_control
+                ToolStore.user_config_reads = 0
+                if allowed:
+                    self.assertEqual(await user_valves_route("tool-shared", User(identity, role)), {})
+                    self.assertEqual(ToolStore.user_config_reads, 1)
+                else:
+                    with self.assertRaises(HTTPError) as caught:
+                        await user_valves_route("tool-shared", User(identity, role))
+                    self.assertEqual(caught.exception.status_code, 401)
+                    self.assertEqual(ToolStore.user_config_reads, 0)
+        ToolStore.row.access_control = {"read": {"user_ids": ["reader"]}}
+
+    async def test_user_valve_spec_access_and_denial_before_cache_or_module(self):
+        cases = (
+            ("owner", "user", {}, True),
+            ("administrator", "admin", {}, True),
+            ("reader", "user", {"read": {"user_ids": ["reader"]}}, True),
+            ("public-reader", "user", None, True),
+            ("unrelated", "user", {"read": {"user_ids": ["reader"]}}, False),
+            ("private-reader", "user", {}, False),
+        )
+        for identity, role, access_control, allowed in cases:
+            with self.subTest(identity=identity, access_control=access_control):
+                ToolStore.row.access_control = access_control
+                SpecState.loader_calls = 0
+                SpecState.schema_calls = 0
+                cache = ProbeCache()
+                request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(TOOLS=cache)))
+                user = User(identity, role)
+                if allowed:
+                    self.assertIsNone(await user_valves_spec_route(request, "tool-shared", user))
+                    self.assertEqual(SpecState.loader_calls, 1)
+                    self.assertIs(cache["tool-shared"].Valves, SpecState)
+                else:
+                    with self.assertRaises(HTTPError) as caught:
+                        await user_valves_spec_route(request, "tool-shared", user)
+                    self.assertEqual(caught.exception.status_code, 401)
+                    self.assertEqual(cache.contains_calls, 0)
+                    self.assertEqual(SpecState.loader_calls, 0)
+                    self.assertEqual(SpecState.schema_calls, 0)
+                    self.assertEqual(cache, {})
+        ToolStore.row.access_control = {"read": {"user_ids": ["reader"]}}
+
+    async def test_user_valve_update_denies_before_cache_module_or_write(self):
+        ToolStore.row.access_control = {"read": {"user_ids": ["reader"]}}
+        for identity, access_control in (
+            ("private-reader", {"read": {"user_ids": ["reader"]}}),
+            ("unrelated", {"read": {"user_ids": ["reader"]}}),
+        ):
+            with self.subTest(identity=identity):
+                ToolStore.row.access_control = access_control
+                ToolStore.user_valve_updates = []
+                ToolStore.user_valve_values = {}
+                SpecState.loader_calls = 0
+                cache = ProbeCache()
+                request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(TOOLS=cache)))
+                with self.assertRaises(HTTPError) as caught:
+                    await update_user_valves_route(request, "tool-shared", {}, User(identity))
+                self.assertEqual(caught.exception.status_code, 401)
+                self.assertEqual(caught.exception.detail, "unauthorized")
+                self.assertEqual(cache.contains_calls, 0)
+                self.assertEqual(SpecState.loader_calls, 0)
+                self.assertEqual(cache, {})
+                self.assertEqual(ToolStore.user_valve_updates, [])
+                self.assertEqual(ToolStore.user_valve_values, {})
+
+    async def test_user_valve_update_keeps_allowed_missing_class_and_scoped_class_behavior(self):
+        cases = (
+            (User("owner"), {}),
+            (User("administrator", "admin"), {}),
+            (User("reader"), {"read": {"user_ids": ["reader"]}}),
+            (User("public-reader"), None),
+        )
+        SpecState.user_valves_enabled = False
+        for user, access_control in cases:
+            with self.subTest(identity=user.id, role=user.role, has_user_valves=False):
+                ToolStore.row.access_control = access_control
+                ToolStore.user_valve_updates = []
+                SpecState.loader_calls = 0
+                cache = ProbeCache()
+                request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(TOOLS=cache)))
+                with self.assertRaises(HTTPError) as caught:
+                    await update_user_valves_route(request, "tool-shared", {}, user)
+                self.assertEqual(caught.exception.status_code, 401)
+                self.assertEqual(caught.exception.detail, "not found")
+                self.assertEqual(SpecState.loader_calls, 1)
+                self.assertIn("tool-shared", cache)
+                self.assertEqual(ToolStore.user_valve_updates, [])
+
+        SpecState.user_valves_enabled = True
+        try:
+            ToolStore.row.access_control = {"read": {"user_ids": ["reader"]}}
+            ToolStore.user_valve_updates = []
+            ToolStore.user_valve_values = {}
+            ToolStore.config_reads = 0
+            cache = ProbeCache()
+            request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(TOOLS=cache)))
+            first = await update_user_valves_route(
+                request,
+                "tool-shared",
+                {"theme": "blue", "unset": None},
+                User("reader"),
+            )
+            ToolStore.row.access_control = None
+            second = await update_user_valves_route(
+                request,
+                "tool-shared",
+                {"theme": "green"},
+                User("public-reader"),
+            )
+            self.assertEqual(first, {"theme": "blue"})
+            self.assertEqual(second, {"theme": "green"})
+            self.assertEqual(
+                ToolStore.user_valve_updates,
+                [
+                    ("tool-shared", "reader", {"theme": "blue"}),
+                    ("tool-shared", "public-reader", {"theme": "green"}),
+                ],
+            )
+            self.assertEqual(ToolStore.user_valve_values["tool-shared", "reader"], {"theme": "blue"})
+            self.assertEqual(ToolStore.user_valve_values["tool-shared", "public-reader"], {"theme": "green"})
+            self.assertEqual(ToolStore.config_reads, 0)
+        finally:
+            SpecState.user_valves_enabled = False
+            ToolStore.row.access_control = {"read": {"user_ids": ["reader"]}}
+
+    async def test_tool_list_uses_read_visible_identities_without_source(self):
+        cases = (
+            (User("owner"), {"private", "targeted", "public"}),
+            (User("reader"), {"targeted", "public"}),
+            (User("unrelated"), {"public"}),
+            (User("administrator", "admin"), {"private", "targeted", "public"}),
+        )
+        ToolListStore.requested_permissions = []
+        for user, expected_ids in cases:
+            with self.subTest(identity=user.id, role=user.role):
+                responses = await tool_list_route(user)
+                self.assertEqual({response["id"] for response in responses}, expected_ids)
+                for response in responses:
+                    self.assertIsNone(response["content"])
+                    self.assertEqual(response["specs"], [{"name": "run"}])
+                    self.assertEqual(response["meta"]["description"], "synthetic metadata")
+                    self.assertIsNone(response["user"])
+        self.assertEqual(ToolListStore.requested_permissions, ["read", "read", "read"])
 
     async def test_model_reader_gets_response_only_empty_params(self):
         ModelStore.row = ModelRow({"read": {"user_ids": ["reader"]}})
