@@ -20,6 +20,10 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def marker_tool_source(marker: Path) -> str:
+    return f"def pipe(**kwargs):\n    open({str(marker)!r}, 'w').write('executed')\n    return 'synthetic'\n"
+
+
 def build_source(path: Path, uploads: Path, *, blocked: bool = False, bad_chat: bool = False) -> None:
     uploads.mkdir()
     db = sqlite3.connect(path)
@@ -33,8 +37,12 @@ def build_source(path: Path, uploads: Path, *, blocked: bool = False, bad_chat: 
       CREATE TABLE file(id TEXT, user_id TEXT, filename TEXT, meta TEXT, created_at TEXT, hash TEXT, data TEXT, updated_at TEXT, path TEXT);
       CREATE TABLE function(id TEXT, user_id TEXT, name TEXT, type TEXT, content TEXT, meta TEXT, created_at TEXT, updated_at TEXT, valves TEXT, is_active INTEGER, is_global INTEGER, version_id TEXT);
       CREATE TABLE function_history(id TEXT, function_id TEXT, content TEXT);
+      CREATE TABLE tool(id TEXT, user_id TEXT, name TEXT, content TEXT, specs TEXT, meta TEXT, valves TEXT, updated_at INTEGER, created_at INTEGER, version_id TEXT);
+      CREATE TABLE tool_history(id TEXT, tool_id TEXT, parent_id TEXT, snapshot TEXT, user_id TEXT, commit_message TEXT, created_at INTEGER);
+      CREATE TABLE model(id TEXT, user_id TEXT, base_model_id TEXT, name TEXT, params TEXT, meta TEXT, updated_at INTEGER, created_at INTEGER, is_active INTEGER, version_id TEXT);
+      CREATE TABLE model_history(id TEXT, model_id TEXT, parent_id TEXT, snapshot TEXT, user_id TEXT, commit_message TEXT, created_at INTEGER);
       CREATE TABLE config(key TEXT, value TEXT);
-      CREATE TABLE access_grant(id TEXT);
+      CREATE TABLE access_grant(id TEXT, resource_type TEXT, resource_id TEXT, principal_type TEXT, principal_id TEXT, permission TEXT, created_at INTEGER);
       CREATE TABLE "group"(id TEXT);
       CREATE TABLE group_member(id TEXT);
     """)
@@ -62,6 +70,9 @@ def build_source(path: Path, uploads: Path, *, blocked: bool = False, bad_chat: 
     meta = json.dumps({"file_hash":hashlib.sha256(blob).hexdigest(),"size":len(blob)})
     db.execute("INSERT INTO file VALUES ('f1','u1','synthetic.html',?,'t',NULL,'{}','t','/app/data/uploads/f1_synthetic.html')", (meta,))
     db.execute("INSERT INTO function VALUES ('fn1','u1','Synthetic','pipe','def pipe(): return 1','{}','t','t','{}',1,0,?)", ('v1' if blocked else None,))
+    inert_content = marker_tool_source(path.parent / 'tool-executed-marker')
+    db.execute("INSERT INTO tool VALUES ('tool-private','u1','Synthetic private tool',?, '[{\"name\":\"run\"}]', '{\"description\":\"synthetic\",\"manifest\":{}}', NULL, 10, 9, NULL)", (inert_content,))
+    db.execute("INSERT INTO model VALUES ('model-private','u1','portable_pipe','Synthetic private model','{}','{}',10,9,1,NULL)")
     if blocked:
         db.execute("INSERT INTO config VALUES ('synthetic','{}')")
         db.execute("INSERT INTO function_history VALUES ('h1','fn1','old')")
@@ -79,6 +90,8 @@ def build_template(path: Path) -> None:
       CREATE TABLE chat(id TEXT, user_id TEXT, title TEXT, created_at TEXT, updated_at TEXT, share_id TEXT, archived INTEGER, chat TEXT, pinned INTEGER, meta TEXT, folder_id TEXT);
       CREATE TABLE file(id TEXT, user_id TEXT, filename TEXT, meta TEXT, created_at TEXT, hash TEXT, data TEXT, updated_at TEXT, path TEXT, access_control TEXT);
       CREATE TABLE function(id TEXT, user_id TEXT, name TEXT, type TEXT, content TEXT, meta TEXT, created_at TEXT, updated_at TEXT, valves TEXT, is_active INTEGER, is_global INTEGER);
+      CREATE TABLE tool(id TEXT, user_id TEXT, name TEXT, content TEXT, specs TEXT, meta TEXT, valves TEXT, access_control TEXT, updated_at INTEGER, created_at INTEGER);
+      CREATE TABLE model(id TEXT, user_id TEXT, base_model_id TEXT, name TEXT, params TEXT, meta TEXT, access_control TEXT, is_active INTEGER, updated_at INTEGER, created_at INTEGER);
       INSERT INTO alembic_version VALUES ('old-version');
       INSERT INTO migratehistory VALUES (1,'old-migration');
     """)
@@ -145,11 +158,89 @@ class ImporterTests(unittest.TestCase):
         self.assertEqual(set(chat_json['history']['messages']), {'q', 'a', 'b'})
         self.assertEqual(db.execute('SELECT version_num FROM alembic_version').fetchone(), ('old-version',))
         self.assertEqual(db.execute('SELECT id,content FROM function').fetchone(), ('fn1','def pipe(): return 1'))
+        marker_source = marker_tool_source(self.root / 'tool-executed-marker')
+        self.assertEqual(db.execute('SELECT id,user_id,name,content,access_control FROM tool').fetchone(), ('tool-private','u1','Synthetic private tool',marker_source,'{}'))
+        self.assertEqual(db.execute('SELECT id,user_id,base_model_id,name,access_control FROM model').fetchone(), ('model-private','u1','portable_pipe','Synthetic private model','{}'))
         file_row = db.execute('SELECT path FROM file').fetchone()[0]
         self.assertEqual(file_row, '/app/backend/data/uploads/f1_synthetic.html')
         self.assertEqual((target / 'uploads' / 'f1_synthetic.html').read_bytes(), (self.uploads / 'f1_synthetic.html').read_bytes())
         db.close()
         self.assertEqual(json.loads((target / 'report.json').read_text())['target_dir'], str(target.resolve()))
+
+    def test_active_tool_model_acl_mapping_and_inert_source_archive(self):
+        content = marker_tool_source(self.root / 'tool-executed-marker')
+        db = sqlite3.connect(self.source)
+        db.execute("INSERT INTO tool VALUES ('tool-shared','u1','Synthetic shared tool',?, '[{\"name\":\"run\"}]', '{\"description\":\"shared\",\"manifest\":{}}', NULL, 12, 11, NULL)", (content,))
+        db.execute("INSERT INTO model VALUES ('model-public','u1','portable_pipe','Synthetic public model','{}','{}',12,11,1,NULL)")
+        db.execute("INSERT INTO access_grant VALUES ('g-tool','tool','tool-shared','user','u1','read',12)")
+        db.execute("INSERT INTO access_grant VALUES ('g-model','model','model-public','user','*','read',12)")
+        db.commit(); db.close()
+        before = digest(self.source)
+        report = convert(self.source, self.uploads, self.template, self.root/'objects')
+        self.assertFalse(report['cutover_eligible'])
+        self.assertIn('access_grant_identity_and_time_not_preserved', {item['code'] for item in report['blockers']})
+        db = sqlite3.connect(self.root/'objects'/'webui.db')
+        self.assertEqual(db.execute("SELECT content,access_control FROM tool WHERE id='tool-shared'").fetchone(), (content, '{"read":{"user_ids":["u1"]}}'))
+        self.assertEqual(db.execute("SELECT access_control FROM model WHERE id='model-public'").fetchone(), (None,))
+        db.close()
+        self.assertEqual(digest(self.source), before)
+        self.assertEqual(digest(Path(report['archive']['path'])/'source.sqlite'), before)
+        self.assertFalse((self.root/'tool-executed-marker').exists())
+
+    def test_object_grants_and_version_links_fail_closed(self):
+        bad_inputs = [
+            (["INSERT INTO access_grant VALUES ('g','tool','tool-private','group','*','read',12)"], 'unsupported_access_grant_semantics'),
+            (["INSERT INTO access_grant VALUES ('g','tool','tool-private','user','u1','write',12)"], 'unsupported_access_grant_semantics'),
+            (["INSERT INTO access_grant VALUES ('g','tool','missing','user','u1','read',12)"], 'dangling_or_unknown_access_grant'),
+            (["INSERT INTO access_grant VALUES ('g','tool','tool-private','user','missing-user','read',12)"], 'unknown_access_grant_user'),
+            (["INSERT INTO access_grant VALUES ('g1','tool','tool-private','user','u1','read',12)", "INSERT INTO access_grant VALUES ('g2','tool','tool-private','user','u1','read',13)"], 'duplicate_access_grant'),
+            (["INSERT INTO access_grant VALUES ('g1','tool','tool-private','user','*','read',12)", "INSERT INTO access_grant VALUES ('g2','tool','tool-private','user','u1','read',13)"], 'public_and_targeted_grants_conflict'),
+            (["UPDATE tool SET version_id='absent' WHERE id='tool-private'"], 'invalid_current_version_link_tool'),
+            (["UPDATE tool SET version_id='bad-snapshot' WHERE id='tool-private'", "INSERT INTO tool_history VALUES ('bad-snapshot','tool-private',NULL,'{}','u1',NULL,10)"], 'invalid_history_snapshot_tool'),
+        ]
+        for statements, expected in bad_inputs:
+            with self.subTest(expected=expected):
+                self.tearDown()
+                self.temp = tempfile.TemporaryDirectory(); self.root = Path(self.temp.name)
+                self.source, self.template, self.uploads = self.root/'source.db', self.root/'template.db', self.root/'uploads'
+                build_source(self.source, self.uploads); build_template(self.template)
+                db = sqlite3.connect(self.source)
+                for sql in statements:
+                    db.execute(sql)
+                db.commit(); db.close()
+                before = digest(self.source), digest(self.template)
+                report = preview(self.source, self.uploads, self.template)
+                self.assertTrue(report['fatal'])
+                self.assertIn(expected, {item['code'] for item in report['blockers']})
+                self.assertEqual((digest(self.source), digest(self.template)), before)
+                target = self.root/'candidate'
+                with self.assertRaises(MigrationError):
+                    convert(self.source, self.uploads, self.template, target)
+                self.assertFalse(target.exists())
+
+    def test_valid_current_history_links_are_archived_but_block_cutover(self):
+        db = sqlite3.connect(self.source)
+        marker_source = marker_tool_source(self.root / 'tool-executed-marker')
+        tool_snapshot = json.dumps({"name":"Synthetic private tool","content":marker_source,"meta":{"description":"synthetic","manifest":{}}})
+        model_snapshot = json.dumps({"name":"Synthetic private model","base_model_id":"portable_pipe","params":{},"meta":{}})
+        db.execute("UPDATE tool SET version_id='tool-version' WHERE id='tool-private'")
+        db.execute("UPDATE model SET version_id='model-version' WHERE id='model-private'")
+        db.execute("INSERT INTO tool_history VALUES ('tool-version','tool-private',NULL,?,'u1',NULL,10)", (tool_snapshot,))
+        db.execute("INSERT INTO model_history VALUES ('model-version','model-private',NULL,?,'u1',NULL,10)", (model_snapshot,))
+        db.commit(); db.close()
+        source_hash = digest(self.source)
+        report = convert(self.source, self.uploads, self.template, self.root/'history')
+        codes = {item['code'] for item in report['blockers']}
+        self.assertIn('active_tool_history_not_preserved', codes)
+        self.assertIn('active_model_history_not_preserved', codes)
+        self.assertIn('active_tool_version_link_not_preserved', codes)
+        self.assertIn('active_model_version_link_not_preserved', codes)
+        self.assertFalse(report['cutover_eligible'])
+        self.assertEqual(digest(Path(report['archive']['path'])/'source.sqlite'), source_hash)
+        db = sqlite3.connect(self.root/'history'/'webui.db')
+        self.assertEqual(db.execute("SELECT id,content FROM tool WHERE id='tool-private'").fetchone(), ('tool-private', marker_source))
+        self.assertEqual(db.execute("SELECT id,base_model_id FROM model WHERE id='model-private'").fetchone(), ('model-private','portable_pipe'))
+        db.close()
 
     def test_inconsistent_chat_refuses_without_touching_inputs(self):
         self.tearDown()
@@ -210,7 +301,7 @@ class ImporterTests(unittest.TestCase):
     def test_security_state_mfa_grants_and_groups_are_fatal(self):
         for sql, expected in [
             ("UPDATE auth SET mfa='enabled'", 'mfa_state_unsupported'),
-            ("INSERT INTO access_grant VALUES ('grant')", 'security_domain_nonempty_access_grant'),
+            ("INSERT INTO access_grant VALUES ('grant','tool','tool-private','group','*','read',12)", 'unsupported_access_grant_semantics'),
             ("INSERT INTO \"group\" VALUES ('g')", 'security_domain_nonempty_group'),
             ("INSERT INTO group_member VALUES ('m')", 'security_domain_nonempty_group_member'),
         ]:
