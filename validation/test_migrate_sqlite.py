@@ -99,6 +99,54 @@ def build_template(path: Path) -> None:
     db.close()
 
 
+def add_group_import_schema(source: Path, template: Path, *, target_group: bool = True) -> None:
+    db = sqlite3.connect(source)
+    db.execute('DROP TABLE "group_member"')
+    db.execute('DROP TABLE "group"')
+    db.executescript('''
+      CREATE TABLE "group"(
+        id TEXT, user_id TEXT, name TEXT, description TEXT, data TEXT, meta TEXT,
+        permissions TEXT, created_at INTEGER, updated_at INTEGER, parent_group_id TEXT
+      );
+      CREATE TABLE group_member(
+        id TEXT, group_id TEXT, user_id TEXT, created_at INTEGER, updated_at INTEGER
+      );
+    ''')
+    db.commit()
+    db.close()
+    if target_group:
+        db = sqlite3.connect(template)
+        db.execute('''CREATE TABLE "group"(
+          id TEXT PRIMARY KEY, user_id TEXT, name TEXT, description TEXT, data JSON,
+          meta JSON, permissions JSON, user_ids JSON, created_at INTEGER, updated_at INTEGER
+        )''')
+        db.commit()
+        db.close()
+
+
+def insert_flat_group(source: Path, *, user_id: str = "u1", group_id: str = "g1") -> None:
+    db = sqlite3.connect(source)
+    db.execute(
+        'INSERT INTO "group" VALUES (?,?,?,?,?,?,?,?,?,NULL)',
+        (group_id, "u1", "Synthetic read group", "Flat read group fixture",
+         '{"config":{"share":"members"}}', None, "{}", 100, 101),
+    )
+    db.execute("INSERT INTO group_member VALUES ('gm1',?,?,100,101)", (group_id, user_id))
+    db.commit()
+    db.close()
+
+
+def add_user(source: Path, user_id: str, *, name: str | None = None) -> None:
+    db = sqlite3.connect(source)
+    db.execute("INSERT INTO auth VALUES (?,?,?,1,NULL,NULL)", (user_id, user_id + "@example.invalid", "bcrypt-placeholder"))
+    db.execute(
+        "INSERT INTO user VALUES (?,?,?,'user','', 't','t','t','{}','{}',NULL,NULL,'{}','{}','{}')",
+        (user_id, name or "Synthetic " + user_id, user_id + "@example.invalid"),
+    )
+    db.commit()
+    db.close()
+
+
 class ImporterTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -218,6 +266,147 @@ class ImporterTests(unittest.TestCase):
         self.assertEqual(digest(self.source), before)
         self.assertEqual(digest(Path(report['archive']['path'])/'source.sqlite'), before)
         self.assertFalse((self.root/'tool-executed-marker').exists())
+
+    def test_flat_group_membership_and_mixed_read_grant_are_prepared_without_losing_source(self):
+        add_group_import_schema(self.source, self.template)
+        insert_flat_group(self.source)
+        db = sqlite3.connect(self.source)
+        db.execute("INSERT INTO access_grant VALUES ('group-tool','tool','tool-private','group','g1','read',12)")
+        db.execute("INSERT INTO access_grant VALUES ('user-tool','tool','tool-private','user','u1','read',13)")
+        db.commit(); db.close()
+        add_user(self.source, "u10")
+        source_before, template_before = digest(self.source), digest(self.template)
+
+        report = convert(self.source, self.uploads, self.template, self.root / "group-target")
+        self.assertFalse(report["cutover_eligible"])
+        blockers = {item["code"] for item in report["blockers"]}
+        self.assertIn("group_membership_identity_and_time_not_preserved", blockers)
+        self.assertIn("access_grant_identity_and_time_not_preserved", blockers)
+        db = sqlite3.connect(self.root / "group-target" / "webui.db")
+        group = db.execute(
+            'SELECT id,user_id,name,description,data,meta,permissions,user_ids,created_at,updated_at FROM "group"'
+        ).fetchone()
+        self.assertEqual(group, (
+            "g1", "u1", "Synthetic read group", "Flat read group fixture",
+            '{"config":{"share":"members"}}', None, "{}", '["u1"]', 100, 101,
+        ))
+        acl = db.execute("SELECT access_control FROM tool WHERE id='tool-private'").fetchone()[0]
+        self.assertEqual(acl, '{"read":{"group_ids":["g1"],"user_ids":["u1"]}}')
+        user_ids_json = group[7]
+        self.assertEqual(json.loads(user_ids_json), ["u1"])
+        for candidate, expected in (("u1", True), ("u10", False)):
+            matched = bool(db.execute("SELECT ? LIKE ?", (user_ids_json, f'%"{candidate}"%')).fetchone()[0])
+            self.assertEqual(matched, expected)
+        db.close()
+        self.assertEqual(digest(self.source), source_before)
+        self.assertEqual(digest(self.template), template_before)
+        self.assertEqual(digest(Path(report["archive"]["path"]) / "source.sqlite"), source_before)
+        self.assertEqual(report["imported_counts"]["group"], 1)
+        self.assertEqual(report["imported_counts"]["group_member"], 0)
+        self.assertFalse((self.root / "tool-executed-marker").exists())
+
+    def test_nondefault_dangling_duplicate_and_invalid_group_inputs_refuse_before_target(self):
+        cases = [
+            ("parent", "unsupported_group_hierarchy"),
+            ("permissions", "unsupported_group_permissions"),
+            ("data", "unsupported_group_data_profile"),
+            ("meta", "unsupported_group_meta_profile"),
+            ("timestamp", "invalid_group_timestamp"),
+            ("owner", "group_owner_missing"),
+            ("unknown_member", "group_member_user_missing"),
+            ("dangling_member", "dangling_group_membership"),
+            ("duplicate_member", "duplicate_group_membership"),
+            ("member_timestamp", "invalid_group_member_timestamp"),
+            ("schema", "source_schema_mismatch_group"),
+            ("member_schema", "source_schema_mismatch_group_member"),
+            ("group_wildcard", "unsupported_access_grant_semantics"),
+            ("group_write", "unsupported_access_grant_semantics"),
+            ("dangling_group_grant", "unknown_or_unsupported_access_grant_group"),
+            ("target_schema", "old_template_group_table_missing"),
+            ("target_extra_schema", "old_template_group_schema_mismatch"),
+            ("missing_member_table", "group_membership_schema_missing"),
+        ]
+        for case, expected in cases:
+            with self.subTest(case=case):
+                self.tearDown(); self.setUp()
+                add_group_import_schema(self.source, self.template, target_group=case != "target_schema")
+                insert_flat_group(self.source)
+                db = sqlite3.connect(self.source)
+                if case == "parent":
+                    db.execute('UPDATE "group" SET parent_group_id="parent"')
+                elif case == "permissions":
+                    db.execute('UPDATE "group" SET permissions=?', ('{"workspace":{"tools":true}}',))
+                elif case == "data":
+                    db.execute('UPDATE "group" SET data=?', ('{"config":{"share":"everyone"}}',))
+                elif case == "meta":
+                    db.execute('UPDATE "group" SET meta=?', ('{"unmeasured":"data"}',))
+                elif case == "timestamp":
+                    db.execute('UPDATE "group" SET created_at="not-a-time"')
+                elif case == "owner":
+                    db.execute('UPDATE "group" SET user_id="missing-owner"')
+                elif case == "unknown_member":
+                    db.execute('UPDATE group_member SET user_id="missing-user"')
+                elif case == "dangling_member":
+                    db.execute('UPDATE group_member SET group_id="missing-group"')
+                elif case == "duplicate_member":
+                    db.execute("INSERT INTO group_member VALUES ('gm2','g1','u1',102,103)")
+                elif case == "member_timestamp":
+                    db.execute('UPDATE group_member SET updated_at="not-a-time"')
+                elif case == "schema":
+                    db.execute('ALTER TABLE "group" ADD COLUMN unexpected TEXT')
+                elif case == "member_schema":
+                    db.execute('ALTER TABLE group_member ADD COLUMN unexpected TEXT')
+                elif case == "group_wildcard":
+                    db.execute("INSERT INTO access_grant VALUES ('g','tool','tool-private','group','*','read',12)")
+                elif case == "group_write":
+                    db.execute("INSERT INTO access_grant VALUES ('g','tool','tool-private','group','g1','write',12)")
+                elif case == "dangling_group_grant":
+                    db.execute("INSERT INTO access_grant VALUES ('g','tool','tool-private','group','missing-group','read',12)")
+                elif case == "target_extra_schema":
+                    target_db = sqlite3.connect(self.template)
+                    target_db.execute('ALTER TABLE "group" ADD COLUMN unsupported TEXT')
+                    target_db.commit(); target_db.close()
+                elif case == "missing_member_table":
+                    db.execute('DROP TABLE group_member')
+                db.commit(); db.close()
+                source_before, template_before = digest(self.source), digest(self.template)
+                report = preview(self.source, self.uploads, self.template)
+                self.assertTrue(report["fatal"])
+                self.assertIn(expected, {item["code"] for item in report["blockers"]})
+                target = self.root / "refused-group-target"
+                with self.assertRaises(MigrationError):
+                    convert(self.source, self.uploads, self.template, target)
+                self.assertFalse(target.exists())
+                self.assertEqual((digest(self.source), digest(self.template)), (source_before, template_before))
+
+    def test_membership_like_ambiguity_case_wildcards_and_escaped_delimiters_refuse(self):
+        cases = (
+            ("case_collision", "legacy_group_membership_like_ambiguous"),
+            ("wildcard", "legacy_group_membership_like_ambiguous"),
+            ("escaped_delimiter", "legacy_group_membership_like_ambiguous"),
+        )
+        for case, expected in cases:
+            with self.subTest(case=case):
+                self.tearDown(); self.setUp()
+                add_group_import_schema(self.source, self.template)
+                insert_flat_group(self.source)
+                if case == "case_collision":
+                    add_user(self.source, "U1")
+                elif case == "wildcard":
+                    add_user(self.source, "u_")
+                else:
+                    add_user(self.source, 'u"1')
+                    db = sqlite3.connect(self.source)
+                    db.execute('UPDATE group_member SET user_id=?', ('u"1',))
+                    db.commit(); db.close()
+                source_before, template_before = digest(self.source), digest(self.template)
+                report = preview(self.source, self.uploads, self.template)
+                self.assertTrue(report["fatal"])
+                self.assertIn(expected, {item["code"] for item in report["blockers"]})
+                with self.assertRaises(MigrationError):
+                    convert(self.source, self.uploads, self.template, self.root / "unsafe-membership-target")
+                self.assertFalse((self.root / "unsafe-membership-target").exists())
+                self.assertEqual((digest(self.source), digest(self.template)), (source_before, template_before))
 
     def test_object_grants_and_version_links_fail_closed(self):
         bad_inputs = [
@@ -433,8 +622,8 @@ class ImporterTests(unittest.TestCase):
         for sql, expected in [
             ("UPDATE auth SET mfa='enabled'", 'mfa_state_unsupported'),
             ("INSERT INTO access_grant VALUES ('grant','tool','tool-private','group','*','read',12)", 'unsupported_access_grant_semantics'),
-            ("INSERT INTO \"group\" VALUES ('g')", 'security_domain_nonempty_group'),
-            ("INSERT INTO group_member VALUES ('m')", 'security_domain_nonempty_group_member'),
+            ("INSERT INTO \"group\" VALUES ('g')", 'source_schema_mismatch_group'),
+            ("INSERT INTO group_member VALUES ('m')", 'source_schema_mismatch_group'),
         ]:
             with self.subTest(expected=expected):
                 db = sqlite3.connect(self.source); db.execute(sql); db.commit(); db.close()

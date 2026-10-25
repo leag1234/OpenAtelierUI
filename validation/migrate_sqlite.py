@@ -385,7 +385,160 @@ def _json_value(value, expected_type, code: str, report: dict):
     return parsed
 
 
-def _validate_object_domains(connection: sqlite3.Connection, report: dict, user_ids: set[str]) -> dict[tuple[str, str], object]:
+OLD_GROUP_COLUMNS = {
+    "id", "user_id", "name", "description", "data", "meta", "permissions",
+    "user_ids", "created_at", "updated_at",
+}
+CURRENT_GROUP_COLUMNS = {
+    "id", "user_id", "name", "description", "data", "meta", "permissions",
+    "created_at", "updated_at", "parent_group_id",
+}
+CURRENT_GROUP_MEMBER_COLUMNS = {"id", "group_id", "user_id", "created_at", "updated_at"}
+
+
+def _validate_old_group_target(template: Path, report: dict) -> None:
+    connection = _connect_ro(template)
+    try:
+        tables = set(_tables(connection))
+        if "group" not in tables:
+            _block(report, "old_template_group_table_missing", 1, fatal=True)
+            return
+        if set(_columns(connection, "group")) != OLD_GROUP_COLUMNS:
+            _block(report, "old_template_group_schema_mismatch", 1, fatal=True)
+            return
+        if _count(connection, "group"):
+            _block(report, "old_template_not_empty", _count(connection, "group"), fatal=True)
+    finally:
+        connection.close()
+
+
+def _legacy_group_lookup_is_unambiguous(user_ids: set[str]) -> bool:
+    """Prove the old `LIKE '%"id"%'` query is exact for known account IDs.
+
+    The legacy query does not escape LIKE wildcards and SQLite LIKE folds ASCII
+    case. JSON also escapes quotes, backslashes and controls. Rejecting those
+    identity shapes plus case-fold collisions makes quoted substring lookup
+    equivalent to exact membership for this finite known-user set.
+    """
+    folded = set()
+    for user_id in user_ids:
+        if (
+            not isinstance(user_id, str)
+            or not user_id
+            or not user_id.isascii()
+            or any(char in user_id for char in '%_"\\')
+            or any(ord(char) < 0x20 or ord(char) == 0x7F for char in user_id)
+        ):
+            return False
+        normalized = user_id.casefold()
+        if normalized in folded:
+            return False
+        folded.add(normalized)
+    return True
+
+
+def _validate_group_domains(
+    connection: sqlite3.Connection, report: dict, user_ids: set[str], template: Path
+) -> dict[str, list[str]]:
+    """Validate the measured flat group profile and build legacy user_ids arrays."""
+    tables = set(_tables(connection))
+    group_count = _count(connection, "group") if "group" in tables else 0
+    member_count = _count(connection, "group_member") if "group_member" in tables else 0
+    if not group_count and not member_count:
+        return {}
+    if "group" not in tables or "group_member" not in tables:
+        _block(report, "group_membership_schema_missing", 1, fatal=True)
+        return {}
+    if set(_columns(connection, "group")) != CURRENT_GROUP_COLUMNS:
+        _block(report, "source_schema_mismatch_group", 1, fatal=True)
+        return {}
+    if set(_columns(connection, "group_member")) != CURRENT_GROUP_MEMBER_COLUMNS:
+        _block(report, "source_schema_mismatch_group_member", 1, fatal=True)
+        return {}
+    _validate_old_group_target(template, report)
+
+    groups = [dict(row) for row in connection.execute('SELECT * FROM "group" ORDER BY id')]
+    group_ids = [row.get("id") for row in groups]
+    if any(not isinstance(value, str) or not value.strip() for value in group_ids):
+        _block(report, "invalid_group_id", 1, fatal=True)
+    if len(group_ids) != len(set(group_ids)):
+        _block(report, "duplicate_group_id", len(group_ids) - len(set(group_ids)), fatal=True)
+    known_groups = {value for value in group_ids if isinstance(value, str) and value.strip()}
+    for row in groups:
+        owner_id = row.get("user_id")
+        if not isinstance(owner_id, str) or owner_id not in user_ids:
+            _block(report, "group_owner_missing", 1, fatal=True)
+        if not isinstance(row.get("name"), str) or not row["name"].strip():
+            _block(report, "invalid_group_name", 1, fatal=True)
+        if not isinstance(row.get("description"), str):
+            _block(report, "invalid_group_description", 1, fatal=True)
+        for field in ("created_at", "updated_at"):
+            if not isinstance(row.get(field), int) or isinstance(row.get(field), bool):
+                _block(report, "invalid_group_timestamp", 1, fatal=True)
+        if row.get("parent_group_id") is not None:
+            _block(report, "unsupported_group_hierarchy", 1, fatal=True)
+        data = _json_value(row.get("data"), dict, "invalid_group_data", report)
+        if data != {"config": {"share": "members"}}:
+            _block(report, "unsupported_group_data_profile", 1, fatal=True)
+        meta = row.get("meta")
+        if isinstance(meta, str):
+            try:
+                meta = json.loads(meta)
+            except (ValueError, TypeError):
+                meta = object()
+        if meta is not None:
+            _block(report, "unsupported_group_meta_profile", 1, fatal=True)
+        permissions = _json_value(row.get("permissions"), dict, "invalid_group_permissions", report)
+        if permissions != {}:
+            _block(report, "unsupported_group_permissions", 1, fatal=True)
+
+    members = [dict(row) for row in connection.execute('SELECT * FROM "group_member" ORDER BY group_id,created_at,id')]
+    member_ids = [row.get("id") for row in members]
+    if any(not isinstance(value, str) or not value.strip() for value in member_ids):
+        _block(report, "invalid_group_member_id", 1, fatal=True)
+    if len(member_ids) != len(set(member_ids)):
+        _block(report, "duplicate_group_member_id", len(member_ids) - len(set(member_ids)), fatal=True)
+    membership_pairs = set()
+    members_by_group = {group_id: [] for group_id in known_groups}
+    for row in members:
+        group_id, user_id = row.get("group_id"), row.get("user_id")
+        if group_id not in known_groups:
+            _block(report, "dangling_group_membership", 1, fatal=True)
+        if not isinstance(user_id, str) or user_id not in user_ids:
+            _block(report, "group_member_user_missing", 1, fatal=True)
+        pair = (group_id, user_id)
+        if pair in membership_pairs:
+            _block(report, "duplicate_group_membership", 1, fatal=True)
+        membership_pairs.add(pair)
+        for field in ("created_at", "updated_at"):
+            if not isinstance(row.get(field), int) or isinstance(row.get(field), bool):
+                _block(report, "invalid_group_member_timestamp", 1, fatal=True)
+        if group_id in members_by_group and isinstance(user_id, str) and user_id in user_ids:
+            members_by_group[group_id].append(user_id)
+
+    if not _legacy_group_lookup_is_unambiguous(user_ids):
+        _block(report, "legacy_group_membership_like_ambiguous", 1, fatal=True,
+               detail="old membership lookup uses unescaped LIKE and case-insensitive matching; account IDs cannot be proven exact")
+    for values in members_by_group.values():
+        if len(values) != len(set(values)):
+            _block(report, "duplicate_group_membership", 1, fatal=True)
+
+    report["group_import"] = {
+        "profile": "flat_default_members",
+        "groups": len(groups),
+        "memberships": len(members),
+        "membership_ids_and_timestamps": "retained in exact source archive; old target stores user_ids only",
+    }
+    if members:
+        _block(report, "group_membership_identity_and_time_not_preserved", len(members),
+               detail="old group JSON retains exact member IDs, not current group_member row IDs or timestamps")
+    report["preserved_domains"].append("validated flat group data and direct member IDs")
+    return members_by_group
+
+
+def _validate_object_domains(
+    connection: sqlite3.Connection, report: dict, user_ids: set[str], group_ids: set[str] | None = None
+) -> dict[tuple[str, str], object]:
     """Validate active object rows and map only measured read ACLs to old JSON ACLs."""
     tables = set(_tables(connection))
     acl: dict[tuple[str, str], object] = {}
@@ -531,6 +684,7 @@ def _validate_object_domains(connection: sqlite3.Connection, report: dict, user_
                 current = history_rows.get(kind, {}).get(cursor)
                 cursor = current.get("parent_id") if current else None
 
+    group_ids = group_ids or set()
     if "access_grant" in tables:
         cols = set(_columns(connection, "access_grant"))
         required = SOURCE_REQUIRED["access_grant"]
@@ -552,22 +706,36 @@ def _validate_object_domains(connection: sqlite3.Connection, report: dict, user_
             if uniqueness in seen:
                 _block(report, "duplicate_access_grant", 1, fatal=True)
             seen.add(uniqueness)
-            if row.get("principal_type") != "user" or row.get("permission") != "read":
+            principal_type, permission = row.get("principal_type"), row.get("permission")
+            if principal_type not in {"user", "group"} or permission != "read":
                 _block(report, "unsupported_access_grant_semantics", 1, fatal=True)
             principal_id = row.get("principal_id")
-            if not isinstance(principal_id, str) or not principal_id.strip() or (principal_id != "*" and principal_id not in user_ids):
+            if not isinstance(principal_id, str) or not principal_id.strip():
+                _block(report, "invalid_access_grant_principal", 1, fatal=True)
+            elif principal_type == "user" and principal_id != "*" and principal_id not in user_ids:
                 _block(report, "unknown_access_grant_user", 1, fatal=True)
+            elif principal_type == "group" and principal_id == "*":
+                _block(report, "unsupported_access_grant_semantics", 1, fatal=True)
+            elif principal_type == "group" and principal_id not in group_ids:
+                _block(report, "unknown_or_unsupported_access_grant_group", 1, fatal=True)
             if not isinstance(row.get("created_at"), int) or isinstance(row.get("created_at"), bool):
                 _block(report, "invalid_access_grant_timestamp", 1, fatal=True)
             grants.setdefault(key, []).append(row)
         for key, rows_for_resource in grants.items():
             principal_ids = [row.get("principal_id") for row in rows_for_resource]
-            if "*" in principal_ids and len(rows_for_resource) != 1:
+            user_principals = [row.get("principal_id") for row in rows_for_resource if row.get("principal_type") == "user"]
+            group_principals = [row.get("principal_id") for row in rows_for_resource if row.get("principal_type") == "group"]
+            if "*" in user_principals and len(rows_for_resource) != 1:
                 _block(report, "public_and_targeted_grants_conflict", 1, fatal=True)
-            elif principal_ids == ["*"]:
+            elif user_principals == ["*"]:
                 acl[key] = None
             else:
-                acl[key] = {"read": {"user_ids": principal_ids}}
+                read_acl = {}
+                if user_principals:
+                    read_acl["user_ids"] = user_principals
+                if group_principals:
+                    read_acl["group_ids"] = group_principals
+                acl[key] = {"read": read_acl}
         if rows:
             _block(report, "access_grant_identity_and_time_not_preserved", len(rows), detail="old access_control JSON preserves read behavior, not grant IDs or timestamps")
     for kind in objects:
@@ -645,14 +813,11 @@ def inspect_source(source_db: str | Path, uploads_root: str | Path, old_template
         object_counts = connection.execute("SELECT type,COUNT(*) FROM sqlite_master WHERE type IN ('trigger','view') GROUP BY type").fetchall()
         if object_counts:
             _block(report, "source_views_or_triggers_unsupported", sum(row[1] for row in object_counts), fatal=True)
-        for table in ("group", "group_member"):
-            if table in tables and _count(connection, table):
-                _block(report, "security_domain_nonempty_" + table, _count(connection, table), fatal=True)
         for table in tables:
             if table not in KNOWN_TABLES:
                 continue
             count = _count(connection, table)
-            if count and table not in APP_TABLES | MARKER_TABLES | {"config", "function_history", "access_grant", "tool_history", "model_history"}:
+            if count and table not in APP_TABLES | MARKER_TABLES | {"config", "function_history", "access_grant", "group", "group_member", "tool_history", "model_history"}:
                 _block(report, "unsupported_nonempty_domain_" + table, count, fatal=True)
         for table in ("config", "function_history"):
             if table in tables and _count(connection, table):
@@ -735,7 +900,8 @@ def inspect_source(source_db: str | Path, uploads_root: str | Path, old_template
             known_users = {row[0] for row in connection.execute('SELECT id FROM "user"')}
             if any(row[0] not in known_users for row in connection.execute('SELECT user_id FROM "chat"')):
                 _block(report, "chat_owner_missing", 1, fatal=True)
-        object_access = _validate_object_domains(connection, report, user_ids)
+        group_memberships = _validate_group_domains(connection, report, user_ids, template)
+        object_access = _validate_object_domains(connection, report, user_ids, set(group_memberships))
         for table in COPYABLE_TABLES & set(tables):
             if "id" not in _columns(connection, table):
                 continue
@@ -748,11 +914,11 @@ def inspect_source(source_db: str | Path, uploads_root: str | Path, old_template
     report["cutover_eligible"] = not report["blockers"]
     report["status"] = "eligible_for_review" if report["cutover_eligible"] else ("refused_fatal_input" if report["fatal"] else "blocked_partial_candidate")
     report["metrics"] = _metrics(started, source.stat().st_size + report.get("upload_bytes", 0))
-    return report, file_rows, object_access
+    return report, file_rows, object_access, group_memberships
 
 
 def preview(source_db: str | Path, uploads_root: str | Path, old_template: str | Path) -> dict:
-    report, _, _ = inspect_source(source_db, uploads_root, old_template)
+    report, _, _, _ = inspect_source(source_db, uploads_root, old_template)
     return report
 
 
@@ -774,7 +940,14 @@ def _insert_rows(source: sqlite3.Connection, target: sqlite3.Connection, table: 
     return len(source_rows)
 
 
-def _copy_domains(source: sqlite3.Connection, target: sqlite3.Connection, upload_rows: list[dict], runtime_data_root: Path, object_access: dict[tuple[str, str], object]) -> dict:
+def _copy_domains(
+    source: sqlite3.Connection,
+    target: sqlite3.Connection,
+    upload_rows: list[dict],
+    runtime_data_root: Path,
+    object_access: dict[tuple[str, str], object],
+    group_memberships: dict[str, list[str]],
+) -> dict:
     counts = {}
     counts["auth"] = _insert_rows(source, target, "auth", {"id": "id", "email": "email", "password": "password", "active": "active"})
     counts["user"] = _insert_rows(source, target, "user", {
@@ -797,6 +970,21 @@ def _copy_domains(source: sqlite3.Connection, target: sqlite3.Connection, upload
         "meta": "meta", "created_at": "created_at", "updated_at": "updated_at", "valves": "valves",
         "is_active": "is_active", "is_global": "is_global",
     })
+    if group_memberships:
+        encoded_members = {
+            group_id: json.dumps(user_ids, ensure_ascii=False, separators=(",", ":"))
+            for group_id, user_ids in group_memberships.items()
+        }
+        counts["group"] = _insert_rows(source, target, "group", {
+            "id": "id", "user_id": "user_id", "name": "name", "description": "description",
+            "data": "data", "meta": None, "permissions": "permissions", "user_ids": None,
+            "created_at": "created_at", "updated_at": "updated_at",
+        }, {"user_ids": encoded_members})
+        # Current membership row IDs and timestamps remain in the exact source archive.
+        counts["group_member"] = 0
+    else:
+        counts["group"] = 0
+        counts["group_member"] = 0
     for kind, mapping in {
         "tool": {"id": "id", "user_id": "user_id", "name": "name", "content": "content", "specs": "specs", "meta": "meta", "valves": "valves", "updated_at": "updated_at", "created_at": "created_at", "access_control": None},
         "model": {"id": "id", "user_id": "user_id", "base_model_id": "base_model_id", "name": "name", "params": "params", "meta": "meta", "is_active": "is_active", "updated_at": "updated_at", "created_at": "created_at", "access_control": None},
@@ -813,7 +1001,7 @@ def _dir_size(root: Path) -> int:
 
 def convert(source_db: str | Path, uploads_root: str | Path, old_template: str | Path, new_target_dir: str | Path, *, runtime_data_root: str | Path = "/app/backend/data", include_history_sidecar: bool = False, failpoint: Callable[[str], None] | None = None) -> dict:
     started = time.perf_counter()
-    report, upload_rows, object_access = inspect_source(source_db, uploads_root, old_template)
+    report, upload_rows, object_access, group_memberships = inspect_source(source_db, uploads_root, old_template)
     source = Path(source_db).resolve(strict=True)
     template = Path(old_template).resolve(strict=True)
     target = Path(new_target_dir)
@@ -860,7 +1048,10 @@ def convert(source_db: str | Path, uploads_root: str | Path, old_template: str |
         marker_before = _validate_template(template)["markers"]
         try:
             target_connection.execute("BEGIN IMMEDIATE")
-            counts = _copy_domains(source_connection, target_connection, upload_rows, runtime_root, object_access)
+            counts = _copy_domains(
+                source_connection, target_connection, upload_rows, runtime_root,
+                object_access, group_memberships,
+            )
             if failpoint:
                 failpoint("after_rows_before_commit")
             target_connection.commit()
