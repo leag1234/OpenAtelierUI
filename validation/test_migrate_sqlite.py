@@ -32,7 +32,7 @@ def build_source(path: Path, uploads: Path, *, blocked: bool = False, bad_chat: 
       CREATE TABLE migratehistory(id INTEGER PRIMARY KEY, name TEXT);
       CREATE TABLE auth(id TEXT, email TEXT, password TEXT, active INTEGER, mfa TEXT, session_stamp TEXT);
       CREATE TABLE user(id TEXT, name TEXT, email TEXT, role TEXT, profile_image_url TEXT, created_at TEXT, updated_at TEXT, last_active_at TEXT, settings TEXT, info TEXT, username TEXT, bio TEXT, oauth TEXT, scim TEXT, variables TEXT);
-      CREATE TABLE chat(id TEXT, user_id TEXT, title TEXT, created_at TEXT, updated_at TEXT, share_id TEXT, archived INTEGER, chat TEXT, pinned INTEGER, meta TEXT, folder_id TEXT, tasks TEXT, summary TEXT, last_read_at TEXT, current_message_id TEXT, variables TEXT, timer_at TEXT);
+      CREATE TABLE chat(id TEXT, user_id TEXT, title TEXT, created_at TEXT, updated_at TEXT, share_id TEXT, archived INTEGER, chat TEXT, pinned INTEGER, meta TEXT, folder_id TEXT, tasks TEXT, summary TEXT, last_read_at INTEGER, current_message_id TEXT, variables TEXT, timer_at TEXT);
       CREATE TABLE chat_message(id TEXT, chat_id TEXT, user_id TEXT, role TEXT, parent_id TEXT, content TEXT, output TEXT, model_id TEXT, files TEXT, sources TEXT, embeds TEXT, done TEXT, status_history TEXT, error TEXT, usage TEXT, created_at TEXT, updated_at TEXT, context_summary TEXT, meta TEXT);
       CREATE TABLE file(id TEXT, user_id TEXT, filename TEXT, meta TEXT, created_at TEXT, hash TEXT, data TEXT, updated_at TEXT, path TEXT);
       CREATE TABLE function(id TEXT, user_id TEXT, name TEXT, type TEXT, content TEXT, meta TEXT, created_at TEXT, updated_at TEXT, valves TEXT, is_active INTEGER, is_global INTEGER, version_id TEXT);
@@ -147,6 +147,37 @@ def add_user(source: Path, user_id: str, *, name: str | None = None) -> None:
     db.close()
 
 
+def add_second_private_chat(source: Path) -> None:
+    """Add a bounded five-node branched conversation with a known owner."""
+    db = sqlite3.connect(source)
+    db.execute("INSERT INTO auth VALUES ('u2','u2@example.invalid','bcrypt-placeholder',1,NULL,NULL)")
+    db.execute("INSERT INTO user VALUES ('u2','Synthetic Second User','u2@example.invalid','user','', 't','t','t','{}','{}',NULL,NULL,'{}','{}','{}')")
+    nodes = {
+        "question": {"id": "question", "parentId": None, "childrenIds": ["answer-a", "answer-b"], "role": "user", "content": "Choose a synthetic venue", "timestamp": 1730000000},
+        "answer-a": {"id": "answer-a", "parentId": "question", "childrenIds": ["follow-up"], "role": "assistant", "content": "Original venue", "timestamp": 1730000001, "user_id": "u2"},
+        "answer-b": {"id": "answer-b", "parentId": "question", "childrenIds": [], "role": "assistant", "content": "Alternative venue", "timestamp": 1730000002, "user_id": "u2"},
+        "follow-up": {"id": "follow-up", "parentId": "answer-a", "childrenIds": ["continuation"], "role": "user", "content": "Continue that plan", "timestamp": 1730000003},
+        "continuation": {"id": "continuation", "parentId": "follow-up", "childrenIds": [], "role": "assistant", "content": "Useful continuation", "timestamp": 1730000004, "user_id": "u2"},
+    }
+    payload = {
+        "title": "Synthetic branched conversation", "models": ["portable_pipe"], "params": {},
+        "history": {"messages": nodes, "currentId": "continuation"},
+        "messages": [dict(nodes[node_id]) for node_id in ("question", "answer-a", "follow-up", "continuation")],
+        "tags": [], "timestamp": 1730000000000,
+    }
+    db.execute(
+        "INSERT INTO chat VALUES ('c2','u2','Synthetic branched conversation','created-2','updated-2',NULL,0,?,0,'{}',NULL,'null',NULL,1792949159,'continuation','{}',NULL)",
+        (json.dumps(payload),),
+    )
+    for node_id, node in nodes.items():
+        db.execute(
+            "INSERT INTO chat_message VALUES (?,?,?,?,?,?,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL)",
+            (f"c2-{node_id}", "c2", "u2", node["role"], node["parentId"], json.dumps(node["content"])),
+        )
+    db.commit()
+    db.close()
+
+
 class ImporterTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -217,6 +248,129 @@ class ImporterTests(unittest.TestCase):
         self.assertTrue(any(code.startswith('unsupported_chat_field_') for code in codes))
         self.assertIn('function_revision_link_not_preserved', codes)
 
+    def test_opt_in_private_chat_metadata_preserves_branches_authors_and_read_marker(self):
+        add_second_private_chat(self.source)
+        source_hash, template_hash = digest(self.source), digest(self.template)
+        default_report = preview(self.source, self.uploads, self.template)
+        self.assertIn('unsupported_chat_field_last_read_at', {item['code'] for item in default_report['blockers']})
+        opt_in_report = preview(self.source, self.uploads, self.template, include_private_chat_metadata=True)
+        self.assertNotIn('unsupported_chat_field_last_read_at', {item['code'] for item in opt_in_report['blockers']})
+        self.assertEqual(opt_in_report['private_chat_metadata']['converted_chat_count'], 2)
+        self.assertTrue(opt_in_report['cutover_eligible'])
+        target = self.root / 'private-chat-metadata-target'
+        report = convert(self.source, self.uploads, self.template, target, include_private_chat_metadata=True)
+        self.assertEqual(report['private_chat_metadata']['converted_chat_count'], 2)
+        self.assertEqual((digest(self.source), digest(self.template)), (source_hash, template_hash))
+        self.assertEqual(digest(Path(report['archive']['path']) / 'source.sqlite'), source_hash)
+        db = sqlite3.connect(target / 'webui.db')
+        rows = {row[0]: (json.loads(row[1]), json.loads(row[2])) for row in db.execute('SELECT id,chat,meta FROM chat')}
+        db.close()
+        self.assertEqual(set(rows), {'c1', 'c2'})
+        first_graph, first_meta = rows['c1']
+        self.assertEqual(first_graph['history']['currentId'], 'b')
+        self.assertEqual(set(first_graph['history']['messages']), {'q', 'a', 'b'})
+        self.assertEqual(first_graph['history']['messages']['q']['user_id'], 'u1')
+        self.assertNotIn('user_id', first_graph['history']['messages']['a'])
+        self.assertEqual(first_meta['_mdk_private_saved_work'], {'version': 1, 'last_read_at': None})
+        second_graph, second_meta = rows['c2']
+        self.assertEqual(second_graph['history']['currentId'], 'continuation')
+        self.assertEqual(second_graph['history']['messages']['answer-b']['content'], 'Alternative venue')
+        self.assertEqual(second_graph['history']['messages']['continuation']['content'], 'Useful continuation')
+        self.assertEqual(second_meta['_mdk_private_saved_work'], {'version': 1, 'last_read_at': 1792949159})
+        for node_id, node in second_graph['history']['messages'].items():
+            if node['role'] == 'user':
+                self.assertEqual(node['user_id'], 'u2')
+                self.assertEqual(node['user'], {'id': 'u2', 'name': 'Synthetic Second User'})
+            else:
+                self.assertEqual(node['user_id'], 'u2')
+                self.assertNotIn('user', node)
+        self.assertEqual(len(second_graph['messages']), 4)
+
+    def test_opt_in_does_not_clear_unrelated_partial_cutover_blockers(self):
+        add_second_private_chat(self.source)
+        db = sqlite3.connect(self.source)
+        db.execute("UPDATE auth SET session_stamp='retained-session' WHERE id='u1'")
+        db.execute("INSERT INTO config VALUES ('synthetic','{}')")
+        db.commit()
+        db.close()
+        report = preview(self.source, self.uploads, self.template, include_private_chat_metadata=True)
+        codes = {item['code'] for item in report['blockers']}
+        self.assertFalse(report['fatal'])
+        self.assertFalse(report['cutover_eligible'])
+        self.assertIn('session_stamp_not_preserved', codes)
+        self.assertIn('unsupported_nonempty_domain_config', codes)
+        self.assertEqual(report['private_chat_metadata']['converted_chat_count'], 2)
+
+    def test_opt_in_flag_is_exercised_by_real_cli_preview_and_convert(self):
+        add_second_private_chat(self.source)
+        script = Path(__file__).with_name('migrate_sqlite.py')
+        common = [sys.executable, str(script), '--source-db', str(self.source), '--uploads-root', str(self.uploads), '--empty-old-target-template', str(self.template)]
+        preview_result = subprocess.run(common[:2] + ['preview'] + common[2:] + ['--include-private-chat-metadata'], text=True, capture_output=True)
+        self.assertEqual(preview_result.returncode, 0)  # the minimal synthetic fixture has no unrelated blockers
+        preview_json = json.loads(preview_result.stdout)
+        self.assertEqual(preview_json['private_chat_metadata']['converted_chat_count'], 2)
+        target = self.root / 'cli-private-chat-metadata'
+        convert_result = subprocess.run(common[:2] + ['convert'] + common[2:] + ['--new-target-dir', str(target), '--include-private-chat-metadata'], text=True, capture_output=True)
+        self.assertEqual(convert_result.returncode, 0)
+        self.assertTrue(target.is_dir())
+        db = sqlite3.connect(target / 'webui.db')
+        self.assertIn('_mdk_private_saved_work', json.loads(db.execute("SELECT meta FROM chat WHERE id='c1'").fetchone()[0]))
+        db.close()
+
+    def test_opt_in_private_chat_metadata_fails_closed_before_target_creation(self):
+        add_second_private_chat(self.source)
+        mutations = {
+            'reserved_meta': ("UPDATE chat SET meta=? WHERE id='c2'", (json.dumps({'_mdk_private_saved_work': {'version': 1, 'last_read_at': 1792949159}}),)),
+            'unknown_author': ("UPDATE chat_message SET user_id='unknown' WHERE id='c2-question'", ()),
+            'missing_author': ("UPDATE chat_message SET user_id=NULL WHERE id='c2-question'", ()),
+            'shared': ("UPDATE chat SET share_id='shared' WHERE id='c2'", ()),
+            'folder': ("UPDATE chat SET folder_id='folder' WHERE id='c2'", ()),
+            'malformed_read_stamp': ("UPDATE chat SET last_read_at='not-a-stamp' WHERE id='c2'", ()),
+            'negative_read_stamp': ("UPDATE chat SET last_read_at=-1 WHERE id='c2'", ()),
+            'unsupported_variables': ("UPDATE chat SET variables='[1]' WHERE id='c2'", ()),
+            'unsupported_tasks': ("UPDATE chat SET tasks='[1]' WHERE id='c2'", ()),
+        }
+        for name, (statement, values) in mutations.items():
+            with self.subTest(name=name):
+                # Restore the pristine multi-chat source between independent refusal cases.
+                self.tearDown()
+                self.temp = tempfile.TemporaryDirectory()
+                self.root = Path(self.temp.name)
+                self.source, self.template, self.uploads = self.root/'source.db', self.root/'template.db', self.root/'uploads'
+                build_source(self.source, self.uploads)
+                build_template(self.template)
+                add_second_private_chat(self.source)
+                db = sqlite3.connect(self.source)
+                db.execute(statement, values)
+                db.commit()
+                db.close()
+                source_hash, template_hash = digest(self.source), digest(self.template)
+                target = self.root / 'refused-private-chat'
+                with self.assertRaises(MigrationError) as caught:
+                    convert(self.source, self.uploads, self.template, target, include_private_chat_metadata=True)
+                self.assertEqual(caught.exception.code, 'fatal_source_input')
+                self.assertFalse(target.exists())
+                self.assertEqual((digest(self.source), digest(self.template)), (source_hash, template_hash))
+
+    def test_opt_in_refuses_json_author_contradiction_before_target(self):
+        add_second_private_chat(self.source)
+        db = sqlite3.connect(self.source)
+        raw = db.execute("SELECT chat FROM chat WHERE id='c2'").fetchone()[0]
+        payload = json.loads(raw)
+        payload['history']['messages']['question']['user_id'] = 'u1'
+        db.execute("UPDATE chat SET chat=? WHERE id='c2'", (json.dumps(payload),))
+        db.commit()
+        db.close()
+        source_hash, template_hash = digest(self.source), digest(self.template)
+        target = self.root / 'refused-json-author'
+        with self.assertRaises(MigrationError) as caught:
+            convert(self.source, self.uploads, self.template, target, include_private_chat_metadata=True)
+        self.assertEqual(caught.exception.code, 'fatal_source_input')
+        codes = {item['code'] for item in caught.exception.report['blockers']}
+        self.assertIn('private_chat_metadata_json_author_mismatch', codes)
+        self.assertFalse(target.exists())
+        self.assertEqual((digest(self.source), digest(self.template)), (source_hash, template_hash))
+
     def test_fresh_target_and_separate_exact_source_archive(self):
         target = self.root / 'candidate'
         source_hash, template_hash = digest(self.source), digest(self.template)
@@ -234,6 +388,8 @@ class ImporterTests(unittest.TestCase):
         self.assertEqual(db.execute('SELECT id FROM user').fetchone(), ('u1',))
         self.assertEqual(db.execute('SELECT id FROM chat').fetchone(), ('c1',))
         chat_json = json.loads(db.execute('SELECT chat FROM chat WHERE id=?', ('c1',)).fetchone()[0])
+        self.assertEqual(db.execute("SELECT meta FROM chat WHERE id='c1'").fetchone()[0], '{}')
+        self.assertNotIn('user_id', chat_json['history']['messages']['q'])
         self.assertEqual(chat_json['history']['currentId'], 'b')
         self.assertEqual(set(chat_json['history']['messages']), {'q', 'a', 'b'})
         self.assertEqual(db.execute('SELECT version_num FROM alembic_version').fetchone(), ('old-version',))
