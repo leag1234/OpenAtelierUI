@@ -11,6 +11,7 @@ targets remain ineligible for cutover.
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import importlib.util
 import json
@@ -85,6 +86,11 @@ CHAT_UNSUPPORTED = {"tasks", "summary", "last_read_at", "current_message_id", "v
 PRIVATE_CHAT_META_KEY = "_mdk_private_saved_work"
 PRIVATE_CHAT_META_VERSION = 1
 PRIVATE_CHAT_META_MAX_BYTES = 1024
+MAX_NAMED_TOOL_CONFIG_BYTES = 16 * 1024
+OLD_CONFIG_SOURCE_SHA256 = "e86c2da3487ddf9d9ee9fe5bafc81f5e96d8bc8a800a5632e3387bec6e57d694"
+OLD_CONFIG_DEFAULTS_SHA256 = "7870936571d911d4d4580b924d7b187ac9b5d01121299a1947f5d1ccfc832dd8"
+NAMED_TOOL_CONNECTION_KEY = "tool_server.connections"
+NAMED_TOOL_CONFIG_PATH = Path(__file__).resolve().parents[1] / "backend" / "open_webui" / "config.py"
 MESSAGE_UNSUPPORTED = {
     "output", "model_id", "files", "sources", "embeds", "done", "status_history",
     "error", "usage", "created_at", "updated_at", "context_summary", "meta",
@@ -96,6 +102,137 @@ class MigrationError(Exception):
         super().__init__(message)
         self.code = code
         self.report = report or {}
+
+
+class _DuplicateConfigJSONKey(ValueError):
+    pass
+
+
+def _reject_duplicate_json_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateConfigJSONKey
+        result[key] = value
+    return result
+
+
+def _load_pinned_old_defaults() -> tuple[dict, str, str]:
+    """Read only the pinned literal defaults; never import the runtime module."""
+    path = NAMED_TOOL_CONFIG_PATH
+    try:
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 2 * 1024 * 1024:
+            raise MigrationError("named_tool_configuration_defaults_unavailable", "pinned old configuration defaults are unavailable")
+        source = path.read_bytes()
+    except OSError:
+        raise MigrationError("named_tool_configuration_defaults_unavailable", "pinned old configuration defaults are unavailable")
+    source_hash = hashlib.sha256(source).hexdigest()
+    if source_hash != OLD_CONFIG_SOURCE_SHA256:
+        raise MigrationError("named_tool_configuration_defaults_unavailable", "pinned old configuration source does not match")
+    try:
+        module = ast.parse(source.decode("utf-8"), filename=str(path))
+        assignments = [
+            node for node in module.body
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "DEFAULT_CONFIG" for target in node.targets)
+        ]
+        if len(assignments) != 1:
+            raise ValueError("default assignment count")
+        defaults = ast.literal_eval(assignments[0].value)
+        if not isinstance(defaults, dict) or type(defaults.get("version")) is not int:
+            raise ValueError("default shape")
+    except (UnicodeError, SyntaxError, ValueError, TypeError, RecursionError) as error:
+        raise MigrationError("named_tool_configuration_defaults_unavailable", "pinned old configuration defaults could not be read") from error
+    canonical = json.dumps(defaults, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    defaults_hash = hashlib.sha256(canonical).hexdigest()
+    if defaults_hash != OLD_CONFIG_DEFAULTS_SHA256:
+        raise MigrationError("named_tool_configuration_defaults_unavailable", "pinned old configuration defaults do not match")
+    return defaults, source_hash, defaults_hash
+
+
+def _named_tool_target_config_schema(connection: sqlite3.Connection) -> bool:
+    if "config" not in _tables(connection):
+        return False
+    columns = _columns(connection, "config")
+    if set(columns) != {"id", "data", "version", "created_at", "updated_at"}:
+        return False
+    return (
+        columns["id"][2].upper() == "INTEGER" and columns["id"][3] == 1 and columns["id"][5] == 1
+        and columns["data"][2].upper() == "JSON" and columns["data"][3] == 1
+        and columns["version"][2].upper() == "INTEGER" and columns["version"][3] == 1
+        and columns["created_at"][2].upper() == "DATETIME" and columns["created_at"][3] == 1 and columns["created_at"][4] == "CURRENT_TIMESTAMP"
+        and columns["updated_at"][2].upper() == "DATETIME" and columns["updated_at"][3] == 0 and columns["updated_at"][4] == "CURRENT_TIMESTAMP"
+        and _count(connection, "config") == 0
+    )
+
+
+def _parse_named_tool_connection(connection: sqlite3.Connection, user_roles: dict[str, str]) -> dict:
+    """Validate the one fixed synthetic no-auth member/read connection."""
+    if "config" not in _tables(connection):
+        raise MigrationError("named_tool_configuration_source_schema_mismatch", "selected configuration table is unavailable")
+    columns = _columns(connection, "config")
+    if set(columns) != {"key", "value", "updated_at"}:
+        raise MigrationError("named_tool_configuration_source_schema_mismatch", "selected configuration schema is unsupported")
+    rows = [row for row in connection.execute('SELECT value FROM "config" WHERE key=?', (NAMED_TOOL_CONNECTION_KEY,))]
+    if len(rows) != 1:
+        raise MigrationError("named_tool_configuration_selection_invalid", "exactly one selected named-tool configuration is required")
+    raw = rows[0][0]
+    try:
+        raw_bytes = raw.encode("utf-8") if isinstance(raw, str) else None
+    except UnicodeError:
+        raw_bytes = None
+    if raw_bytes is None or len(raw_bytes) > MAX_NAMED_TOOL_CONFIG_BYTES:
+        raise MigrationError("named_tool_configuration_selection_invalid", "selected named-tool configuration is outside the size or type limit")
+    try:
+        value = json.loads(raw, object_pairs_hook=_reject_duplicate_json_keys)
+    except (ValueError, TypeError, RecursionError):
+        raise MigrationError("named_tool_configuration_selection_invalid", "selected named-tool configuration is invalid JSON") from None
+    if not isinstance(value, list) or len(value) != 1 or not isinstance(value[0], dict):
+        raise MigrationError("named_tool_configuration_unsupported_shape", "exactly one named-tool connection is required")
+    value = value[0]
+    expected_fields = {
+        "url", "path", "type", "spec_type", "spec", "auth_type", "key",
+        "config", "info", "headers", "forward_cookies",
+    }
+    if not isinstance(value, dict) or set(value) != expected_fields:
+        raise MigrationError("named_tool_configuration_unsupported_shape", "selected named-tool configuration has unsupported fields")
+    info = value.get("info")
+    nested = value.get("config")
+    if (
+        value.get("url") != "http://127.0.0.1:18081"
+        or value.get("path") != "openapi.json"
+        or value.get("type") != "openapi"
+        or value.get("spec_type") != "url"
+        or value.get("spec") != ""
+        or value.get("auth_type") != "none"
+        or value.get("key") != ""
+        or value.get("headers") not in (None, {})
+        or value.get("forward_cookies") is not False
+        or not isinstance(info, dict)
+        or set(info) != {"id", "name", "description"}
+        or info.get("id") != "synthetic_openapi"
+        or info.get("name") != "Synthetic OpenAPI tool fixture"
+        or info.get("description") != "Bounded synthetic tool server"
+        or not isinstance(nested, dict)
+        or set(nested) != {"enable", "access_grants"}
+        or nested.get("enable") is not True
+    ):
+        raise MigrationError("named_tool_configuration_unsupported_shape", "selected named-tool configuration is outside the measured fixture profile")
+    grants = nested.get("access_grants")
+    if not isinstance(grants, list) or len(grants) != 1 or not isinstance(grants[0], dict) or set(grants[0]) != {"principal_type", "principal_id", "permission"}:
+        raise MigrationError("named_tool_configuration_unsupported_grant", "selected named-tool grant is outside the measured user/read profile")
+    grant = grants[0]
+    principal_id = grant.get("principal_id")
+    if grant.get("principal_type") != "user" or grant.get("permission") != "read":
+        raise MigrationError("named_tool_configuration_unsupported_grant", "selected named-tool grant is outside the measured user/read profile")
+    if (
+        not isinstance(principal_id, str)
+        or not principal_id.strip()
+        or principal_id == "*"
+        or user_roles.get(principal_id) != "user"
+    ):
+        raise MigrationError("named_tool_configuration_grant_identity_invalid", "selected grant must name an existing ordinary user with read permission")
+    return value
 
 
 def _digest(path: Path) -> str:
@@ -865,7 +1002,7 @@ def _validate_object_domains(
     return acl
 
 
-def _validate_template(template: Path) -> dict:
+def _validate_template(template: Path, *, require_named_tool_config: bool = False) -> dict:
     connection = _connect_ro(template)
     try:
         tables = _tables(connection)
@@ -876,6 +1013,8 @@ def _validate_template(template: Path) -> dict:
         for table, required in TARGET_REQUIRED.items():
             if table not in tables or not required.issubset(_columns(connection, table)):
                 raise MigrationError("old_template_schema_mismatch", f"old target template is missing required table/columns: {table}")
+        if require_named_tool_config and not _named_tool_target_config_schema(connection):
+            raise MigrationError("old_template_named_config_schema_mismatch", "old target configuration schema is not the expected empty form")
         counts = {table: _count(connection, table) for table in tables}
         dirty = {table: count for table, count in counts.items() if count and table not in MARKER_TABLES}
         if dirty:
@@ -889,7 +1028,14 @@ def _validate_template(template: Path) -> dict:
         connection.close()
 
 
-def inspect_source(source_db: str | Path, uploads_root: str | Path, old_template: str | Path, *, include_private_chat_metadata: bool = False) -> dict:
+def inspect_source(
+    source_db: str | Path,
+    uploads_root: str | Path,
+    old_template: str | Path,
+    *,
+    include_private_chat_metadata: bool = False,
+    include_named_tool_configuration: bool = False,
+) -> dict:
     started = time.perf_counter()
     source = _db_path(source_db, label="source database")
     template = _db_path(old_template, label="old target template")
@@ -913,11 +1059,14 @@ def inspect_source(source_db: str | Path, uploads_root: str | Path, old_template
         "limitations": ["Prepared targets require independent application/API/security review; this tool never switches or activates them."],
     }
     try:
-        template_info = _validate_template(template)
+        template_info = _validate_template(
+            template, require_named_tool_config=include_named_tool_configuration
+        )
         report["target_template"]["schema_fingerprint"] = template_info["fingerprint"]
     except MigrationError as error:
         _block(report, error.code, 1, fatal=True, detail=str(error))
     object_access = {}
+    named_tool_config_data = None
     connection = _connect_ro(source)
     try:
         tables = _tables(connection)
@@ -941,7 +1090,7 @@ def inspect_source(source_db: str | Path, uploads_root: str | Path, old_template
             if count and table not in APP_TABLES | MARKER_TABLES | {"config", "function_history", "access_grant", "group", "group_member", "tool_history", "model_history"}:
                 _block(report, "unsupported_nonempty_domain_" + table, count, fatal=True)
         for table in ("config", "function_history"):
-            if table in tables and _count(connection, table):
+            if table in tables and _count(connection, table) and not (table == "config" and include_named_tool_configuration):
                 _block(report, "unsupported_nonempty_domain_" + table, _count(connection, table), detail="full bytes are retained in the source archive; old target behavior is not implemented")
         valid_required = {name: name in tables and required.issubset(_columns(connection, name)) for name, required in SOURCE_REQUIRED.items()}
         if valid_required.get("auth"):
@@ -1027,6 +1176,64 @@ def inspect_source(source_db: str | Path, uploads_root: str | Path, old_template
             known_users = {row[0] for row in connection.execute('SELECT id FROM "user"')}
             if any(row[0] not in known_users for row in connection.execute('SELECT user_id FROM "chat"')):
                 _block(report, "chat_owner_missing", 1, fatal=True)
+        if include_named_tool_configuration:
+            config_rows = report["table_counts"].get("config", 0)
+            verified = False
+            defaults_source_hash = None
+            defaults_hash = None
+            if not report["fatal"] and valid_required.get("user"):
+                try:
+                    user_roles = {
+                        row[0]: row[1]
+                        for row in connection.execute('SELECT id,role FROM "user"')
+                    }
+                    selected_connection = _parse_named_tool_connection(connection, user_roles)
+                    defaults, defaults_source_hash, defaults_hash = _load_pinned_old_defaults()
+                    target_config_data = json.loads(
+                        json.dumps(defaults, sort_keys=True, separators=(",", ":"))
+                    )
+                    target_config_data.setdefault("tool_server", {})[
+                        "connections"
+                    ] = [selected_connection]
+                    named_tool_config_data = {
+                        "data": target_config_data,
+                        "version": target_config_data["version"],
+                    }
+                    verified = True
+                except MigrationError as error:
+                    _block(report, error.code, 1, fatal=True)
+            if verified:
+                remaining_config_rows = max(config_rows - 1, 0)
+                if remaining_config_rows:
+                    _block(
+                        report,
+                        "unsupported_nonempty_domain_config",
+                        remaining_config_rows,
+                        detail="remaining configuration values are retained only in the source archive",
+                    )
+                _block(
+                    report,
+                    "named_tool_configuration_prototype",
+                    1,
+                    detail="one selected connection is mapped; remaining configuration is archived and cutover is disabled",
+                )
+            else:
+                remaining_config_rows = config_rows
+                if config_rows:
+                    _block(
+                        report,
+                        "unsupported_nonempty_domain_config",
+                        config_rows,
+                        detail="configuration is retained only in the source archive",
+                    )
+            report["named_tool_configuration"] = {
+                "opt_in": True,
+                "selected_connection_count": 1 if verified else 0,
+                "old_defaults_verified": bool(verified),
+                "defaults_source_sha256": defaults_source_hash,
+                "defaults_literal_sha256": defaults_hash,
+                "remaining_config_rows": remaining_config_rows,
+            }
         group_memberships = _validate_group_domains(connection, report, user_ids, template)
         object_access = _validate_object_domains(connection, report, user_ids, set(group_memberships))
         for table in COPYABLE_TABLES & set(tables):
@@ -1041,11 +1248,24 @@ def inspect_source(source_db: str | Path, uploads_root: str | Path, old_template
     report["cutover_eligible"] = not report["blockers"]
     report["status"] = "eligible_for_review" if report["cutover_eligible"] else ("refused_fatal_input" if report["fatal"] else "blocked_partial_candidate")
     report["metrics"] = _metrics(started, source.stat().st_size + report.get("upload_bytes", 0))
-    return report, file_rows, object_access, group_memberships, private_chat_overrides
+    return report, file_rows, object_access, group_memberships, private_chat_overrides, named_tool_config_data
 
 
-def preview(source_db: str | Path, uploads_root: str | Path, old_template: str | Path, *, include_private_chat_metadata: bool = False) -> dict:
-    report, _, _, _, _ = inspect_source(source_db, uploads_root, old_template, include_private_chat_metadata=include_private_chat_metadata)
+def preview(
+    source_db: str | Path,
+    uploads_root: str | Path,
+    old_template: str | Path,
+    *,
+    include_private_chat_metadata: bool = False,
+    include_named_tool_configuration: bool = False,
+) -> dict:
+    report, _, _, _, _, _ = inspect_source(
+        source_db,
+        uploads_root,
+        old_template,
+        include_private_chat_metadata=include_private_chat_metadata,
+        include_named_tool_configuration=include_named_tool_configuration,
+    )
     return report
 
 
@@ -1075,6 +1295,7 @@ def _copy_domains(
     object_access: dict[tuple[str, str], object],
     group_memberships: dict[str, list[str]],
     private_chat_overrides: dict[str, dict[str, str]] | None = None,
+    named_tool_config_data: dict | None = None,
 ) -> dict:
     counts = {}
     counts["auth"] = _insert_rows(source, target, "auth", {"id": "id", "email": "email", "password": "password", "active": "active"})
@@ -1114,6 +1335,19 @@ def _copy_domains(
     else:
         counts["group"] = 0
         counts["group_member"] = 0
+    if named_tool_config_data is not None:
+        columns = _columns(target, "config")
+        if set(columns) != {"id", "data", "version", "created_at", "updated_at"}:
+            raise MigrationError("old_template_named_config_schema_mismatch", "old target configuration schema changed")
+        target.execute(
+            'INSERT INTO "config" (id,data,version) VALUES (?,?,?)',
+            (
+                1,
+                json.dumps(named_tool_config_data["data"], sort_keys=True, separators=(",", ":")),
+                named_tool_config_data["version"],
+            ),
+        )
+        counts["config"] = 1
     for kind, mapping in {
         "tool": {"id": "id", "user_id": "user_id", "name": "name", "content": "content", "specs": "specs", "meta": "meta", "valves": "valves", "updated_at": "updated_at", "created_at": "created_at", "access_control": None},
         "model": {"id": "id", "user_id": "user_id", "base_model_id": "base_model_id", "name": "name", "params": "params", "meta": "meta", "is_active": "is_active", "updated_at": "updated_at", "created_at": "created_at", "access_control": None},
@@ -1128,10 +1362,25 @@ def _dir_size(root: Path) -> int:
     return sum(path.stat().st_size for path in root.rglob("*") if path.is_file())
 
 
-def convert(source_db: str | Path, uploads_root: str | Path, old_template: str | Path, new_target_dir: str | Path, *, runtime_data_root: str | Path = "/app/backend/data", include_history_sidecar: bool = False, include_private_chat_metadata: bool = False, failpoint: Callable[[str], None] | None = None) -> dict:
+def convert(
+    source_db: str | Path,
+    uploads_root: str | Path,
+    old_template: str | Path,
+    new_target_dir: str | Path,
+    *,
+    runtime_data_root: str | Path = "/app/backend/data",
+    include_history_sidecar: bool = False,
+    include_private_chat_metadata: bool = False,
+    include_named_tool_configuration: bool = False,
+    failpoint: Callable[[str], None] | None = None,
+) -> dict:
     started = time.perf_counter()
-    report, upload_rows, object_access, group_memberships, private_chat_overrides = inspect_source(
-        source_db, uploads_root, old_template, include_private_chat_metadata=include_private_chat_metadata,
+    report, upload_rows, object_access, group_memberships, private_chat_overrides, named_tool_config_data = inspect_source(
+        source_db,
+        uploads_root,
+        old_template,
+        include_private_chat_metadata=include_private_chat_metadata,
+        include_named_tool_configuration=include_named_tool_configuration,
     )
     source = Path(source_db).resolve(strict=True)
     template = Path(old_template).resolve(strict=True)
@@ -1176,12 +1425,15 @@ def convert(source_db: str | Path, uploads_root: str | Path, old_template: str |
         target_connection = sqlite3.connect(app_db)
         target_connection.row_factory = sqlite3.Row
         target_connection.execute("PRAGMA foreign_keys=ON")
-        marker_before = _validate_template(template)["markers"]
+        marker_before = _validate_template(
+            template, require_named_tool_config=include_named_tool_configuration
+        )["markers"]
         try:
             target_connection.execute("BEGIN IMMEDIATE")
             counts = _copy_domains(
                 source_connection, target_connection, upload_rows, runtime_root,
                 object_access, group_memberships, private_chat_overrides,
+                named_tool_config_data,
             )
             if failpoint:
                 failpoint("after_rows_before_commit")
@@ -1204,6 +1456,8 @@ def convert(source_db: str | Path, uploads_root: str | Path, old_template: str |
             if markers_after != marker_before:
                 raise MigrationError("migration_markers_changed", "old target migration markers changed", report)
             readback_counts = {table: _count(target_readback, table) for table in COPYABLE_TABLES}
+            if named_tool_config_data is not None:
+                readback_counts["config"] = _count(target_readback, "config")
         finally:
             target_readback.close()
         if include_history_sidecar:
@@ -1297,12 +1551,32 @@ def main(argv: list[str] | None = None) -> int:
             command.add_argument("--runtime-data-root", default="/app/backend/data", help="data directory used by the old runtime for persisted upload paths")
             command.add_argument("--include-history-sidecar", action="store_true", help="write the bounded opt-in Tool/Model history prototype under the fresh target data directory")
         command.add_argument("--include-private-chat-metadata", action="store_true", help="map validated same-owner private chat authors and read metadata into existing chat JSON/meta")
+        command.add_argument(
+            "--include-named-tool-configuration",
+            action="store_true",
+            help="map only the measured no-auth named-tool connection and its existing user/read grant",
+        )
     args = parser.parse_args(argv)
     try:
         if args.command == "preview":
-            report = preview(args.source_db, args.uploads_root, args.empty_old_target_template, include_private_chat_metadata=args.include_private_chat_metadata)
+            report = preview(
+                args.source_db,
+                args.uploads_root,
+                args.empty_old_target_template,
+                include_private_chat_metadata=args.include_private_chat_metadata,
+                include_named_tool_configuration=args.include_named_tool_configuration,
+            )
         else:
-            report = convert(args.source_db, args.uploads_root, args.empty_old_target_template, args.new_target_dir, runtime_data_root=args.runtime_data_root, include_history_sidecar=args.include_history_sidecar, include_private_chat_metadata=args.include_private_chat_metadata)
+            report = convert(
+                args.source_db,
+                args.uploads_root,
+                args.empty_old_target_template,
+                args.new_target_dir,
+                runtime_data_root=args.runtime_data_root,
+                include_history_sidecar=args.include_history_sidecar,
+                include_private_chat_metadata=args.include_private_chat_metadata,
+                include_named_tool_configuration=args.include_named_tool_configuration,
+            )
     except MigrationError as error:
         report = {"status": "refused", "error_code": error.code, **error.report}
         _emit(report)

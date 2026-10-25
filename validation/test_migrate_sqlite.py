@@ -11,8 +11,10 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
+import migrate_sqlite as importer
 from migrate_sqlite import MigrationError, convert, preview
 
 
@@ -41,7 +43,7 @@ def build_source(path: Path, uploads: Path, *, blocked: bool = False, bad_chat: 
       CREATE TABLE tool_history(id TEXT, tool_id TEXT, parent_id TEXT, snapshot TEXT, user_id TEXT, commit_message TEXT, created_at INTEGER);
       CREATE TABLE model(id TEXT, user_id TEXT, base_model_id TEXT, name TEXT, params TEXT, meta TEXT, updated_at INTEGER, created_at INTEGER, is_active INTEGER, version_id TEXT);
       CREATE TABLE model_history(id TEXT, model_id TEXT, parent_id TEXT, snapshot TEXT, user_id TEXT, commit_message TEXT, created_at INTEGER);
-      CREATE TABLE config(key TEXT, value TEXT);
+      CREATE TABLE config(key TEXT, value TEXT, updated_at DATETIME);
       CREATE TABLE access_grant(id TEXT, resource_type TEXT, resource_id TEXT, principal_type TEXT, principal_id TEXT, permission TEXT, created_at INTEGER);
       CREATE TABLE "group"(id TEXT);
       CREATE TABLE group_member(id TEXT);
@@ -74,7 +76,7 @@ def build_source(path: Path, uploads: Path, *, blocked: bool = False, bad_chat: 
     db.execute("INSERT INTO tool VALUES ('tool-private','u1','Synthetic private tool',?, '[{\"name\":\"run\"}]', '{\"description\":\"synthetic\",\"manifest\":{}}', NULL, 10, 9, NULL)", (inert_content,))
     db.execute("INSERT INTO model VALUES ('model-private','u1','portable_pipe','Synthetic private model','{}','{}',10,9,1,NULL)")
     if blocked:
-        db.execute("INSERT INTO config VALUES ('synthetic','{}')")
+        db.execute("INSERT INTO config(key,value) VALUES ('synthetic','{}')")
         db.execute("INSERT INTO function_history VALUES ('h1','fn1','old')")
     db.commit()
     db.close()
@@ -92,6 +94,7 @@ def build_template(path: Path) -> None:
       CREATE TABLE function(id TEXT, user_id TEXT, name TEXT, type TEXT, content TEXT, meta TEXT, created_at TEXT, updated_at TEXT, valves TEXT, is_active INTEGER, is_global INTEGER);
       CREATE TABLE tool(id TEXT, user_id TEXT, name TEXT, content TEXT, specs TEXT, meta TEXT, valves TEXT, access_control TEXT, updated_at INTEGER, created_at INTEGER);
       CREATE TABLE model(id TEXT, user_id TEXT, base_model_id TEXT, name TEXT, params TEXT, meta TEXT, access_control TEXT, is_active INTEGER, updated_at INTEGER, created_at INTEGER);
+      CREATE TABLE config(id INTEGER NOT NULL PRIMARY KEY, data JSON NOT NULL, version INTEGER NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);
       INSERT INTO alembic_version VALUES ('old-version');
       INSERT INTO migratehistory VALUES (1,'old-migration');
     """)
@@ -143,6 +146,55 @@ def add_user(source: Path, user_id: str, *, name: str | None = None) -> None:
         "INSERT INTO user VALUES (?,?,?,'user','', 't','t','t','{}','{}',NULL,NULL,'{}','{}','{}')",
         (user_id, name or "Synthetic " + user_id, user_id + "@example.invalid"),
     )
+    db.commit()
+    db.close()
+
+
+def named_tool_connection(principal_id: str = "u1") -> dict:
+    return {
+        "url": "http://127.0.0.1:18081",
+        "path": "openapi.json",
+        "type": "openapi",
+        "spec_type": "url",
+        "spec": "",
+        "auth_type": "none",
+        "key": "",
+        "config": {
+            "enable": True,
+            "access_grants": [
+                {
+                    "principal_type": "user",
+                    "principal_id": principal_id,
+                    "permission": "read",
+                }
+            ],
+        },
+        "info": {
+            "id": "synthetic_openapi",
+            "name": "Synthetic OpenAPI tool fixture",
+            "description": "Bounded synthetic tool server",
+        },
+        "headers": None,
+        "forward_cookies": False,
+    }
+
+
+def add_named_tool_configuration(source: Path, connection: dict | str | None = None, *, other_rows: int = 0) -> None:
+    if isinstance(connection, str):
+        value = connection
+    else:
+        selected = connection if connection is not None else named_tool_connection()
+        value = json.dumps(selected if isinstance(selected, list) else [selected])
+    db = sqlite3.connect(source)
+    db.execute(
+        "INSERT INTO config(key,value,updated_at) VALUES (?,?,NULL)",
+        ("tool_server.connections", value),
+    )
+    for index in range(other_rows):
+        db.execute(
+            "INSERT INTO config(key,value,updated_at) VALUES (?,?,NULL)",
+            (f"synthetic-archived-{index}", "{}"),
+        )
     db.commit()
     db.close()
 
@@ -236,7 +288,7 @@ class ImporterTests(unittest.TestCase):
         db.execute("UPDATE auth SET session_stamp='retained-session'")
         db.execute("UPDATE chat SET last_read_at='unmapped'")
         db.execute("UPDATE function SET version_id='v1'")
-        db.execute("INSERT INTO config VALUES ('x','{}')")
+        db.execute("INSERT INTO config(key,value) VALUES ('x','{}')")
         db.execute("INSERT INTO function_history VALUES ('h','fn1','old')")
         db.commit(); db.close()
         report = preview(self.source, self.uploads, self.template)
@@ -290,7 +342,7 @@ class ImporterTests(unittest.TestCase):
         add_second_private_chat(self.source)
         db = sqlite3.connect(self.source)
         db.execute("UPDATE auth SET session_stamp='retained-session' WHERE id='u1'")
-        db.execute("INSERT INTO config VALUES ('synthetic','{}')")
+        db.execute("INSERT INTO config(key,value) VALUES ('synthetic','{}')")
         db.commit()
         db.close()
         report = preview(self.source, self.uploads, self.template, include_private_chat_metadata=True)
@@ -914,6 +966,288 @@ class ImporterTests(unittest.TestCase):
         report = json.loads(result.stdout)
         self.assertEqual(report['error_code'], 'sqlite_database_error')
         self.assertEqual(corrupt.read_bytes(), b'not a sqlite database')
+
+
+class NamedToolConfigurationImportTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.source = self.root / "source.db"
+        self.template = self.root / "template.db"
+        self.uploads = self.root / "uploads"
+        build_source(self.source, self.uploads)
+        build_template(self.template)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_opt_in_preview_and_convert_preserve_named_identity_defaults_and_archive(self):
+        add_named_tool_configuration(self.source, other_rows=377)
+        before = digest(self.source), digest(self.template)
+        report = preview(
+            self.source,
+            self.uploads,
+            self.template,
+            include_named_tool_configuration=True,
+        )
+        self.assertFalse(report["fatal"])
+        self.assertFalse(report["cutover_eligible"])
+        blockers = {row["code"]: row["count"] for row in report["blockers"]}
+        self.assertEqual(blockers["unsupported_nonempty_domain_config"], 377)
+        self.assertEqual(blockers["named_tool_configuration_prototype"], 1)
+        self.assertEqual(
+            report["named_tool_configuration"],
+            {
+                "opt_in": True,
+                "selected_connection_count": 1,
+                "old_defaults_verified": True,
+                "defaults_source_sha256": importer.OLD_CONFIG_SOURCE_SHA256,
+                "defaults_literal_sha256": importer.OLD_CONFIG_DEFAULTS_SHA256,
+                "remaining_config_rows": 377,
+            },
+        )
+        encoded_report = json.dumps(report)
+        self.assertNotIn("synthetic_openapi", encoded_report)
+        self.assertNotIn("Synthetic OpenAPI tool fixture", encoded_report)
+        self.assertNotIn('"principal_id"', encoded_report)
+        self.assertEqual((digest(self.source), digest(self.template)), before)
+
+        target = self.root / "candidate"
+        converted = convert(
+            self.source,
+            self.uploads,
+            self.template,
+            target,
+            include_named_tool_configuration=True,
+        )
+        self.assertFalse(converted["cutover_eligible"])
+        self.assertEqual(converted["imported_counts"]["config"], 1)
+        self.assertEqual(converted["target_readback_counts"]["config"], 1)
+        self.assertEqual((digest(self.source), digest(self.template)), before)
+        target_db = sqlite3.connect(target / "webui.db")
+        try:
+            config_row = target_db.execute("SELECT id,data,version FROM config").fetchone()
+            self.assertEqual((config_row[0], config_row[2]), (1, 0))
+            saved = json.loads(config_row[1])
+            defaults, source_hash, literal_hash = importer._load_pinned_old_defaults()
+            self.assertEqual(source_hash, importer.OLD_CONFIG_SOURCE_SHA256)
+            self.assertEqual(literal_hash, importer.OLD_CONFIG_DEFAULTS_SHA256)
+            expected = json.loads(json.dumps(defaults, sort_keys=True, separators=(",", ":")))
+            expected["tool_server"] = {"connections": [named_tool_connection()]}
+            self.assertEqual(saved, expected)
+            self.assertEqual(saved["version"], defaults["version"])
+            self.assertEqual(saved["ui"], defaults["ui"])
+            connection = saved["tool_server"]["connections"][0]
+            self.assertEqual(connection["info"]["id"], "synthetic_openapi")
+            self.assertEqual(connection["config"]["access_grants"][0]["principal_id"], "u1")
+        finally:
+            target_db.close()
+        archive = Path(converted["archive"]["path"])
+        self.assertEqual(digest(archive / "source.sqlite"), before[0])
+        self.assertNotEqual(archive, target)
+
+    def test_default_off_does_not_materialize_selected_config(self):
+        add_named_tool_configuration(self.source)
+        before = digest(self.source), digest(self.template)
+        report = preview(self.source, self.uploads, self.template)
+        self.assertNotIn("named_tool_configuration", report)
+        self.assertIn(
+            "unsupported_nonempty_domain_config",
+            {row["code"] for row in report["blockers"]},
+        )
+        target = self.root / "default-off"
+        result = convert(self.source, self.uploads, self.template, target)
+        self.assertNotIn("config", result["imported_counts"])
+        target_db = sqlite3.connect(target / "webui.db")
+        try:
+            self.assertEqual(target_db.execute("SELECT COUNT(*) FROM config").fetchone()[0], 0)
+        finally:
+            target_db.close()
+        self.assertEqual((digest(self.source), digest(self.template)), before)
+
+    def test_cli_opt_in_preview_and_convert_return_blocked_partial_receipts(self):
+        add_named_tool_configuration(self.source, other_rows=377)
+        source_hash, template_hash = digest(self.source), digest(self.template)
+        script = Path(__file__).with_name("migrate_sqlite.py")
+        common = [
+            sys.executable,
+            str(script),
+            "--source-db",
+            str(self.source),
+            "--uploads-root",
+            str(self.uploads),
+            "--empty-old-target-template",
+            str(self.template),
+            "--include-named-tool-configuration",
+        ]
+        preview_result = subprocess.run(
+            common[:2] + ["preview"] + common[2:], text=True, capture_output=True
+        )
+        self.assertEqual(preview_result.returncode, 3)
+        preview_report = json.loads(preview_result.stdout)
+        self.assertEqual(preview_report["named_tool_configuration"]["selected_connection_count"], 1)
+        self.assertFalse(preview_report["cutover_eligible"])
+
+        target = self.root / "cli-target"
+        convert_result = subprocess.run(
+            common[:2]
+            + ["convert"]
+            + common[2:]
+            + ["--new-target-dir", str(target)],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(convert_result.returncode, 3)
+        converted = json.loads(convert_result.stdout)
+        self.assertFalse(converted["cutover_eligible"])
+        target_db = sqlite3.connect(target / "webui.db")
+        try:
+            imported = json.loads(target_db.execute("SELECT data FROM config").fetchone()[0])
+            self.assertEqual(imported["tool_server"]["connections"][0]["info"]["id"], "synthetic_openapi")
+        finally:
+            target_db.close()
+        self.assertEqual((digest(self.source), digest(self.template)), (source_hash, template_hash))
+
+    def _assert_opt_in_refused(self, connection_value, expected_code, *, duplicate=False, admin=False, bad_source_schema=False, bad_target_schema=False, missing=False):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        source, template, uploads = root / "source.db", root / "template.db", root / "uploads"
+        build_source(source, uploads)
+        build_template(template)
+        if admin:
+            db = sqlite3.connect(source)
+            db.execute("UPDATE user SET role='admin' WHERE id='u1'")
+            db.commit()
+            db.close()
+        if bad_source_schema:
+            db = sqlite3.connect(source)
+            db.execute("ALTER TABLE config ADD COLUMN unsupported TEXT")
+            db.commit()
+            db.close()
+        if bad_target_schema:
+            db = sqlite3.connect(template)
+            db.execute("ALTER TABLE config ADD COLUMN unsupported TEXT")
+            db.commit()
+            db.close()
+        if not missing:
+            add_named_tool_configuration(source, connection_value)
+            if duplicate:
+                db = sqlite3.connect(source)
+                raw = connection_value if isinstance(connection_value, str) else json.dumps([connection_value])
+                db.execute(
+                    "INSERT INTO config(key,value,updated_at) VALUES (?,?,NULL)",
+                    ("tool_server.connections", raw),
+                )
+                db.commit()
+                db.close()
+        source_hash, template_hash = digest(source), digest(template)
+        target = root / "target"
+        with self.assertRaises(MigrationError) as caught:
+            convert(
+                source,
+                uploads,
+                template,
+                target,
+                include_named_tool_configuration=True,
+            )
+        self.assertEqual(caught.exception.code, "fatal_source_input")
+        self.assertTrue(caught.exception.report["fatal"])
+        codes = {row["code"] for row in caught.exception.report["blockers"]}
+        self.assertIn(expected_code, codes)
+        self.assertFalse(target.exists())
+        self.assertEqual((digest(source), digest(template)), (source_hash, template_hash))
+        refusal_text = str(caught.exception) + json.dumps(caught.exception.report)
+        self.assertNotIn("Synthetic OpenAPI tool fixture", refusal_text)
+        self.assertNotIn('"principal_id"', refusal_text)
+        self.assertNotIn("synthetic-secret-marker", refusal_text)
+
+    def test_unsupported_connection_and_grant_shapes_refuse_before_target(self):
+        cases = []
+        unknown = named_tool_connection(); unknown["unexpected"] = "synthetic-marker"
+        cases.append((unknown, "named_tool_configuration_unsupported_shape", False))
+        credential = named_tool_connection(); credential["key"] = "synthetic-secret-marker"
+        cases.append((credential, "named_tool_configuration_unsupported_shape", False))
+        bad_url = named_tool_connection(); bad_url["url"] = "https://example.invalid/spec.json"
+        cases.append((bad_url, "named_tool_configuration_unsupported_shape", False))
+        group = named_tool_connection(); group["config"]["access_grants"][0]["principal_type"] = "group"
+        cases.append((group, "named_tool_configuration_unsupported_grant", False))
+        write = named_tool_connection(); write["config"]["access_grants"][0]["permission"] = "write"
+        cases.append((write, "named_tool_configuration_unsupported_grant", False))
+        public = named_tool_connection("*")
+        cases.append((public, "named_tool_configuration_grant_identity_invalid", False))
+        dangling = named_tool_connection("missing-user")
+        cases.append((dangling, "named_tool_configuration_grant_identity_invalid", False))
+        blank = named_tool_connection("")
+        cases.append((blank, "named_tool_configuration_grant_identity_invalid", False))
+        multiple = named_tool_connection(); multiple["config"]["access_grants"].append(dict(multiple["config"]["access_grants"][0]))
+        cases.append((multiple, "named_tool_configuration_unsupported_grant", False))
+        multiple_connections = [named_tool_connection(), named_tool_connection()]
+        cases.append((multiple_connections, "named_tool_configuration_unsupported_shape", False))
+        admin = named_tool_connection()
+        cases.append((admin, "named_tool_configuration_grant_identity_invalid", True))
+        for value, expected, is_admin in cases:
+            with self.subTest(code=expected, value_shape=type(value).__name__, admin=is_admin):
+                self._assert_opt_in_refused(value, expected, admin=is_admin)
+        empty_headers = named_tool_connection(); empty_headers["headers"] = {}
+        add_named_tool_configuration(self.source, empty_headers)
+        report = preview(
+            self.source, self.uploads, self.template,
+            include_named_tool_configuration=True,
+        )
+        self.assertEqual(report["named_tool_configuration"]["selected_connection_count"], 1)
+        self.assertFalse(report["cutover_eligible"])
+
+    def test_duplicate_oversized_malformed_or_missing_config_refuses(self):
+        self._assert_opt_in_refused(named_tool_connection(), "named_tool_configuration_selection_invalid", duplicate=True)
+        self._assert_opt_in_refused(" " * (importer.MAX_NAMED_TOOL_CONFIG_BYTES + 1), "named_tool_configuration_selection_invalid")
+        self._assert_opt_in_refused('{"x":1,"x":2}', "named_tool_configuration_selection_invalid")
+        self._assert_opt_in_refused(None, "named_tool_configuration_selection_invalid", missing=True)
+
+    def test_source_target_schema_and_default_hash_mismatches_refuse(self):
+        connection = named_tool_connection()
+        self._assert_opt_in_refused(connection, "named_tool_configuration_source_schema_mismatch", bad_source_schema=True)
+        self._assert_opt_in_refused(connection, "old_template_named_config_schema_mismatch", bad_target_schema=True)
+        add_named_tool_configuration(self.source)
+        source_hash, template_hash = digest(self.source), digest(self.template)
+        target = self.root / "default-hash-refusal"
+        for attribute in ("OLD_CONFIG_SOURCE_SHA256", "OLD_CONFIG_DEFAULTS_SHA256"):
+            with self.subTest(hash=attribute), mock.patch.object(importer, attribute, "0" * 64):
+                with self.assertRaises(MigrationError) as caught:
+                    convert(
+                        self.source,
+                        self.uploads,
+                        self.template,
+                        target,
+                        include_named_tool_configuration=True,
+                    )
+                self.assertIn(
+                    "named_tool_configuration_defaults_unavailable",
+                    {row["code"] for row in caught.exception.report["blockers"]},
+                )
+                self.assertFalse(target.exists())
+        self.assertEqual((digest(self.source), digest(self.template)), (source_hash, template_hash))
+
+    def test_default_loader_is_pure_and_does_not_import_runtime_config(self):
+        import builtins
+
+        original_import = builtins.__import__
+
+        def deny_runtime_config(name, *args, **kwargs):
+            if name == "open_webui.config":
+                raise AssertionError("runtime config module import is forbidden")
+            return original_import(name, *args, **kwargs)
+
+        connection = named_tool_connection()
+        add_named_tool_configuration(self.source, connection)
+        with mock.patch("builtins.__import__", side_effect=deny_runtime_config):
+            report = preview(
+                self.source,
+                self.uploads,
+                self.template,
+                include_named_tool_configuration=True,
+            )
+        self.assertTrue(report["named_tool_configuration"]["old_defaults_verified"])
 
 
 if __name__ == '__main__':
