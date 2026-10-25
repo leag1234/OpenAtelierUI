@@ -266,30 +266,8 @@ def _valid_named_tool_text(value: object, maximum: int, *, nonempty: bool) -> bo
     )
 
 
-def _parse_named_tool_connection(connection: sqlite3.Connection) -> dict:
+def _validate_named_tool_connection(connection: sqlite3.Connection, value: object) -> dict:
     """Validate one bounded no-auth named URL connection and exact user/read grant."""
-    if "config" not in _tables(connection):
-        raise MigrationError("named_tool_configuration_source_schema_mismatch", "selected configuration table is unavailable")
-    columns = _columns(connection, "config")
-    if set(columns) != {"key", "value", "updated_at"}:
-        raise MigrationError("named_tool_configuration_source_schema_mismatch", "selected configuration schema is unsupported")
-    rows = [row for row in connection.execute('SELECT value FROM "config" WHERE key=?', (NAMED_TOOL_CONNECTION_KEY,))]
-    if len(rows) != 1:
-        raise MigrationError("named_tool_configuration_selection_invalid", "exactly one selected named-tool configuration is required")
-    raw = rows[0][0]
-    try:
-        raw_bytes = raw.encode("utf-8") if isinstance(raw, str) else None
-    except UnicodeError:
-        raw_bytes = None
-    if raw_bytes is None or len(raw_bytes) > MAX_NAMED_TOOL_CONFIG_BYTES:
-        raise MigrationError("named_tool_configuration_selection_invalid", "selected named-tool configuration is outside the size or type limit")
-    try:
-        value = json.loads(raw, object_pairs_hook=_reject_duplicate_json_keys)
-    except (ValueError, TypeError, RecursionError):
-        raise MigrationError("named_tool_configuration_selection_invalid", "selected named-tool configuration is invalid JSON") from None
-    if not isinstance(value, list) or len(value) != 1 or not isinstance(value[0], dict):
-        raise MigrationError("named_tool_configuration_unsupported_shape", "exactly one named-tool connection is required")
-    value = value[0]
     required_fields = {
         "url", "path", "type", "spec_type", "spec", "auth_type", "key",
         "config", "info",
@@ -345,6 +323,38 @@ def _parse_named_tool_connection(connection: sqlite3.Connection) -> dict:
     if len(identity_rows) != 1 or identity_rows[0][0] != "user":
         raise MigrationError("named_tool_configuration_grant_identity_invalid", "selected grant must name one existing ordinary user with read permission")
     return value
+
+
+def _parse_named_tool_connection(connection: sqlite3.Connection) -> list[dict]:
+    """Parse an ordered bounded list of independently validated named connections."""
+    if "config" not in _tables(connection):
+        raise MigrationError("named_tool_configuration_source_schema_mismatch", "selected configuration table is unavailable")
+    columns = _columns(connection, "config")
+    if set(columns) != {"key", "value", "updated_at"}:
+        raise MigrationError("named_tool_configuration_source_schema_mismatch", "selected configuration schema is unsupported")
+    rows = [row for row in connection.execute('SELECT value FROM "config" WHERE key=?', (NAMED_TOOL_CONNECTION_KEY,))]
+    if len(rows) != 1:
+        raise MigrationError("named_tool_configuration_selection_invalid", "exactly one selected named-tool configuration is required")
+    raw = rows[0][0]
+    try:
+        raw_bytes = raw.encode("utf-8") if isinstance(raw, str) else None
+    except UnicodeError:
+        raw_bytes = None
+    if raw_bytes is None or len(raw_bytes) > MAX_NAMED_TOOL_CONFIG_BYTES:
+        raise MigrationError("named_tool_configuration_selection_invalid", "selected named-tool configuration is outside the size or type limit")
+    try:
+        values = json.loads(raw, object_pairs_hook=_reject_duplicate_json_keys)
+    except (ValueError, TypeError, RecursionError):
+        raise MigrationError("named_tool_configuration_selection_invalid", "selected named-tool configuration is invalid JSON") from None
+    if not isinstance(values, list) or not 1 <= len(values) <= 8:
+        raise MigrationError("named_tool_configuration_unsupported_shape", "between one and eight named-tool connections are required")
+    if any(not isinstance(value, dict) for value in values):
+        raise MigrationError("named_tool_configuration_unsupported_shape", "each named-tool connection must be an object")
+    selected = [_validate_named_tool_connection(connection, value) for value in values]
+    ids = [value["info"]["id"] for value in selected]
+    if len(ids) != len(set(ids)):
+        raise MigrationError("named_tool_configuration_unsupported_shape", "named-tool connection IDs must be unique")
+    return selected
 
 
 def _digest(path: Path) -> str:
@@ -1302,7 +1312,7 @@ def _inspect_source(
                     )
                     target_config_data.setdefault("tool_server", {})[
                         "connections"
-                    ] = [selected_connection]
+                    ] = selected_connection
                     named_tool_config_data = {
                         "data": target_config_data,
                         "version": target_config_data["version"],
@@ -1336,7 +1346,7 @@ def _inspect_source(
                     )
             report["named_tool_configuration"] = {
                 "opt_in": True,
-                "selected_connection_count": 1 if verified else 0,
+                "selected_connection_count": len(selected_connection) if verified else 0,
                 "old_defaults_verified": bool(verified),
                 "defaults_source_sha256": defaults_source_hash,
                 "defaults_literal_sha256": defaults_hash,

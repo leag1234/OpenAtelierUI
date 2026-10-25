@@ -1,0 +1,11 @@
+<!-- SPDX-License-Identifier: BSD-3-Clause -->
+
+# Multi named-tool importer provenance
+
+The source45 opted-in preview refused a list of multiple connections before creating a target. The measured current0.12.4 copy supports two independently granted no-auth named connections in one installed project. The supplied closed-copy observations report separate catalogs and successful plain/SSE choices for each existing ordinary user, denied cross-user and numeric selections, anonymous401, and unchanged installed rows. The primary owns current-runtime and immutable-image replay; this worker did not contact either endpoint or run the app.
+
+The importer now accepts an ordered list of1–8 supported connection objects within the existing16KiB aggregate JSON limit. It validates every object independently against the existing no-auth URL profile, required fields, optional-header/cookie rules, metadata bounds, one exact existing ordinary-user/read grant, and source identity uniqueness. Exact duplicate named IDs are rejected. Accepted values are copied without rewriting, endpoint deduplication, or fetching. The eight-item cap is a parser bound only; runtime behavior beyond the two measured connections is unqualified.
+
+The default remains off, the public inspector still returns five values, the pinned old defaults and empty target are retained, and the selected-connection count reflects the number parsed. Existing blockers for the other configuration rows and migration domains remain, as does the prototype blocker and `cutover=false`. No runtime config is loaded, no schema is added, and the importer does not execute plugin code.
+
+`python3 validation/test_migrate_sqlite.py` passed44 tests. New tests cover preview/conversion preservation of order, shared endpoint text, distinct IDs and grants, absent optional fields, later-entry malformed/credential/admin/dangling/write refusals before target creation, duplicate IDs, empty and over-cap lists, source/template hashes, and unchanged default-off/public-inspector behavior. The earlier single-entry implementation and source45 refusal receipts remain in Git history. This importer result is not a runtime migration or cutover qualification.

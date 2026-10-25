@@ -1056,6 +1056,111 @@ class NamedToolConfigurationImportTests(unittest.TestCase):
         self.assertEqual(imported["tool_server"]["connections"][0], selected)
         self.assertEqual((digest(self.source), digest(self.template)), before)
 
+    def _assert_later_named_connection_refused(self, second, expected_code, *, admin=False):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        source, template, uploads = root / "source.db", root / "template.db", root / "uploads"
+        build_source(source, uploads)
+        build_template(template)
+        add_user(source, "u2")
+        if admin:
+            db = sqlite3.connect(source)
+            db.execute("UPDATE user SET role='admin' WHERE id='u2'")
+            db.commit()
+            db.close()
+        first = named_tool_connection("u1")
+        add_named_tool_configuration(source, [first, second])
+        source_hash, template_hash = digest(source), digest(template)
+        target = root / "target"
+        with self.assertRaises(MigrationError) as caught:
+            convert(
+                source, uploads, template, target,
+                include_named_tool_configuration=True,
+            )
+        self.assertEqual(caught.exception.code, "fatal_source_input")
+        self.assertIn(expected_code, {row["code"] for row in caught.exception.report["blockers"]})
+        self.assertFalse(target.exists())
+        self.assertEqual((digest(source), digest(template)), (source_hash, template_hash))
+
+    def test_multi_named_connections_preview_and_convert_preserve_order_and_grants(self):
+        add_user(self.source, "u2")
+        first = named_tool_connection("u1")
+        first.pop("headers")
+        second = named_tool_connection("u2")
+        second["info"] = {
+            "id": "festival_tools",
+            "name": "Festival poster tools",
+            "description": "Bounded synthetic second configuration",
+        }
+        # Both entries intentionally share the endpoint; identity and grants stay distinct.
+        selected = [first, second]
+        add_named_tool_configuration(self.source, selected, other_rows=377)
+        before = digest(self.source), digest(self.template)
+        report = preview(
+            self.source, self.uploads, self.template,
+            include_named_tool_configuration=True,
+        )
+        self.assertFalse(report["fatal"])
+        self.assertFalse(report["cutover_eligible"])
+        self.assertEqual(report["named_tool_configuration"]["selected_connection_count"], 2)
+        self.assertEqual(report["named_tool_configuration"]["remaining_config_rows"], 377)
+        blockers = {row["code"]: row["count"] for row in report["blockers"]}
+        self.assertEqual(blockers["unsupported_nonempty_domain_config"], 377)
+        self.assertEqual(blockers["named_tool_configuration_prototype"], 1)
+        target = self.root / "multi-named-config"
+        result = convert(
+            self.source, self.uploads, self.template, target,
+            include_named_tool_configuration=True,
+        )
+        self.assertFalse(result["fatal"])
+        db = sqlite3.connect(target / "webui.db")
+        try:
+            saved = json.loads(db.execute("SELECT data FROM config").fetchone()[0])
+        finally:
+            db.close()
+        self.assertEqual(saved["tool_server"]["connections"], selected)
+        self.assertEqual(
+            [item["config"]["access_grants"][0]["principal_id"] for item in saved["tool_server"]["connections"]],
+            ["u1", "u2"],
+        )
+        self.assertNotIn("headers", saved["tool_server"]["connections"][0])
+        self.assertEqual((digest(self.source), digest(self.template)), before)
+
+    def test_later_invalid_connection_refuses_before_target(self):
+        cases = []
+        malformed = named_tool_connection("u2"); malformed["unexpected"] = "synthetic marker"
+        cases.append((malformed, "named_tool_configuration_unsupported_shape", False))
+        credential = named_tool_connection("u2"); credential["key"] = "synthetic-secret-marker"
+        cases.append((credential, "named_tool_configuration_unsupported_shape", False))
+        admin = named_tool_connection("u2")
+        cases.append((admin, "named_tool_configuration_grant_identity_invalid", True))
+        dangling = named_tool_connection("missing-user")
+        cases.append((dangling, "named_tool_configuration_grant_identity_invalid", False))
+        write = named_tool_connection("u2")
+        write["config"]["access_grants"][0]["permission"] = "write"
+        cases.append((write, "named_tool_configuration_unsupported_grant", False))
+        for index, (connection, expected, is_admin) in enumerate(cases):
+            with self.subTest(later_case=index):
+                self._assert_later_named_connection_refused(
+                    connection, expected, admin=is_admin
+                )
+
+    def test_duplicate_ids_empty_and_overcap_named_lists_refuse(self):
+        first = named_tool_connection("u1")
+        second = named_tool_connection("u2")
+        second["config"]["access_grants"][0]["principal_id"] = "u1"
+        self._assert_opt_in_refused(
+            [first, second], "named_tool_configuration_unsupported_shape"
+        )
+        self._assert_opt_in_refused([], "named_tool_configuration_unsupported_shape")
+        over_cap = []
+        for index in range(9):
+            item = named_tool_connection("u1")
+            item["info"]["id"] = "tool_{}".format(index)
+            over_cap.append(item)
+        self._assert_opt_in_refused(over_cap, "named_tool_configuration_unsupported_shape")
+
     def test_duplicate_selected_user_identity_with_different_roles_refuses(self):
         add_named_tool_configuration(self.source)
         db = sqlite3.connect(self.source)
@@ -1277,8 +1382,6 @@ class NamedToolConfigurationImportTests(unittest.TestCase):
         cases.append((blank, "named_tool_configuration_grant_identity_invalid", False))
         multiple = named_tool_connection(); multiple["config"]["access_grants"].append(dict(multiple["config"]["access_grants"][0]))
         cases.append((multiple, "named_tool_configuration_unsupported_grant", False))
-        multiple_connections = [named_tool_connection(), named_tool_connection()]
-        cases.append((multiple_connections, "named_tool_configuration_unsupported_shape", False))
         admin = named_tool_connection()
         cases.append((admin, "named_tool_configuration_grant_identity_invalid", True))
         for bad_url in (
