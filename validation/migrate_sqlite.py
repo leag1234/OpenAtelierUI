@@ -457,8 +457,13 @@ def _validate_object_domains(connection: sqlite3.Connection, report: dict, user_
         history_rows[kind] = {row["id"]: row for row in rows if isinstance(row.get("id"), str)}
         for row in rows:
             resource = objects[kind].get(row.get(owner_column))
-            if resource is None or row.get("user_id") != resource.get("user_id"):
-                _block(report, "history_resource_or_owner_mismatch_" + kind, 1, fatal=True)
+            if resource is None:
+                _block(report, "history_resource_missing_" + kind, 1, fatal=True)
+            author_id = row.get("user_id")
+            if not isinstance(author_id, str) or not author_id.strip():
+                _block(report, "invalid_history_author_" + kind, 1, fatal=True)
+            elif author_id not in user_ids:
+                _block(report, "unknown_history_author_" + kind, 1, fatal=True)
             if not isinstance(row.get("created_at"), int) or isinstance(row.get("created_at"), bool):
                 _block(report, "invalid_history_timestamp_" + kind, 1, fatal=True)
             snapshot = _json_value(row.get("snapshot"), dict, "invalid_history_snapshot_" + kind, report)

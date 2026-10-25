@@ -112,6 +112,38 @@ class ImporterTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def _add_admin_author(self):
+        db = sqlite3.connect(self.source)
+        db.execute("INSERT INTO auth VALUES ('admin','admin@example.invalid','bcrypt-placeholder',1,NULL,NULL)")
+        db.execute("INSERT INTO user VALUES ('admin','Synthetic Admin','admin@example.invalid','admin','', 't','t','t','{}','{}',NULL,NULL,'{}','{}','{}')")
+        db.commit()
+        db.close()
+
+    def _add_history(self, kind, resource_id, version_id, author_id):
+        db = sqlite3.connect(self.source)
+        if kind == "tool":
+            owner_column = "tool_id"
+            snapshot = json.dumps({
+                "name": "Synthetic private tool",
+                "content": marker_tool_source(self.root / "tool-executed-marker"),
+                "meta": {"description": "synthetic", "manifest": {}},
+            })
+        else:
+            owner_column = "model_id"
+            snapshot = json.dumps({
+                "name": "Synthetic private model",
+                "base_model_id": "portable_pipe",
+                "params": {},
+                "meta": {},
+            })
+        db.execute(f'UPDATE "{kind}" SET version_id=? WHERE id=?', (version_id, resource_id))
+        db.execute(
+            f'INSERT INTO "{kind}_history" VALUES (?,?,?,?,?,?,?)',
+            (version_id, resource_id, None, snapshot, author_id, "Synthetic authored revision", 10),
+        )
+        db.commit()
+        db.close()
+
     def test_eligible_preview_is_read_only_and_reports_known_schema(self):
         hashes = digest(self.source), digest(self.template)
         report = preview(self.source, self.uploads, self.template)
@@ -243,6 +275,103 @@ class ImporterTests(unittest.TestCase):
         self.assertEqual(db.execute("SELECT id,content FROM tool WHERE id='tool-private'").fetchone(), ('tool-private', marker_source))
         self.assertEqual(db.execute("SELECT id,base_model_id FROM model WHERE id='model-private'").fetchone(), ('model-private','portable_pipe'))
         db.close()
+
+    def test_known_history_author_may_differ_from_active_resource_owner(self):
+        self._add_admin_author()
+        self._add_history("tool", "tool-private", "tool-admin-version", "admin")
+        self._add_history("model", "model-private", "model-admin-version", "admin")
+        source_hash = digest(self.source)
+
+        report = convert(self.source, self.uploads, self.template, self.root / "authored-history")
+
+        codes = {item["code"] for item in report["blockers"]}
+        self.assertFalse(report["cutover_eligible"])
+        self.assertIn("active_tool_history_not_preserved", codes)
+        self.assertIn("active_model_history_not_preserved", codes)
+        self.assertIn("active_tool_version_link_not_preserved", codes)
+        self.assertIn("active_model_version_link_not_preserved", codes)
+        self.assertNotIn("unknown_history_author_tool", codes)
+        self.assertNotIn("unknown_history_author_model", codes)
+        archive = Path(report["archive"]["path"]) / "source.sqlite"
+        self.assertEqual(digest(archive), source_hash)
+        self.assertEqual(digest(self.source), source_hash)
+
+        archived_db = sqlite3.connect(archive)
+        self.assertEqual(
+            archived_db.execute("SELECT user_id FROM tool_history WHERE id='tool-admin-version'").fetchone(),
+            ("admin",),
+        )
+        self.assertEqual(
+            archived_db.execute("SELECT user_id FROM model_history WHERE id='model-admin-version'").fetchone(),
+            ("admin",),
+        )
+        self.assertEqual(archived_db.execute("SELECT user_id FROM tool WHERE id='tool-private'").fetchone(), ("u1",))
+        self.assertEqual(archived_db.execute("SELECT user_id FROM model WHERE id='model-private'").fetchone(), ("u1",))
+        archived_db.close()
+
+        target_db = sqlite3.connect(self.root / "authored-history" / "webui.db")
+        self.assertEqual(target_db.execute("SELECT user_id FROM tool WHERE id='tool-private'").fetchone(), ("u1",))
+        self.assertEqual(target_db.execute("SELECT user_id FROM model WHERE id='model-private'").fetchone(), ("u1",))
+        self.assertNotIn("version_id", {row[1] for row in target_db.execute("PRAGMA table_info(tool)")})
+        self.assertNotIn("version_id", {row[1] for row in target_db.execute("PRAGMA table_info(model)")})
+        target_db.close()
+
+    def test_unknown_or_malformed_history_author_is_fatal_before_target(self):
+        cases = (
+            ("tool", "missing-user", "unknown_history_author_tool"),
+            ("model", "missing-user", "unknown_history_author_model"),
+            ("tool", "", "invalid_history_author_tool"),
+            ("model", None, "invalid_history_author_model"),
+        )
+        for kind, author_id, expected in cases:
+            with self.subTest(kind=kind, author_id=author_id, expected=expected):
+                self.tearDown()
+                self.temp = tempfile.TemporaryDirectory()
+                self.root = Path(self.temp.name)
+                self.source, self.template, self.uploads = self.root / "source.db", self.root / "template.db", self.root / "uploads"
+                build_source(self.source, self.uploads)
+                build_template(self.template)
+                resource_id = "tool-private" if kind == "tool" else "model-private"
+                self._add_history(kind, resource_id, kind + "-author-check", author_id)
+                before = digest(self.source), digest(self.template)
+                report = preview(self.source, self.uploads, self.template)
+                self.assertTrue(report["fatal"])
+                self.assertIn(expected, {item["code"] for item in report["blockers"]})
+                target = self.root / "candidate"
+                with self.assertRaises(MigrationError):
+                    convert(self.source, self.uploads, self.template, target)
+                self.assertFalse(target.exists())
+                self.assertEqual((digest(self.source), digest(self.template)), before)
+
+    def test_dangling_history_resource_and_parent_remain_fatal(self):
+        for defect, expected in (
+            ("resource", "history_resource_missing_tool"),
+            ("parent", "invalid_history_parent_tool"),
+        ):
+            with self.subTest(defect=defect):
+                self.tearDown()
+                self.temp = tempfile.TemporaryDirectory()
+                self.root = Path(self.temp.name)
+                self.source, self.template, self.uploads = self.root / "source.db", self.root / "template.db", self.root / "uploads"
+                build_source(self.source, self.uploads)
+                build_template(self.template)
+                self._add_history("tool", "tool-private", "tool-link-check", "u1")
+                db = sqlite3.connect(self.source)
+                if defect == "resource":
+                    db.execute("UPDATE tool_history SET tool_id='missing-tool' WHERE id='tool-link-check'")
+                else:
+                    db.execute("UPDATE tool_history SET parent_id='missing-parent' WHERE id='tool-link-check'")
+                db.commit()
+                db.close()
+                before = digest(self.source), digest(self.template)
+                report = preview(self.source, self.uploads, self.template)
+                self.assertTrue(report["fatal"])
+                self.assertIn(expected, {item["code"] for item in report["blockers"]})
+                target = self.root / "candidate"
+                with self.assertRaises(MigrationError):
+                    convert(self.source, self.uploads, self.template, target)
+                self.assertFalse(target.exists())
+                self.assertEqual((digest(self.source), digest(self.template)), before)
 
     def test_inconsistent_chat_refuses_without_touching_inputs(self):
         self.tearDown()
