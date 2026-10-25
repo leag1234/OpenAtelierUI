@@ -253,3 +253,25 @@ def get_history(data_dir: str | Path, database_url: str, kind: str, resource, ve
         raise HistoryUnavailable("Imported history is unavailable") from error
     finally:
         connection.close()
+
+
+def get_current_version_id(data_dir: str | Path, database_url: str, kind: str, resource) -> str:
+    """Return the verified imported active pointer without reading a snapshot."""
+    connection, manifest = _open_verified(
+        data_dir, database_url, kind, resource.id, resource.user_id
+    )
+    try:
+        version_id = manifest["current_version_id"]
+        if not isinstance(version_id, str) or not version_id:
+            raise HistoryUnavailable("Imported history is stale")
+        row = connection.execute(
+            f'SELECT 1 FROM "{kind}_history" WHERE {kind}_id=? AND id=?',
+            (resource.id, version_id),
+        ).fetchone()
+        if row is None:
+            raise HistoryUnavailable("Imported history is stale")
+        return version_id
+    except sqlite3.Error as error:
+        raise HistoryUnavailable("Imported history is unavailable") from error
+    finally:
+        connection.close()

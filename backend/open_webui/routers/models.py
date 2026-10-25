@@ -12,6 +12,7 @@ from open_webui.utils.imported_history import (
     HistoryNotFound,
     HistoryUnavailable,
     get_history as get_imported_model_history,
+    get_current_version_id as get_imported_model_current_version_id,
     list_history as list_imported_model_history,
 )
 from open_webui.constants import ERROR_MESSAGES
@@ -128,6 +129,13 @@ async def get_model_by_id(id: str, user=Depends(get_verified_user)):
             response["user"] = None
             if user.role != "admin" and model.user_id != user.id:
                 response["params"] = {}
+            response["version_id"] = None
+            try:
+                response["version_id"] = get_imported_model_current_version_id(
+                    DATA_DIR, DATABASE_URL, "model", model
+                )
+            except (HistoryNotFound, HistoryUnavailable):
+                pass
             return response
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

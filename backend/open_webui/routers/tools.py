@@ -15,6 +15,7 @@ from open_webui.utils.imported_history import (
     HistoryNotFound,
     HistoryUnavailable,
     get_history as get_imported_tool_history,
+    get_current_version_id as get_imported_tool_current_version_id,
     list_history as list_imported_tool_history,
 )
 from open_webui.utils.plugin import load_tool_module_by_id, replace_imports
@@ -233,6 +234,13 @@ async def get_tools_by_id(id: str, user=Depends(get_verified_user)):
             response["user"] = None
             if tools.user_id != user.id and user.role != "admin":
                 response.pop("content", None)
+            response["version_id"] = None
+            try:
+                response["version_id"] = get_imported_tool_current_version_id(
+                    DATA_DIR, DATABASE_URL, "tool", tools
+                )
+            except (HistoryNotFound, HistoryUnavailable):
+                pass
             return response
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

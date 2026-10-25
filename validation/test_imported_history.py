@@ -31,6 +31,7 @@ _HELPER_SPEC.loader.exec_module(_HELPER)
 HistoryNotFound = _HELPER.HistoryNotFound
 HistoryUnavailable = _HELPER.HistoryUnavailable
 get_history = _HELPER.get_history
+get_current_version_id = _HELPER.get_current_version_id
 list_history = _HELPER.list_history
 
 
@@ -113,6 +114,30 @@ class ImportedHistoryTests(unittest.TestCase):
         self.assertEqual(detail["user"], {"name": "Synthetic User"})
         with self.assertRaises(HistoryNotFound):
             get_history(self.data_dir, self.database_url, "model", self.resource("model"), self.tool_ids[-1], self.user_lookup)
+
+    def test_current_version_metadata_matches_verified_imported_pointer_without_snapshot(self):
+        self.assertEqual(
+            get_current_version_id(self.data_dir, self.database_url, "tool", self.resource("tool")),
+            self.tool_ids[-1],
+        )
+        self.assertEqual(
+            get_current_version_id(self.data_dir, self.database_url, "model", self.resource("model")),
+            self.model_ids[-1],
+        )
+        os.environ.pop("OPEN_WEBUI_IMPORTED_HISTORY_READS", None)
+        with self.assertRaises(HistoryUnavailable):
+            get_current_version_id(self.data_dir, self.database_url, "tool", self.resource("tool"))
+        os.environ["OPEN_WEBUI_IMPORTED_HISTORY_READS"] = "1"
+
+    def test_corrupt_current_pointer_fails_helper_validation(self):
+        sidecar = sqlite3.connect(self.target / "imported-history.sqlite")
+        sidecar.execute(
+            "UPDATE history_manifest SET current_version_id='missing-version' WHERE kind='tool' AND resource_id='tool-private'"
+        )
+        sidecar.commit()
+        sidecar.close()
+        with self.assertRaises(HistoryUnavailable):
+            get_current_version_id(self.data_dir, self.database_url, "tool", self.resource("tool"))
 
     def test_admin_authored_history_is_not_treated_as_resource_authority(self):
         detail = get_history(self.data_dir, self.database_url, "model", self.resource("model"), self.model_ids[-1], self.user_lookup)
