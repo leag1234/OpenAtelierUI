@@ -655,6 +655,73 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
         cached = [self.cache_entry(0, local_only[0])]
         self.assertIs(await self.catalog_refresh(local_only, cached), cached)
 
+    async def test_refresh_preserves_malformed_cached_indices_for_existing_route_guard(self):
+        legacy = {
+            "type": "openapi", "url": "https://example.invalid/legacy.json",
+            "config": {"enable": True},
+        }
+        named = self.named_connection("fresh", auth_type="none", key="")
+        old_legacy = {
+            "idx": 0, "url": legacy["url"], "specs": [],
+            "openapi": {"info": {"title": "Legacy"}},
+        }
+        old_named = self.cache_entry(1, named)
+        malformed = [
+            {"idx": [1], "sentinel": "list"},
+            {"idx": {"value": 1}, "sentinel": "dict"},
+            {"idx": None, "sentinel": "none"},
+            {"idx": "1", "sentinel": "string"},
+            {"idx": True, "sentinel": "bool"},
+        ]
+        route = self.load_catalog_route([])
+
+        async def fetch(_selected):
+            return [{
+                "idx": 0,
+                "url": named["url"],
+                "connection_binding": self.namespace["_tool_server_connection_binding"](named),
+                "specs": [{"name": "fresh_echo"}],
+                "openapi": {"info": {"title": "Fresh"}},
+            }]
+
+        self.catalog_fetcher = fetch
+        state = type("State", (), {
+            "config": type("Config", (), {"TOOL_SERVER_CONNECTIONS": [legacy, named]})(),
+            "TOOL_SERVERS": [*malformed, old_legacy, old_named],
+        })()
+        request = type("RequestValue", (), {"app": type("App", (), {"state": state})()})()
+        rows = await route(request, self.user(role="admin"))
+        self.assertEqual(state.TOOL_SERVERS[:len(malformed)], malformed)
+        self.assertEqual(state.TOOL_SERVERS[len(malformed)], old_legacy)
+        self.assertEqual(state.TOOL_SERVERS[-1]["idx"], 1)
+        self.assertEqual([(row["id"], row["name"]) for row in rows], [
+            ("server:0", "Legacy"), ("server:fresh", "Fresh")
+        ])
+
+    async def test_boolean_zero_from_loader_is_refused_without_stale_fallback(self):
+        named = self.named_connection("fresh", auth_type="none", key="")
+        stale = self.cache_entry(0, named, specs=[{"name": "stale_echo"}])
+        route = self.load_catalog_route([])
+
+        async def fetch(_selected):
+            return [{
+                "idx": False,
+                "url": named["url"],
+                "connection_binding": self.namespace["_tool_server_connection_binding"](named),
+                "specs": [{"name": "wrong_echo"}],
+                "openapi": {"info": {"title": "Wrong"}},
+            }]
+
+        self.catalog_fetcher = fetch
+        state = type("State", (), {
+            "config": type("Config", (), {"TOOL_SERVER_CONNECTIONS": [named]})(),
+            "TOOL_SERVERS": [stale],
+        })()
+        request = type("RequestValue", (), {"app": type("App", (), {"state": state})()})()
+        rows = await route(request, self.user(role="admin"))
+        self.assertEqual(state.TOOL_SERVERS, [])
+        self.assertEqual(rows, [])
+
 
 class ToolServerExecutorResponseTests(unittest.IsolatedAsyncioTestCase):
     def executor(self, response):

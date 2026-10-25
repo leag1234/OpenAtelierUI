@@ -108,6 +108,7 @@ async def _refresh_named_tool_server_catalog(connections, servers):
         entry = result[0]
         if (
             not isinstance(entry, dict)
+            or type(entry.get("idx")) is not int
             or entry.get("idx") != 0
             or entry.get("connection_binding") != _tool_server_connection_binding(connection)
         ):
@@ -118,6 +119,9 @@ async def _refresh_named_tool_server_catalog(connections, servers):
     emitted = set()
     for entry in servers:
         index = entry.get("idx") if isinstance(entry, dict) else None
+        if isinstance(index, bool) or not isinstance(index, int):
+            refreshed.append(entry)
+            continue
         if index not in eligible:
             refreshed.append(entry)
         elif index not in emitted:
@@ -164,8 +168,15 @@ async def get_tools(request: Request, user=Depends(get_verified_user)):
 
     tools = Tools.get_tools()
     connections = request.app.state.config.TOOL_SERVER_CONNECTIONS
+    indexed_servers = [
+        server
+        for server in request.app.state.TOOL_SERVERS
+        if isinstance(server, dict)
+        and isinstance(server.get("idx"), int)
+        and not isinstance(server.get("idx"), bool)
+    ]
     named_catalog_ids, named_indices = named_tool_server_catalog_ids(
-        connections, request.app.state.TOOL_SERVERS
+        connections, indexed_servers
     )
     named_server_object_ids = set()
     for server in request.app.state.TOOL_SERVERS:
