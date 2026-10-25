@@ -192,7 +192,7 @@ def _open_verified(data_dir: str | Path, database_url: str, kind: str, resource_
         raise HistoryUnavailable("Imported history is unavailable") from error
 
 
-def _project(connection, kind: str, row, user_lookup):
+def _project(connection, kind: str, row, user_lookup, user_cache: dict | None = None):
     if (
         not isinstance(row["id"], str)
         or not isinstance(row[f"{kind}_id"], str)
@@ -203,7 +203,13 @@ def _project(connection, kind: str, row, user_lookup):
         or isinstance(row["created_at"], bool)
     ):
         raise HistoryUnavailable("Imported history is unavailable")
-    user = user_lookup(row["user_id"])
+    user_id = row["user_id"]
+    if user_cache is not None and user_id in user_cache:
+        user = user_cache[user_id]
+    else:
+        user = user_lookup(user_id)
+        if user_cache is not None:
+            user_cache[user_id] = user
     return {
         "id": row["id"], f"{kind}_id": row[f"{kind}_id"], "parent_id": row["parent_id"],
         "user_id": row["user_id"], "commit_message": row["commit_message"], "created_at": row["created_at"],
@@ -220,7 +226,10 @@ def list_history(data_dir: str | Path, database_url: str, kind: str, resource, p
             return []
         offset = (normalized_page - 1) * PAGE_SIZE
         rows = connection.execute(f'SELECT * FROM "{kind}_history" WHERE {kind}_id=? ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?', (resource.id, PAGE_SIZE, offset)).fetchall()
-        result = [_project(connection, kind, row, user_lookup) for row in rows]
+        # Keep only this bounded page's author lookups; missing users (None)
+        # are cached too, and no value survives the request.
+        user_cache = {}
+        result = [_project(connection, kind, row, user_lookup, user_cache) for row in rows]
         if len(json.dumps(result, separators=(",", ":")).encode("utf-8")) > MAX_RESPONSE_BYTES:
             raise HistoryUnavailable("Imported history response is unavailable")
         return result

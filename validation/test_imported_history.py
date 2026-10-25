@@ -108,6 +108,51 @@ class ImportedHistoryTests(unittest.TestCase):
         self.assertEqual(list_history(self.data_dir, self.database_url, "tool", self.resource("tool"), 0, self.user_lookup), page_one)
         self.assertEqual(list_history(self.data_dir, self.database_url, "tool", self.resource("tool"), 10**100, self.user_lookup), [])
 
+    def test_history_page_deduplicates_authors_including_missing_and_refreshes_next_request(self):
+        sidecar = sqlite3.connect(self.target / "imported-history.sqlite")
+        ids = [row[0] for row in sidecar.execute(
+            "SELECT id FROM tool_history WHERE tool_id=? ORDER BY created_at DESC,id DESC LIMIT 20",
+            ("tool-private",),
+        )]
+        author_ids = ["u1", "u2", "missing-user", "u1"] * 5
+        for revision_id, author_id in zip(ids, author_ids):
+            sidecar.execute("UPDATE tool_history SET user_id=? WHERE id=?", (author_id, revision_id))
+        sidecar.commit()
+        sidecar.close()
+
+        names = {"u1": "Original name", "u2": "Synthetic administrator"}
+        calls = []
+
+        def lookup(user_id):
+            calls.append(user_id)
+            return SimpleNamespace(name=names[user_id]) if user_id in names else None
+
+        page = list_history(self.data_dir, self.database_url, "tool", self.resource("tool"), 1, lookup)
+        self.assertEqual(calls, ["u1", "u2", "missing-user"])
+        self.assertEqual(len(page), 20)
+        self.assertEqual(page[0]["user"], {"name": names[page[0]["user_id"]]})
+        self.assertTrue(any(row["user_id"] == "missing-user" and row["user"] is None for row in page))
+
+        names["u1"] = "Renamed for next request"
+        calls.clear()
+        next_page = list_history(self.data_dir, self.database_url, "tool", self.resource("tool"), 1, lookup)
+        self.assertEqual(calls, ["u1", "u2", "missing-user"])
+        self.assertTrue(all(
+            row["user"] == {"name": names[row["user_id"]]} if row["user_id"] in names else row["user"] is None
+            for row in next_page
+        ))
+
+    def test_single_author_page_performs_one_lookup_for_twenty_rows(self):
+        calls = []
+
+        def lookup(user_id):
+            calls.append(user_id)
+            return SimpleNamespace(name="Synthetic User")
+
+        page = list_history(self.data_dir, self.database_url, "tool", self.resource("tool"), 1, lookup)
+        self.assertEqual(len(page), 20)
+        self.assertEqual(calls, ["u1"])
+
     def test_detail_preserves_inert_snapshot_and_rejects_cross_resource_ids(self):
         detail = get_history(self.data_dir, self.database_url, "tool", self.resource("tool"), self.tool_ids[-1], self.user_lookup)
         self.assertEqual(detail["snapshot"]["content"], "# inert historical source\ndef pipe(**kwargs): return 'old'\n")
