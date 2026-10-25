@@ -6,9 +6,11 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import contextlib
 import copy
 import datetime
 import importlib.util
+import json
 import os
 import sqlite3
 import sys
@@ -19,6 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
+from pydantic import field_serializer
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,6 +29,7 @@ PROFILE_SOURCE = ROOT / "backend/open_webui/utils/imported_profile.py"
 USERS_SOURCE = ROOT / "backend/open_webui/models/users.py"
 AUTHS_MODEL_SOURCE = ROOT / "backend/open_webui/models/auths.py"
 AUTHS_ROUTE_SOURCE = ROOT / "backend/open_webui/routers/auths.py"
+AUTHS_SOURCE = ROOT / "backend/open_webui/models/auths.py"
 
 
 class Result:
@@ -261,10 +265,11 @@ class ImportedProfileStorageTests(unittest.TestCase):
                WHEN OLD.id='u1' BEGIN SELECT RAISE(ABORT,'synthetic failure'); END'''
         )
         connection.commit()
-        with self.assertRaises(sqlite3.IntegrityError):
+        with self.assertRaises(self.module.ImportedProfileError) as caught:
             self.module.update_user_profile_fields(
                 session, "u1", "Changed", "/changed.png", "Changed bio", None, None
             )
+        self.assertIsInstance(caught.exception.__cause__, sqlite3.IntegrityError)
         self.assertGreaterEqual(session.rollbacks, 1)
         connection.close()
 
@@ -294,7 +299,8 @@ class ImportedProfileSourceIntegrationTests(unittest.TestCase):
         self.ImportedProfileUserModel = extract_nodes(
             USERS_SOURCE,
             {"ImportedProfileUserModel"},
-            {"UserModel": UserModel, "Optional": Optional, "date": datetime.date},
+            {"UserModel": UserModel, "Optional": Optional, "date": datetime.date,
+             "field_serializer": field_serializer},
         )["ImportedProfileUserModel"]
         self.ImportedProfileUserModel.model_rebuild(
             _types_namespace={"Optional": Optional, "date": datetime.date}
@@ -326,6 +332,7 @@ class ImportedProfileSourceIntegrationTests(unittest.TestCase):
             "UserModel": self.UserModel,
             "ImportedProfileUserModel": self.ImportedProfileUserModel,
             "User": object(),
+            "ImportedProfileError": self.profile.ImportedProfileError,
             "read_user_profile_fields": self.profile.read_user_profile_fields,
         }
         extract_method(USERS_SOURCE, "UsersTable", "get_user_by_id", namespace)
@@ -398,12 +405,13 @@ class ImportedProfileSourceIntegrationTests(unittest.TestCase):
         self.assertEqual(projected.bio, "Bio")
         self.assertEqual(projected.gender, "Gender")
         self.assertEqual(projected.date_of_birth, datetime.date(2000, 1, 2))
+        self.assertEqual(json.loads(json.dumps(projected.model_dump()))["date_of_birth"], "2000-01-02")
         self.assertEqual(len(session.statements), 1)
 
         namespace["read_user_profile_fields"] = lambda *_: (_ for _ in ()).throw(
             RuntimeError("prepared profile schema is unavailable")
         )
-        with self.assertRaisesRegex(RuntimeError, "schema is unavailable"):
+        with self.assertRaisesRegex(self.profile.ImportedProfileError, "lookup is unavailable"):
             lookup(object(), "u1")
         connection.close()
 
@@ -587,6 +595,67 @@ class ImportedProfileSourceIntegrationTests(unittest.TestCase):
         self.assertEqual(asyncio.run(run_pipe(async_module)), {
             "bio": "Synthetic bio", "gender": "Nonbinary", "date_of_birth": "2000-01-02"
         })
+
+    def test_authentication_wrappers_propagate_only_profile_failures(self):
+        profile_error = self.profile.ImportedProfileError("prepared profile unavailable")
+
+        class Query:
+            def filter_by(self, **kwargs):
+                return self
+
+            def first(self):
+                return types.SimpleNamespace(id="u1", password="hashed")
+
+        class Database:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return None
+
+            def query(self, _model):
+                return Query()
+
+        @contextlib.contextmanager
+        def get_db():
+            yield Database()
+
+        class UsersStub:
+            error = profile_error
+
+            @classmethod
+            def get_user_by_id(cls, _user_id):
+                raise cls.error
+
+        class LogStub:
+            @staticmethod
+            def info(_message):
+                return None
+
+        namespace = {
+            "Optional": Optional,
+            "UserModel": self.UserModel,
+            "ImportedProfileError": self.profile.ImportedProfileError,
+            "get_db": get_db,
+            "Auth": object(),
+            "Users": UsersStub,
+            "verify_password": lambda password, hashed: True,
+            "log": LogStub(),
+        }
+        extract_method(AUTHS_SOURCE, "AuthsTable", "authenticate_user", namespace)
+        extract_method(AUTHS_SOURCE, "AuthsTable", "authenticate_user_by_trusted_header", namespace)
+        for method_name, args in (
+            ("authenticate_user", (object(), "u1@example.invalid", "password")),
+            ("authenticate_user_by_trusted_header", (object(), "u1@example.invalid")),
+        ):
+            with self.subTest(method=method_name):
+                with self.assertRaises(self.profile.ImportedProfileError) as caught:
+                    namespace[method_name](*args)
+                self.assertIs(caught.exception, profile_error)
+
+        UsersStub.error = LookupError("ordinary legacy failure")
+        self.assertIsNone(namespace["authenticate_user"](object(), "u1@example.invalid", "password"))
+        self.assertIsNone(namespace["authenticate_user_by_trusted_header"](object(), "u1@example.invalid"))
 
 
 if __name__ == "__main__":

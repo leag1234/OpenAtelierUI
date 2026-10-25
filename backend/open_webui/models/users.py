@@ -9,9 +9,10 @@ from open_webui.models.chats import Chats
 from open_webui.models.groups import Groups
 
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_serializer
 from sqlalchemy import BigInteger, Column, String, Text
 from open_webui.utils.imported_profile import (
+    ImportedProfileError,
     read_user_profile_fields,
     update_user_profile_fields,
     user_profile_fields_enabled,
@@ -72,6 +73,10 @@ class ImportedProfileUserModel(UserModel):
     bio: Optional[str] = None
     gender: Optional[str] = None
     date_of_birth: Optional[date] = None
+
+    @field_serializer("date_of_birth")
+    def serialize_date_of_birth(self, value: Optional[date]) -> Optional[str]:
+        return value.isoformat() if value is not None else None
 
 
 ####################
@@ -141,15 +146,20 @@ class UsersTable:
 
     def get_user_by_id(self, id: str) -> Optional[UserModel]:
         if user_profile_fields_enabled():
-            with get_db() as db:
-                user = db.query(User).filter_by(id=id).first()
-                if user is None:
-                    return None
-                model = UserModel.model_validate(user)
-                profile = read_user_profile_fields(db, id)
-                return ImportedProfileUserModel.model_validate(
-                    {**model.model_dump(), **profile}
-                )
+            try:
+                with get_db() as db:
+                    user = db.query(User).filter_by(id=id).first()
+                    if user is None:
+                        return None
+                    model = UserModel.model_validate(user)
+                    profile = read_user_profile_fields(db, id)
+                    return ImportedProfileUserModel.model_validate(
+                        {**model.model_dump(), **profile}
+                    )
+            except ImportedProfileError:
+                raise
+            except Exception as error:
+                raise ImportedProfileError("prepared user profile lookup is unavailable") from error
         try:
             with get_db() as db:
                 user = db.query(User).filter_by(id=id).first()

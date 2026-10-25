@@ -8,6 +8,7 @@ from open_webui.models.users import UserModel, Users
 from open_webui.env import SRC_LOG_LEVELS
 from pydantic import BaseModel, field_validator
 from sqlalchemy import Boolean, Column, String, Text
+from open_webui.utils.imported_profile import ImportedProfileError
 from open_webui.utils.auth import verify_password
 
 log = logging.getLogger(__name__)
@@ -167,6 +168,8 @@ class AuthsTable:
                         return None
                 else:
                     return None
+        except ImportedProfileError:
+            raise
         except Exception:
             return None
 
@@ -190,6 +193,8 @@ class AuthsTable:
                 if auth:
                     user = Users.get_user_by_id(auth.id)
                     return user
+        except ImportedProfileError:
+            raise
         except Exception:
             return None
 

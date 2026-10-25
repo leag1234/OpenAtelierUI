@@ -15,13 +15,17 @@ MAX_BIO_UTF8_BYTES = 8192
 MAX_GENDER_UTF8_BYTES = 128
 
 
+class ImportedProfileError(RuntimeError):
+    """A prepared-profile failure that must not be treated as bad credentials."""
+
+
 def user_profile_fields_enabled():
     value = os.environ.get(PROFILE_FIELDS_ENV, "")
     if value in {"", "0"}:
         return False
     if value == "1":
         return True
-    raise RuntimeError("OPEN_WEBUI_IMPORTED_USER_PROFILE_FIELDS must be exactly 1 or unset")
+    raise ImportedProfileError("OPEN_WEBUI_IMPORTED_USER_PROFILE_FIELDS must be exactly 1 or unset")
 
 
 def _text(statement):
@@ -35,12 +39,12 @@ def _validate_profile_values(profile):
         value = profile.get(key)
         if value is not None:
             if not isinstance(value, str):
-                raise RuntimeError("prepared user profile contains an unsupported value")
+                raise ImportedProfileError("prepared user profile contains an unsupported value")
             try:
                 if len(value.encode("utf-8", errors="strict")) > maximum:
-                    raise RuntimeError("prepared user profile contains an oversized value")
+                    raise ImportedProfileError("prepared user profile contains an oversized value")
             except UnicodeError:
-                raise RuntimeError("prepared user profile contains an invalid text value") from None
+                raise ImportedProfileError("prepared user profile contains an invalid text value") from None
     value = profile.get("date_of_birth")
     if value is not None:
         if isinstance(value, datetime.date) and not isinstance(value, datetime.datetime):
@@ -49,12 +53,12 @@ def _validate_profile_values(profile):
             try:
                 parsed = datetime.date.fromisoformat(value)
             except ValueError:
-                raise RuntimeError("prepared user profile contains an invalid date") from None
+                raise ImportedProfileError("prepared user profile contains an invalid date") from None
             if parsed.isoformat() != value:
-                raise RuntimeError("prepared user profile contains an invalid date")
+                raise ImportedProfileError("prepared user profile contains an invalid date")
             profile["date_of_birth"] = parsed
         else:
-            raise RuntimeError("prepared user profile contains an invalid date")
+            raise ImportedProfileError("prepared user profile contains an invalid date")
     return profile
 
 
@@ -67,28 +71,33 @@ def validate_prepared_user_profile_schema(engine=None):
 
         engine = current_engine
     if getattr(getattr(engine, "dialect", None), "name", None) != "sqlite":
-        raise RuntimeError("imported user profile fields require a prepared SQLite database")
+        raise ImportedProfileError("imported user profile fields require a prepared SQLite database")
     with engine.connect() as connection:
         rows = connection.exec_driver_sql('PRAGMA table_info("user")').fetchall()
     columns = {row[1]: row for row in rows}
     for field, expected_type in PROFILE_FIELD_TYPES.items():
         row = columns.get(field)
         if row is None or str(row[2]).upper() != expected_type or row[3] != 0:
-            raise RuntimeError(
+            raise ImportedProfileError(
                 "OPEN_WEBUI_IMPORTED_USER_PROFILE_FIELDS=1 requires prepared nullable user profile columns"
             )
     return True
 
 
 def read_user_profile_fields(session, user_id):
-    row = session.execute(
-        _text('SELECT bio,gender,date_of_birth FROM "user" WHERE id=:user_id'),
-        {"user_id": user_id},
-    ).first()
-    if row is None:
-        raise RuntimeError("prepared user profile row is unavailable")
-    values = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
-    return _validate_profile_values(values)
+    try:
+        row = session.execute(
+            _text('SELECT bio,gender,date_of_birth FROM "user" WHERE id=:user_id'),
+            {"user_id": user_id},
+        ).first()
+        if row is None:
+            raise ImportedProfileError("prepared user profile row is unavailable")
+        values = dict(row._mapping) if hasattr(row, "_mapping") else dict(row)
+        return _validate_profile_values(values)
+    except ImportedProfileError:
+        raise
+    except Exception as error:
+        raise ImportedProfileError("prepared user profile data is unavailable") from error
 
 
 def update_user_profile_fields(session, user_id, name, profile_image_url, bio, gender, date_of_birth):
@@ -118,7 +127,10 @@ def update_user_profile_fields(session, user_id, name, profile_image_url, bio, g
             session.rollback()
             return False
         session.commit()
-    except Exception:
+    except ImportedProfileError:
         session.rollback()
         raise
+    except Exception as error:
+        session.rollback()
+        raise ImportedProfileError("prepared user profile update is unavailable") from error
     return True

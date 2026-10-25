@@ -22,7 +22,9 @@ named prototype blocker, even when the three fields are prepared successfully.
 
 At runtime, `OPEN_WEBUI_IMPORTED_USER_PROFILE_FIELDS=1` enables validation of
 the already-prepared SQLite columns at startup. The helper performs no DDL or
-repair. It returns an extended Pydantic user model only through the existing
+repair. The lifespan check does not claim that unrelated old application
+import/startup machinery performs no writes before it runs. It returns an
+extended Pydantic user model only through the existing
 lookup when enabled; the SQLAlchemy `User` table and ordinary `UserModel`
 remain unchanged so legacy constructors and insertion paths retain their
 shape. One additional profile SELECT occurs on enabled lookup. The profile
@@ -38,12 +40,15 @@ branches keep their old behavior.
   values/types and pre-target refusal, the CLI flag, and a reserved-`info`
   collision case that preserves existing JSON while reading the dedicated
   columns.
-- `python3 validation/test_imported_profile.py`: 10 tests passed. These execute
+- `python3 validation/test_imported_profile.py`: 11 tests passed. These execute
   the helper against temporary SQLite databases, exercise real extracted
   `UsersTable.get_user_by_id` and auth route bodies, check the actual optional
   Pydantic form/model fields, confirm default-off avoids a profile schema
   read, verify one profile SELECT and one atomic self-profile UPDATE, and
   exercise the existing synchronous/awaitable pipe bridge with typed values.
+  They also verify profile-data failures propagate through the ordinary
+  password and trusted-header authentication wrappers instead of becoming
+  invalid-credential results.
 - `python3 backend/open_webui/test/test_plugin_user_compat.py`: 6 existing
   compatibility tests passed.
 - The source-bound SQLite tests use a tiny local adapter for
@@ -59,6 +64,15 @@ cache under the user Library and was denied; rerunning with a temporary cache
 directory succeeded. Neither event changed application behavior or source
 inputs.
 
+Primary review of the first source commit also identified two enabled-path
+integration issues: broad password/trusted-header catches could translate a
+profile storage failure into an invalid-credential result, and the existing
+socket session dictionary uses plain `json.dumps`, which cannot encode a
+Python `date`. The follow-up defines and propagates `ImportedProfileError` only
+for the opt-in profile path and serializes the typed DOB attribute as ISO text
+in `model_dump`; the attribute itself remains a `date`. Tests cover both
+paths. No Redis server or complete application process was started.
+
 ## Limits and trust boundary
 
 The current API probe covered one synthetic account and values within the
@@ -72,15 +86,20 @@ The old in-process `Users.get_user_by_id(id)` library method has no caller
 identity parameter and retains its existing arbitrary-ID behavior. When the
 flag is enabled, its typed result may include the profile fields for the
 requested row, including for existing internal callers that serialize that
-typed result. This experiment does not claim confidentiality against trusted
-server-side plugin Python that already has access to the user library/database,
-nor universal redaction across every existing in-process caller. The HTTP
+typed result. The DOB field serializer keeps that internal model JSON-safe for
+the existing socket session pool, whose `RedisDict` uses `json.dumps`. This
+experiment does not claim confidentiality against trusted server-side plugin
+Python that already has access to the user library/database, nor universal
+redaction across every existing in-process caller. Reviewed nested HTTP DTOs
+such as the old user-name/user response models omit the added fields. The HTTP
 profile response/update path remains bound to the authenticated session, and
 the request form cannot select a target user ID. No new plugin execution is
 authorized.
 
-An earlier conversion on a separate synthetic snapshot was blocked by a
-NULL-to-valid session-stamp initialization mismatch. That failed receipt is
-retained; this slice does not change auth/session stamps or claim that issue is
-resolved. This is a component spike only, not migration certification, runtime
-qualification, or a durable schema/default decision.
+The earlier default-off conversion on a separate synthetic snapshot produced
+a partial target. A later strict actual-app client run failed during first
+sign-in on the expected NULL-to-valid session-epoch initialization mismatch;
+that failed receipt is retained. This slice does not change auth/session
+stamps or claim that issue is resolved. This is a component spike only, not
+migration certification, full runtime qualification, or a durable
+schema/default decision.
