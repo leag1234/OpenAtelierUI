@@ -118,6 +118,8 @@ async def get_model_by_id(id: str, user=Depends(get_verified_user)):
             response = model.model_dump()
             response.update(_model_access_fields(model, user))
             response["user"] = None
+            if user.role != "admin" and model.user_id != user.id:
+                response["params"] = {}
             return response
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

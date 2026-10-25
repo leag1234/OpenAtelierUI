@@ -380,6 +380,11 @@ async def delete_tools_by_id(
 async def get_tools_valves_by_id(id: str, user=Depends(get_verified_user)):
     tools = Tools.get_tool_by_id(id)
     if tools:
+        if user.role != "admin" and tools.user_id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=ERROR_MESSAGES.UNAUTHORIZED,
+            )
         try:
             valves = Tools.get_tool_valves_by_id(id)
             return valves
