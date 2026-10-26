@@ -41,6 +41,7 @@ from open_webui.utils.auth import (
     create_token,
     create_password_session_token,
     get_validated_session_context,
+    is_validated_api_key_request,
     get_admin_user,
     get_verified_user,
     get_current_user,
@@ -90,6 +91,11 @@ class ImportedSessionUserResponse(SessionUserResponse):
 async def get_session_user(
     request: Request, response: Response, user=Depends(get_current_user)
 ):
+    if is_validated_api_key_request(request, user.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ERROR_MESSAGES.API_KEY_NOT_ALLOWED,
+        )
     validated_session_context = get_validated_session_context(request, user.id)
     if validated_session_context is not None:
         token, expires_at, _validated_session_stamp = validated_session_context

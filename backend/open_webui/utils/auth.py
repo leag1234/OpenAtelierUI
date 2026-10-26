@@ -48,6 +48,8 @@ SESSION_SECRET = WEBUI_SECRET_KEY
 ALGORITHM = "HS256"
 _VALIDATED_SESSION_STATE_MARKER = object()
 _VALIDATED_SESSION_STATE_ATTRIBUTE = "_openatelier_validated_session_epoch"
+_VALIDATED_API_KEY_STATE_MARKER = object()
+_VALIDATED_API_KEY_STATE_ATTRIBUTE = "_openatelier_validated_api_key_user"
 _MAX_SESSION_EXPIRATION = 253402300799  # 9999-12-31T23:59:59Z
 
 ##############
@@ -199,6 +201,20 @@ def get_validated_session_epoch(request: Request, user_id: str) -> Optional[str]
     return context[2] if context is not None else None
 
 
+def is_validated_api_key_request(request: Request, user_id: str) -> bool:
+    """Check the private identity-bound marker set by successful API-key auth."""
+    state = getattr(request, "state", None)
+    validated = getattr(state, _VALIDATED_API_KEY_STATE_ATTRIBUTE, None)
+    return (
+        isinstance(validated, tuple)
+        and len(validated) == 2
+        and validated[0] is _VALIDATED_API_KEY_STATE_MARKER
+        and isinstance(validated[1], str)
+        and bool(validated[1])
+        and validated[1] == user_id
+    )
+
+
 def revoke_user_session_epoch(user_id: str) -> None:
     """Rotate one existing account epoch in the opt-in copied-profile experiment."""
     if not _session_epochs_enabled():
@@ -319,8 +335,10 @@ def get_current_user(
     background_tasks: BackgroundTasks,
     auth_token: HTTPAuthorizationCredentials = Depends(bearer_security),
 ):
+    state = getattr(request, "state", None)
+    if state is not None:
+        setattr(state, _VALIDATED_API_KEY_STATE_ATTRIBUTE, None)
     if _session_epochs_enabled():
-        state = getattr(request, "state", None)
         if state is not None:
             setattr(state, _VALIDATED_SESSION_STATE_ATTRIBUTE, None)
 
@@ -360,7 +378,15 @@ def get_current_user(
                     status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.API_KEY_NOT_ALLOWED
                 )
 
-        return get_current_user_by_api_key(token)
+        user = get_current_user_by_api_key(token)
+        user_id = getattr(user, "id", None)
+        if isinstance(user_id, str) and user_id:
+            setattr(
+                request.state,
+                _VALIDATED_API_KEY_STATE_ATTRIBUTE,
+                (_VALIDATED_API_KEY_STATE_MARKER, user_id),
+            )
+        return user
 
     # auth by jwt token
     try:
