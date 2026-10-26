@@ -1,6 +1,7 @@
 import asyncio
 import socketio
 import logging
+import os
 import sys
 import time
 from redis import asyncio as aioredis
@@ -302,28 +303,33 @@ async def disconnect(sid):
 def get_event_emitter(request_info, update_db=True):
     async def __event_emitter__(event_data):
         user_id = request_info["user_id"]
-
-        session_ids = list(
-            set(
-                USER_POOL.get(user_id, [])
-                + (
-                    [request_info.get("session_id")]
-                    if request_info.get("session_id")
-                    else []
+        session_ids = set()
+        if isinstance(user_id, str) and user_id:
+            pooled_sessions = USER_POOL.get(user_id, [])
+            if isinstance(pooled_sessions, (list, tuple, set)):
+                session_ids.update(
+                    session_id for session_id in pooled_sessions
+                    if isinstance(session_id, str) and session_id
                 )
-            )
-        )
+            requested_session = request_info.get("session_id")
+            if isinstance(requested_session, str) and requested_session:
+                session_ids.add(requested_session)
+            owned_sessions = set()
+            for session_id in session_ids:
+                session = SESSION_POOL.get(session_id)
+                if isinstance(session, dict) and session.get("id") == user_id:
+                    owned_sessions.add(session_id)
+            session_ids = owned_sessions
 
         for session_id in session_ids:
-            await sio.emit(
-                "chat-events",
-                {
-                    "chat_id": request_info.get("chat_id", None),
-                    "message_id": request_info.get("message_id", None),
-                    "data": event_data,
-                },
-                to=session_id,
-            )
+            envelope = {
+                "chat_id": request_info.get("chat_id", None),
+                "message_id": request_info.get("message_id", None),
+                "data": event_data,
+            }
+            await sio.emit("chat-events", envelope, to=session_id)
+            if os.environ.get("OPENATELIER_EVENT_CHANNEL_COMPAT") == "1":
+                await sio.emit("events", envelope, to=session_id)
 
         if update_db:
             if "type" in event_data and event_data["type"] == "status":
