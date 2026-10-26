@@ -108,10 +108,23 @@ class FilterPriorityTests(unittest.TestCase):
         request = types.SimpleNamespace(app=types.SimpleNamespace(state=types.SimpleNamespace(FUNCTIONS={})))
         model = {"info": {"meta": {"filterIds": ["sync", "async"]}}}
         self.assertEqual(get_sorted(model, request=request), ["async", "sync"])
-        self.assertEqual(set(loads), {"sync", "async"})
+        self.assertEqual(set(loads), {"async"})
         store.valves["sync"] = {}
         self.assertEqual(get_sorted(model, request=request), ["sync", "async"])
         self.assertEqual(len(loads), 2)
+        self.assertEqual(set(loads), {"async", "sync"})
+
+    def test_context_free_explicit_overrides_do_not_load_selected_modules(self):
+        modules = {"sync": module_with_default(0), "async": module_with_default(10)}
+        store = FunctionStore(
+            ["sync", "async"],
+            {"sync": {"priority": 20}, "async": {"priority": 10}},
+        )
+        loads = []
+        get_sorted = load_subject(store, modules, loads)
+        model = {"info": {"meta": {"filterIds": ["sync", "async"]}}}
+        self.assertEqual(get_sorted(model), ["async", "sync"])
+        self.assertEqual(loads, [])
 
     def test_defaultless_valves_falls_back_to_zero_and_positional_api_remains_valid(self):
         modules = {"plain": module_with_default(missing=True)}

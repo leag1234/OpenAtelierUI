@@ -43,3 +43,19 @@ measured priority value, other filter hooks, full migration, or durable
 adoption. Preserve source50's failed canonical behavior and the primary's
 fresh source51 replay as separate evidence; passing local tests is not the
 current-client acceptance result.
+
+## Review correction
+
+Primary review rejected the initial priority commit `26ecb888` before staging.
+The first implementation loaded a selected filter module before checking for
+an explicit saved priority. The correction now returns the saved value first;
+context-free positional callers whose selected filters all have saved values
+do not construct modules. A new focused test verifies that path records zero
+loader calls. When any selected priority is absent, the request-aware paths
+still obtain the declared default through the existing per-request cache and
+propagate loader errors. The initial patch was not staged or run in the
+mounted application; its review receipt remains in the parent evidence
+directory. After correction, `python3 validation/test_filter_priority.py`
+passes all7 named tests, and `git diff --check` plus isolated syntax compilation
+pass. The corrected source still awaits primary's independent loader, cache,
+and canonical replay checks.

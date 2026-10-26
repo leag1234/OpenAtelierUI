@@ -51,10 +51,10 @@ def get_sorted_filter_ids(model: dict, request=None):
         return 0
 
     def get_priority(function_id):
-        function_module = get_filter_module(function_id)
         valves = Functions.get_function_valves_by_id(function_id)
         if valves is not None and "priority" in valves:
             return valves["priority"]
+        function_module = get_filter_module(function_id)
         return get_default_priority(function_module)
 
     filter_ids = [function.id for function in Functions.get_global_filter_functions()]
