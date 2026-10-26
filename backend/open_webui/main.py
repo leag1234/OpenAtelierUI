@@ -387,6 +387,8 @@ from open_webui.tasks import (
     list_task_ids_by_chat_id,
     stop_task,
     list_tasks,
+    get_task,
+    TaskNotFoundError,
 )  # Import from tasks.py
 
 from open_webui.utils.redis import get_sentinels_from_env
@@ -1256,7 +1258,7 @@ async def chat_action(
 
 
 @app.post("/api/tasks/stop/{task_id}")
-async def stop_task_endpoint(task_id: str, user=Depends(get_verified_user)):
+async def stop_task_endpoint(task_id: str, user=Depends(get_admin_user)):
     try:
         result = await stop_task(task_id)
         return result
@@ -1265,7 +1267,7 @@ async def stop_task_endpoint(task_id: str, user=Depends(get_verified_user)):
 
 
 @app.get("/api/tasks")
-async def list_tasks_endpoint(user=Depends(get_verified_user)):
+async def list_tasks_endpoint(user=Depends(get_admin_user)):
     return {"tasks": list_tasks()}
 
 
@@ -1275,10 +1277,37 @@ async def list_tasks_by_chat_id_endpoint(chat_id: str, user=Depends(get_verified
     if chat is None or chat.user_id != user.id:
         return {"task_ids": []}
 
-    task_ids = list_task_ids_by_chat_id(chat_id)
+    return {"task_ids": list(list_task_ids_by_chat_id(chat_id))}
 
-    print(f"Task IDs for chat {chat_id}: {task_ids}")
-    return {"task_ids": task_ids}
+
+@app.post("/api/tasks/chat/{chat_id}/stop")
+async def stop_tasks_by_chat_id_endpoint(
+    chat_id: str, user=Depends(get_verified_user)
+):
+    chat = Chats.get_chat_by_id(chat_id)
+    if chat is None or chat.user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found"
+        )
+
+    task_ids = list(list_task_ids_by_chat_id(chat_id))
+    stopped = False
+    for task_id in task_ids:
+        if get_task(task_id) is None:
+            continue
+        try:
+            result = await stop_task(task_id)
+        except TaskNotFoundError:
+            # A task may finish and remove itself after the snapshot above.
+            if get_task(task_id) is None:
+                continue
+            raise
+        stopped = stopped or bool(result.get("status"))
+
+    return {
+        "status": stopped,
+        "message": "Task(s) stopped." if stopped else "No active tasks were stopped.",
+    }
 
 
 ##################################

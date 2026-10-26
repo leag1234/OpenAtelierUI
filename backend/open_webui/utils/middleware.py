@@ -951,6 +951,13 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     return form_data, metadata, events
 
 
+def _metadata_feature_enabled(metadata, feature_name):
+    features = metadata.get("features")
+    if features is None:
+        features = {}
+    return features.get(feature_name, False)
+
+
 async def process_chat_response(
     request, response, form_data, user, metadata, model, events, tasks
 ):
@@ -1535,8 +1542,8 @@ async def process_chat_response(
             # We might want to disable this by default
             DETECT_REASONING = True
             DETECT_SOLUTION = True
-            DETECT_CODE_INTERPRETER = metadata.get("features", {}).get(
-                "code_interpreter", False
+            DETECT_CODE_INTERPRETER = _metadata_feature_enabled(
+                metadata, "code_interpreter"
             )
 
             reasoning_tags = [

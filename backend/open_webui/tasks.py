@@ -8,6 +8,10 @@ tasks: Dict[str, asyncio.Task] = {}
 chat_tasks = {}
 
 
+class TaskNotFoundError(ValueError):
+    """The requested task is no longer present in the active registry."""
+
+
 def cleanup_task(task_id: str, id=None):
     """
     Remove a completed or canceled task from the global `tasks` dictionary.
@@ -68,14 +72,19 @@ async def stop_task(task_id: str):
     """
     task = tasks.get(task_id)
     if not task:
-        raise ValueError(f"Task with ID {task_id} not found.")
+        raise TaskNotFoundError(f"Task with ID {task_id} not found.")
 
-    task.cancel()  # Request task cancellation
+    cancellation_requested = task.cancel()
     try:
         await task  # Wait for the task to handle the cancellation
     except asyncio.CancelledError:
-        # Task successfully canceled
-        tasks.pop(task_id, None)  # Remove it from the dictionary
+        tasks.pop(task_id, None)
+        if cancellation_requested:
+            return {"status": True, "message": f"Task {task_id} successfully stopped."}
+        return {"status": False, "message": f"Task {task_id} was already stopping."}
+
+    if cancellation_requested:
+        tasks.pop(task_id, None)
         return {"status": True, "message": f"Task {task_id} successfully stopped."}
 
     return {"status": False, "message": f"Failed to stop task {task_id}."}

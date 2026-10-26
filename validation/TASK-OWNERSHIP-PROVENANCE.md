@@ -1,0 +1,15 @@
+# Task ownership compatibility slice
+
+This bounded source change addresses the measured task-ownership gap from `TASK-OPENATELIER-TASK-OWNERSHIP-001`. The existing process-wide `GET /api/tasks` and `POST /api/tasks/stop/{task_id}` now require the existing administrator dependency. The existing per-chat task list keeps its verified-user and chat-owner check, returns a copy of its task IDs, and no longer prints IDs. A new `POST /api/tasks/chat/{chat_id}/stop` checks that the chat exists and belongs to the authenticated caller before reading the task registry, snapshots that chat's task IDs, and requests cancellation only for those tasks. Missing and foreign chats return 404.
+
+The task stop helper now reports success when `Task.cancel()` accepted a cancellation request, including when the task's own handler catches `CancelledError` and exits normally. It reports false when a task was already done or already being cancelled, and still propagates unrelated task exceptions. A narrow `TaskNotFoundError`, still a `ValueError` for existing callers, identifies a task that disappeared from the active registry. The per-chat route tolerates that race only if a second registry check confirms the task is gone; arbitrary task-raised `ValueError` is not swallowed. This is an in-process registry change; it does not qualify multiworker routing, recovery after process loss, general task exception collection, or distributed cancellation.
+
+The prior source65 candidate task did not reach an active-task comparison: its own logs showed the optional `metadata.features` value was absent, and the response handler raised on `.get`. The middleware now treats only an absent or explicit `null` features value as an empty mapping. Present malformed values still fail as before. This allows the bounded fixture's ordinary completion path without broadening malformed request acceptance.
+
+## Checks
+
+`python3 validation/test_task_ownership.py` runs eight source-extracted tests covering route dependency wiring, foreign/missing denial before task-registry access, empty owned chats, the already-finished race, task cancellation that is caught or propagated, completed-task status, arbitrary task errors, and absent/null versus malformed feature metadata.
+
+`PYTHONPYCACHEPREFIX=/tmp/openatelier-task-ownership-pycache python3 -m py_compile backend/open_webui/main.py backend/open_webui/tasks.py backend/open_webui/utils/middleware.py validation/test_task_ownership.py` and `git diff --check` pass. An earlier `py_compile` attempt without the explicit cache prefix failed because Python tried writing under the protected global cache path; it did not modify application files. The first test-extraction attempt also failed because the harness had no stub for `app` route decorators; adding a no-op route decorator fixture fixed the harness. No product change was made for either harness issue.
+
+These are source-extracted component checks. Primary-owned native replay and actual app behavior remain required; this note does not claim current-runtime qualification or durable task-substrate adoption.
