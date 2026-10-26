@@ -38,7 +38,11 @@ router = APIRouter()
 ############################
 
 
-@router.get("/", response_model=list[UserModel])
+@router.get(
+    "/",
+    response_model=list[UserModel],
+    response_model_exclude={"__all__": {"api_key"}},
+)
 async def get_users(
     skip: Optional[int] = None,
     limit: Optional[int] = None,
@@ -146,7 +150,11 @@ async def update_default_user_permissions(
 ############################
 
 
-@router.post("/update/role", response_model=Optional[UserModel])
+@router.post(
+    "/update/role",
+    response_model=Optional[UserModel],
+    response_model_exclude={"api_key"},
+)
 async def update_user_role(form_data: UserRoleUpdateForm, user=Depends(get_admin_user)):
     if user.id != form_data.id and form_data.id != Users.get_first_user().id:
         return Users.update_user_role_by_id(form_data.id, form_data.role)
@@ -293,7 +301,11 @@ async def get_user_by_id(user_id: str, user=Depends(get_verified_user)):
 ############################
 
 
-@router.post("/{user_id}/update", response_model=Optional[UserModel])
+@router.post(
+    "/{user_id}/update",
+    response_model=Optional[UserModel],
+    response_model_exclude={"api_key"},
+)
 async def update_user_by_id(
     user_id: str,
     form_data: UserUpdateForm,
