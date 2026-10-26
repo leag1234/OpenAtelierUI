@@ -140,7 +140,7 @@ class ChatMetadataOwnershipTests(unittest.TestCase):
     def invoke(self, chat_id, user_id="member", role="user"):
         request = Request({"model": object()})
         user = type("User", (), {"id": user_id, "role": role})()
-        body = {"model": "model"}
+        body = {"model": "model", "stream": False}
         if chat_id is not OMITTED:
             body["chat_id"] = chat_id
         result = asyncio.run(self.route(request, body, user))
@@ -156,7 +156,7 @@ class ChatMetadataOwnershipTests(unittest.TestCase):
                     asyncio.run(
                         self.route(
                             request,
-                            {"chat_id": chat_id, "model": "model"},
+                            {"chat_id": chat_id, "model": "model", "stream": False},
                             user,
                         )
                     )
