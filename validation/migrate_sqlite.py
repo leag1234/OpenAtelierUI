@@ -92,6 +92,7 @@ IMPORTED_USER_PROFILE_TYPES = {"bio": "TEXT", "gender": "TEXT", "date_of_birth":
 MAX_IMPORTED_USER_BIO_BYTES = 8192
 MAX_IMPORTED_USER_GENDER_BYTES = 128
 MAX_IMPORTED_API_KEY_ROWS = 1000
+MAX_API_KEY_CONFIG_VALUE_BYTES = 16 * 1024
 API_KEY_COLUMNS = {
     "id", "user_id", "key", "data", "expires_at", "last_used_at", "created_at", "updated_at"
 }
@@ -101,6 +102,17 @@ API_KEY_POLICY_CONFIG = {
     "user.permissions": None,
     "auth.api_key.endpoint_restrictions": False,
     "auth.api_key.allowed_endpoints": "",
+}
+API_KEY_CONFIG_SOURCE_KEYS = {
+    "auth.enable_api_keys",
+    "auth.api_key.endpoint_restrictions",
+    "auth.api_key.allowed_endpoints",
+}
+API_KEY_CONFIG_OLD_ALIASES = {
+    "ENABLE_API_KEY",
+    "ENABLE_API_KEY_ENDPOINT_RESTRICTIONS",
+    "API_KEY_ALLOWED_ENDPOINTS",
+    "auth.api_key.enable",
 }
 CHAT_UNSUPPORTED = {"tasks", "summary", "last_read_at", "current_message_id", "variables", "timer_at"}
 PRIVATE_CHAT_META_KEY = "_mdk_private_saved_work"
@@ -371,6 +383,108 @@ def _parse_named_tool_connection(connection: sqlite3.Connection) -> list[dict]:
     if len(ids) != len(set(ids)):
         raise MigrationError("named_tool_configuration_unsupported_shape", "named-tool connection IDs must be unique")
     return selected
+
+
+def _parse_api_key_configuration(connection: sqlite3.Connection) -> dict[str, object]:
+    """Read exactly three measured scalar settings and reject ambiguous aliases."""
+    if "config" not in _tables(connection):
+        raise MigrationError(
+            "api_key_configuration_source_schema_mismatch",
+            "selected API-key configuration table is unavailable",
+        )
+    columns = _columns(connection, "config")
+    if set(columns) != {"key", "value", "updated_at"}:
+        raise MigrationError(
+            "api_key_configuration_source_schema_mismatch",
+            "selected API-key configuration schema is unsupported",
+        )
+
+    # These flat aliases and parents could supersede the selected values or
+    # their nested old-target destinations. Other unrelated config keys stay
+    # archive-only and are counted separately.
+    guarded_paths = {
+        "auth",
+        "auth.api_key",
+        "auth.enable_api_keys",
+        "auth.api_key.enable",
+        "auth.api_key.endpoint_restrictions",
+        "auth.api_key.allowed_endpoints",
+    }
+    selected = {}
+    for row in connection.execute('SELECT "key","value" FROM "config"'):
+        key = row["key"]
+        if not isinstance(key, str):
+            continue
+        if key in API_KEY_CONFIG_OLD_ALIASES:
+            raise MigrationError(
+                "api_key_configuration_ambiguous_override",
+                "configuration contains an unsupported API-key alias or override",
+            )
+        if key not in API_KEY_CONFIG_SOURCE_KEYS and any(
+            key == path or key.startswith(path + ".") or path.startswith(key + ".")
+            for path in guarded_paths
+        ):
+            raise MigrationError(
+                "api_key_configuration_ambiguous_override",
+                "configuration contains an unsupported API-key parent or dotted override",
+            )
+        if key in API_KEY_CONFIG_SOURCE_KEYS:
+            if key in selected:
+                raise MigrationError(
+                    "api_key_configuration_duplicate_key",
+                    "selected API-key configuration contains duplicate settings",
+                )
+            raw = row["value"]
+            if not isinstance(raw, str):
+                raise MigrationError(
+                    "api_key_configuration_value_invalid",
+                    "selected API-key configuration value has an unsupported type",
+                )
+            try:
+                if len(raw.encode("utf-8", errors="strict")) > MAX_API_KEY_CONFIG_VALUE_BYTES:
+                    raise MigrationError(
+                        "api_key_configuration_value_invalid",
+                        "selected API-key configuration value exceeds the supported bound",
+                    )
+                selected[key] = json.loads(
+                    raw, object_pairs_hook=_reject_duplicate_json_keys
+                )
+            except MigrationError:
+                raise
+            except (UnicodeError, ValueError, TypeError, RecursionError):
+                raise MigrationError(
+                    "api_key_configuration_value_invalid",
+                    "selected API-key configuration value is not supported JSON",
+                ) from None
+
+    if set(selected) != API_KEY_CONFIG_SOURCE_KEYS:
+        raise MigrationError(
+            "api_key_configuration_missing_key",
+            "all three selected API-key configuration settings are required",
+        )
+    enable = selected["auth.enable_api_keys"]
+    restrictions = selected["auth.api_key.endpoint_restrictions"]
+    allowed_endpoints = selected["auth.api_key.allowed_endpoints"]
+    if type(enable) is not bool:
+        raise MigrationError(
+            "api_key_configuration_value_invalid",
+            "API-key enablement must be a JSON boolean",
+        )
+    if restrictions is not False:
+        raise MigrationError(
+            "api_key_configuration_value_unsupported",
+            "only disabled API-key endpoint restrictions are supported",
+        )
+    if not isinstance(allowed_endpoints, str) or allowed_endpoints != "":
+        raise MigrationError(
+            "api_key_configuration_value_unsupported",
+            "only an empty API-key endpoint allowlist is supported",
+        )
+    return {
+        "enable": enable,
+        "endpoint_restrictions": restrictions,
+        "allowed_endpoints": allowed_endpoints,
+    }
 
 
 def _digest(path: Path) -> str:
@@ -1367,6 +1481,7 @@ def _inspect_source(
     include_named_tool_configuration: bool = False,
     include_user_profile_fields: bool = False,
     include_api_keys: bool = False,
+    include_api_key_configuration: bool = False,
 ) -> dict:
     started = time.perf_counter()
     source = _db_path(source_db, label="source database")
@@ -1393,7 +1508,9 @@ def _inspect_source(
     try:
         template_info = _validate_template(
             template,
-            require_named_tool_config=include_named_tool_configuration,
+            require_named_tool_config=(
+                include_named_tool_configuration or include_api_key_configuration
+            ),
             prepare_user_profile_fields=include_user_profile_fields,
         )
         report["target_template"]["schema_fingerprint"] = template_info["fingerprint"]
@@ -1428,7 +1545,10 @@ def _inspect_source(
             ):
                 _block(report, "unsupported_nonempty_domain_" + table, count, fatal=True)
         for table in ("config", "function_history"):
-            if table in tables and _count(connection, table) and not (table == "config" and include_named_tool_configuration):
+            if table in tables and _count(connection, table) and not (
+                table == "config"
+                and (include_named_tool_configuration or include_api_key_configuration)
+            ):
                 _block(report, "unsupported_nonempty_domain_" + table, _count(connection, table), detail="full bytes are retained in the source archive; old target behavior is not implemented")
         valid_required = {name: name in tables and required.issubset(_columns(connection, name)) for name, required in SOURCE_REQUIRED.items()}
         profile_fields_verified = False
@@ -1571,21 +1691,45 @@ def _inspect_source(
             known_users = {row[0] for row in connection.execute('SELECT id FROM "user"')}
             if any(row[0] not in known_users for row in connection.execute('SELECT user_id FROM "chat"')):
                 _block(report, "chat_owner_missing", 1, fatal=True)
-        if include_named_tool_configuration:
+        if include_named_tool_configuration or include_api_key_configuration:
             config_rows = report["table_counts"].get("config", 0)
             verified = False
             defaults_source_hash = None
             defaults_hash = None
             if not report["fatal"] and valid_required.get("user"):
                 try:
-                    selected_connection = _parse_named_tool_connection(connection)
+                    selected_connection = (
+                        _parse_named_tool_connection(connection)
+                        if include_named_tool_configuration
+                        else None
+                    )
+                    api_key_settings = (
+                        _parse_api_key_configuration(connection)
+                        if include_api_key_configuration
+                        else None
+                    )
                     defaults, defaults_source_hash, defaults_hash = _load_pinned_old_defaults()
                     target_config_data = json.loads(
                         json.dumps(defaults, sort_keys=True, separators=(",", ":"))
                     )
-                    target_config_data.setdefault("tool_server", {})[
-                        "connections"
-                    ] = selected_connection
+                    if selected_connection is not None:
+                        target_config_data.setdefault("tool_server", {})[
+                            "connections"
+                        ] = selected_connection
+                    if api_key_settings is not None:
+                        auth_config = target_config_data.setdefault("auth", {})
+                        if not isinstance(auth_config, dict):
+                            raise MigrationError(
+                                "api_key_configuration_old_defaults_invalid",
+                                "pinned old configuration defaults have an unsupported auth shape",
+                            )
+                        api_key_config = auth_config.setdefault("api_key", {})
+                        if not isinstance(api_key_config, dict):
+                            raise MigrationError(
+                                "api_key_configuration_old_defaults_invalid",
+                                "pinned old configuration defaults have an unsupported API-key shape",
+                            )
+                        api_key_config.update(api_key_settings)
                     named_tool_config_data = {
                         "data": target_config_data,
                         "version": target_config_data["version"],
@@ -1594,7 +1738,11 @@ def _inspect_source(
                 except MigrationError as error:
                     _block(report, error.code, 1, fatal=True)
             if verified:
-                remaining_config_rows = max(config_rows - 1, 0)
+                selected_config_rows = (
+                    (1 if include_named_tool_configuration else 0)
+                    + (3 if include_api_key_configuration else 0)
+                )
+                remaining_config_rows = max(config_rows - selected_config_rows, 0)
                 if remaining_config_rows:
                     _block(
                         report,
@@ -1602,12 +1750,20 @@ def _inspect_source(
                         remaining_config_rows,
                         detail="remaining configuration values are retained only in the source archive",
                     )
-                _block(
-                    report,
-                    "named_tool_configuration_prototype",
-                    1,
-                    detail="selected named-tool connections are mapped; remaining configuration is archived and cutover is disabled",
-                )
+                if include_named_tool_configuration:
+                    _block(
+                        report,
+                        "named_tool_configuration_prototype",
+                        1,
+                        detail="selected named-tool connections are mapped; remaining configuration is archived and cutover is disabled",
+                    )
+                if include_api_key_configuration:
+                    _block(
+                        report,
+                        "api_key_configuration_prototype",
+                        1,
+                        detail="three selected API-key settings are mapped; remaining configuration is archived and cutover is disabled",
+                    )
             else:
                 remaining_config_rows = config_rows
                 if config_rows:
@@ -1617,14 +1773,24 @@ def _inspect_source(
                         config_rows,
                         detail="configuration is retained only in the source archive",
                     )
-            report["named_tool_configuration"] = {
-                "opt_in": True,
-                "selected_connection_count": len(selected_connection) if verified else 0,
-                "old_defaults_verified": bool(verified),
-                "defaults_source_sha256": defaults_source_hash,
-                "defaults_literal_sha256": defaults_hash,
-                "remaining_config_rows": remaining_config_rows,
-            }
+            if include_named_tool_configuration:
+                report["named_tool_configuration"] = {
+                    "opt_in": True,
+                    "selected_connection_count": len(selected_connection) if verified else 0,
+                    "old_defaults_verified": bool(verified),
+                    "defaults_source_sha256": defaults_source_hash,
+                    "defaults_literal_sha256": defaults_hash,
+                    "remaining_config_rows": remaining_config_rows,
+                }
+            if include_api_key_configuration:
+                report["api_key_configuration"] = {
+                    "opt_in": True,
+                    "selected_key_count": 3 if verified else 0,
+                    "old_defaults_verified": bool(verified),
+                    "defaults_source_sha256": defaults_source_hash,
+                    "defaults_literal_sha256": defaults_hash,
+                    "remaining_config_rows": remaining_config_rows,
+                }
         group_memberships = _validate_group_domains(connection, report, user_ids, template)
         object_access = _validate_object_domains(connection, report, user_ids, set(group_memberships))
         for table in COPYABLE_TABLES & set(tables):
@@ -1651,6 +1817,7 @@ def inspect_source(
     include_named_tool_configuration: bool = False,
     include_user_profile_fields: bool = False,
     include_api_keys: bool = False,
+    include_api_key_configuration: bool = False,
 ) -> tuple[dict, list, dict, dict, dict]:
     """Inspect source inputs while preserving the original five-value API."""
     return _inspect_source(
@@ -1661,6 +1828,7 @@ def inspect_source(
         include_named_tool_configuration=include_named_tool_configuration,
         include_user_profile_fields=include_user_profile_fields,
         include_api_keys=include_api_keys,
+        include_api_key_configuration=include_api_key_configuration,
     )[:5]
 
 
@@ -1673,6 +1841,7 @@ def preview(
     include_named_tool_configuration: bool = False,
     include_user_profile_fields: bool = False,
     include_api_keys: bool = False,
+    include_api_key_configuration: bool = False,
 ) -> dict:
     report, _, _, _, _ = inspect_source(
         source_db,
@@ -1682,6 +1851,7 @@ def preview(
         include_named_tool_configuration=include_named_tool_configuration,
         include_user_profile_fields=include_user_profile_fields,
         include_api_keys=include_api_keys,
+        include_api_key_configuration=include_api_key_configuration,
     )
     return report
 
@@ -1806,6 +1976,7 @@ def convert(
     include_named_tool_configuration: bool = False,
     include_user_profile_fields: bool = False,
     include_api_keys: bool = False,
+    include_api_key_configuration: bool = False,
     failpoint: Callable[[str], None] | None = None,
 ) -> dict:
     started = time.perf_counter()
@@ -1817,6 +1988,7 @@ def convert(
         include_named_tool_configuration=include_named_tool_configuration,
         include_user_profile_fields=include_user_profile_fields,
         include_api_keys=include_api_keys,
+        include_api_key_configuration=include_api_key_configuration,
     )
     source = Path(source_db).resolve(strict=True)
     template = Path(old_template).resolve(strict=True)
@@ -1863,7 +2035,9 @@ def convert(
         target_connection.execute("PRAGMA foreign_keys=ON")
         marker_before = _validate_template(
             template,
-            require_named_tool_config=include_named_tool_configuration,
+            require_named_tool_config=(
+                include_named_tool_configuration or include_api_key_configuration
+            ),
             prepare_user_profile_fields=include_user_profile_fields,
         )["markers"]
         try:
@@ -2034,6 +2208,11 @@ def main(argv: list[str] | None = None) -> int:
             action="store_true",
             help="copy only validated supported opaque keys to their matching legacy user fields",
         )
+        command.add_argument(
+            "--include-api-key-configuration",
+            action="store_true",
+            help="map only the three measured API-key policy settings into the old nested configuration",
+        )
     args = parser.parse_args(argv)
     try:
         if args.command == "preview":
@@ -2045,6 +2224,7 @@ def main(argv: list[str] | None = None) -> int:
                 include_named_tool_configuration=args.include_named_tool_configuration,
                 include_user_profile_fields=args.include_user_profile_fields,
                 include_api_keys=args.include_api_keys,
+                include_api_key_configuration=args.include_api_key_configuration,
             )
         else:
             report = convert(
@@ -2058,6 +2238,7 @@ def main(argv: list[str] | None = None) -> int:
                 include_named_tool_configuration=args.include_named_tool_configuration,
                 include_user_profile_fields=args.include_user_profile_fields,
                 include_api_keys=args.include_api_keys,
+                include_api_key_configuration=args.include_api_key_configuration,
             )
     except MigrationError as error:
         report = {"status": "refused", "error_code": error.code, **error.report}
