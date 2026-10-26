@@ -958,6 +958,10 @@ def _metadata_feature_enabled(metadata, feature_name):
     return features.get(feature_name, False)
 
 
+def _should_generate_default_chat_title(tasks, messages):
+    return len(messages) == 2 and tasks[TASKS.TITLE_GENERATION] is not False
+
+
 async def process_chat_response(
     request, response, form_data, user, metadata, model, events, tasks
 ):
@@ -1013,7 +1017,7 @@ async def process_chat_response(
                                     "data": title,
                                 }
                             )
-                    elif len(messages) == 2:
+                    elif _should_generate_default_chat_title(tasks, messages):
                         title = messages[0].get("content", "New Chat")
 
                         Chats.update_chat_title_by_id(metadata["chat_id"], title)

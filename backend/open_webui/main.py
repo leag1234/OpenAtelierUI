@@ -1121,6 +1121,19 @@ async def chat_completion(
     form_data: dict,
     user=Depends(get_verified_user),
 ):
+    chat_id = form_data.get("chat_id")
+    if chat_id is not None:
+        if not isinstance(chat_id, str) or not chat_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found"
+            )
+        if not chat_id.startswith("local:"):
+            chat = Chats.get_chat_by_id(chat_id)
+            if chat is None or chat.user_id != user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found"
+                )
+
     if not request.app.state.MODELS:
         await get_all_models(request, user=user)
 

@@ -1,0 +1,13 @@
+# Saved-chat completion metadata ownership slice
+
+This source67 slice follows the measured `TASK-OPENATELIER-CHAT-METADATA-001` contract. Before model discovery, payload processing, hooks, provider dispatch, or message handling, the existing chat-completion route now checks any present non-null saved `chat_id`. A malformed present ID, missing stored chat, or chat owned by another user returns the same generic 404. Ownership is checked against the authenticated caller ID even for an administrator. Absent/null chat metadata and the existing `local:` transient-chat form continue through the legacy path. The route aliases continue to reference the same handler and its existing authentication dependency.
+
+The existing two-message title fallback now runs unless `title_generation` is the literal boolean `False`. This preserves the stored title when generation is explicitly disabled while retaining the old fallback for other values.
+
+The current native observations supplied for this slice showed ordinary foreign and administrator foreign completion metadata returning 404 without changing the stored chat, while the owner received the measured acknowledgement and saved the reply without changing the selected title when title generation was false. The earlier source66 candidate allowed a foreign completion to write into the new synthetic member chat and changed its title despite that explicit false. This local patch targets those measured differences; it does not qualify full chat DTO, acknowledgement, or runtime parity.
+
+## Checks and limits
+
+`python3 validation/test_chat_metadata_ownership.py` runs six source-extracted tests for ordinary/admin foreign denial before model discovery and downstream effects, missing chats, owned continuation, absent/null/local contexts, malformed IDs, and strict-false title behavior wired into the response handler. `python3 validation/test_task_ownership.py` reruns the prior nine task-ownership regressions. Both pass. `PYTHONPYCACHEPREFIX=/tmp/openatelier-chat-metadata-pycache python3 -m py_compile backend/open_webui/main.py backend/open_webui/utils/middleware.py validation/test_chat_metadata_ownership.py` and `git diff --check` pass.
+
+The first local test run exposed a fixture mismatch: its model map used a different synthetic model key than the request. The fixture was corrected; no product source or external state was changed. Tests execute extracted source with controlled dependencies and do not prove mounted-app behavior. Primary native replay remains required. General metadata shapes, multiworker behavior, revocation, and other routes remain outside this slice.
