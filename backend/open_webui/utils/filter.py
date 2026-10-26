@@ -9,13 +9,53 @@ log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MAIN"])
 
 
-def get_sorted_filter_ids(model: dict):
-    def get_priority(function_id):
-        function = Functions.get_function_by_id(function_id)
-        if function is not None:
-            valves = Functions.get_function_valves_by_id(function_id)
-            return valves.get("priority", 0) if valves else 0
+def get_sorted_filter_ids(model: dict, request=None):
+    def get_filter_module(function_id):
+        if request is not None:
+            function_modules = request.app.state.FUNCTIONS
+            if function_id in function_modules:
+                return function_modules[function_id]
+
+        function_module, _, _ = load_function_module_by_id(function_id)
+        if request is not None:
+            request.app.state.FUNCTIONS[function_id] = function_module
+        return function_module
+
+    def get_default_priority(function_module):
+        valves_type = getattr(function_module, "Valves", None)
+        if valves_type is None:
+            return 0
+
+        fields = getattr(valves_type, "model_fields", None)
+        if fields is not None:
+            priority_field = fields.get("priority")
+            if priority_field is None or priority_field.is_required():
+                return 0
+            return priority_field.default
+
+        class_default = vars(valves_type).get("priority")
+        if class_default is not None and not isinstance(class_default, property):
+            return class_default
+
+        try:
+            priority_parameter = inspect.signature(valves_type).parameters.get(
+                "priority"
+            )
+        except (TypeError, ValueError):
+            priority_parameter = None
+        if (
+            priority_parameter is not None
+            and priority_parameter.default is not inspect.Parameter.empty
+        ):
+            return priority_parameter.default
         return 0
+
+    def get_priority(function_id):
+        function_module = get_filter_module(function_id)
+        valves = Functions.get_function_valves_by_id(function_id)
+        if valves is not None and "priority" in valves:
+            return valves["priority"]
+        return get_default_priority(function_module)
 
     filter_ids = [function.id for function in Functions.get_global_filter_functions()]
     if "info" in model and "meta" in model["info"]:
