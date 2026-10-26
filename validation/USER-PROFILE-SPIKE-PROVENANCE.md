@@ -190,3 +190,25 @@ The first `py_compile` invocation tried to create bytecode beneath a protected
 user Library cache and failed with `PermissionError` before compiling either
 file. No application files changed from that attempt. The syntax check was
 rerun with `PYTHONPYCACHEPREFIX` pointed at a temporary cache directory.
+
+## FILE-API review correction
+
+Primary review rejected the initial FILE-API commit `5ae93dd` before staging.
+Its enabled list used `extra="allow"` with the full internal file dump and
+therefore exposed `path` and `access_control` in each item; the corresponding
+test repeated that incorrect expectation. It also returned raw `JSONResponse`
+objects, bypassing FastAPI response validation and leaving its generated schema
+on the legacy shape.
+
+The correction projects list items to only the fields declared by the existing
+`FileModelResponse`, while leaving each stored `FileModel` and ACL untouched.
+A new `FileListResponse` DTO provides the enabled `{items, total}` envelope.
+Both GET route decorators select their response model once from
+`OPEN_WEBUI_CURRENT_FILE_API` at module import, and the routes return ordinary
+Pydantic DTOs. The detail DTO keeps the authorized `path`, omits only the
+internal ACL field, and retains required-but-nullable timestamp fields like
+`FileModel`. Source-bound checks now verify the enabled response-model
+registrations, list exclusions/internal ACL preservation, public metadata
+shape, and default-off route shapes. Primary’s installed FastAPI/Pydantic wire
+and generated-schema replay remains pending; the initial commit’s failed
+expectation and rejection are retained here.

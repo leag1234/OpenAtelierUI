@@ -9,7 +9,7 @@ import types
 import unittest
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 
 OPEN_WEBUI = pathlib.Path(__file__).resolve().parents[1]
@@ -25,15 +25,17 @@ def _extract_classes(path, names, namespace):
     exec(compile(ast.Module(body=selected, type_ignores=[]), str(path), "exec"), namespace)
 
 
-def _extract_functions(path, names, namespace):
+def _extract_functions(path, names, namespace, *, preserve_decorators=False):
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     selected = []
     for node in tree.body:
         if isinstance(node, ast.AsyncFunctionDef) and node.name in names:
-            node.decorator_list = []
+            if not preserve_decorators:
+                node.decorator_list = []
             selected.append(node)
         elif isinstance(node, ast.FunctionDef) and node.name in names:
-            node.decorator_list = []
+            if not preserve_decorators:
+                node.decorator_list = []
             selected.append(node)
     exec(compile(ast.Module(body=selected, type_ignores=[]), str(path), "exec"), namespace)
 
@@ -73,11 +75,6 @@ class HTTPError(Exception):
         self.detail = detail
 
 
-class JSONResponseStub:
-    def __init__(self, *, content):
-        self.content = content
-
-
 class Store:
     def __init__(self, files=()):
         self.files = list(files)
@@ -105,7 +102,10 @@ def _load_subjects():
     }
     _extract_classes(
         MODELS_PATH,
-        {"FileMeta", "FileModel", "FileModelResponse", "FilePublicMetadataResponse"},
+        {
+            "FileMeta", "FileModel", "FileModelResponse", "FileListResponse",
+            "FilePublicMetadataResponse",
+        },
         models,
     )
 
@@ -115,12 +115,13 @@ def _load_subjects():
         "Optional": Optional,
         "FileModel": models["FileModel"],
         "FileModelResponse": models["FileModelResponse"],
+        "FileListResponse": models["FileListResponse"],
         "FilePublicMetadataResponse": models["FilePublicMetadataResponse"],
+        "CURRENT_FILE_API_ENABLED": False,
         "Files": store,
         "get_verified_user": lambda: None,
         "Depends": lambda value: value,
         "Query": lambda value: value,
-        "JSONResponse": JSONResponseStub,
         "HTTPException": HTTPError,
         "status": types.SimpleNamespace(HTTP_404_NOT_FOUND=404),
         "ERROR_MESSAGES": types.SimpleNamespace(NOT_FOUND="Not found"),
@@ -131,7 +132,40 @@ def _load_subjects():
         {"current_file_api_enabled", "list_files", "get_file_by_id"},
         route_namespace,
     )
+    route_namespace["CURRENT_FILE_API_ENABLED"] = route_namespace[
+        "current_file_api_enabled"
+    ]()
     return models, route_namespace, store
+
+
+def _registered_file_response_models(enabled, models):
+    class RouteRegistry:
+        def __init__(self):
+            self.responses = {}
+
+        def get(self, path, *, response_model):
+            def register(function):
+                self.responses[path] = response_model
+                return function
+
+            return register
+
+    router = RouteRegistry()
+    namespace = {
+        **models,
+        "router": router,
+        "CURRENT_FILE_API_ENABLED": enabled,
+        "Depends": lambda value: value,
+        "Query": lambda value: value,
+        "get_verified_user": lambda: None,
+    }
+    _extract_functions(
+        ROUTES_PATH,
+        {"list_files", "get_file_by_id"},
+        namespace,
+        preserve_decorators=True,
+    )
+    return router.responses
 
 
 class FileApiCompatibilityTests(unittest.TestCase):
@@ -151,6 +185,11 @@ class FileApiCompatibilityTests(unittest.TestCase):
             os.environ["OPEN_WEBUI_CURRENT_FILE_API"] = "1"
         else:
             os.environ.pop("OPEN_WEBUI_CURRENT_FILE_API", None)
+
+    def _refresh_route_flag(self):
+        self.routes["CURRENT_FILE_API_ENABLED"] = self.routes[
+            "current_file_api_enabled"
+        ]()
 
     def test_default_off_list_and_metadata_keep_legacy_shapes(self):
         acl = {"read": {"user_ids": ["reader"]}}
@@ -175,16 +214,22 @@ class FileApiCompatibilityTests(unittest.TestCase):
         second = FileRecord(id="file-02", access_control=None)
         self.store.files = [first, second]
         self._set_flag(True)
+        self._refresh_route_flag()
         user = types.SimpleNamespace(id="owner", role="user")
 
         response = asyncio.run(self.routes["list_files"](user=user))
-        self.assertIsInstance(response, JSONResponseStub)
-        self.assertEqual(set(response.content), {"items", "total"})
-        self.assertEqual(type(response.content["total"]), int)
-        self.assertEqual(response.content["total"], 2)
-        self.assertEqual([item["id"] for item in response.content["items"]], ["file-01", "file-02"])
-        self.assertEqual(response.content["items"][0]["path"], first.path)
-        self.assertEqual(response.content["items"][0]["access_control"], first.access_control)
+        self.assertIsInstance(response, self.models["FileListResponse"])
+        self.assertEqual(type(response.total), int)
+        self.assertEqual(response.total, 2)
+        self.assertEqual([item.id for item in response.items], ["file-01", "file-02"])
+        self.assertEqual(
+            set(response.items[0].model_dump()),
+            set(self.models["FileModelResponse"].model_fields),
+        )
+        self.assertNotIn("path", response.items[0].model_dump())
+        self.assertNotIn("access_control", response.items[0].model_dump())
+        self.assertEqual(first.path, "/synthetic/note.txt")
+        self.assertEqual(first.access_control, {"read": {"user_ids": ["reader"]}})
         self.assertEqual(self.store.list_calls, [("user", "owner")])
 
     def test_enabled_public_metadata_omits_acl_but_keeps_internal_record(self):
@@ -192,18 +237,27 @@ class FileApiCompatibilityTests(unittest.TestCase):
         row = FileRecord(access_control=acl)
         self.store.files = [row]
         self._set_flag(True)
+        self._refresh_route_flag()
         user = types.SimpleNamespace(id="owner", role="user")
 
         response = asyncio.run(self.routes["get_file_by_id"]("file-01", user=user))
-        self.assertIsInstance(response, JSONResponseStub)
+        self.assertIsInstance(response, self.models["FilePublicMetadataResponse"])
+        response_data = response.model_dump()
         self.assertEqual(
-            set(response.content),
+            set(response_data),
             {"id", "user_id", "hash", "filename", "path", "data", "meta", "created_at", "updated_at"},
         )
-        self.assertNotIn("access_control", response.content)
-        self.assertEqual(response.content["path"], row.path)
+        self.assertEqual(response_data["path"], row.path)
         self.assertEqual(row.access_control, acl)
         self.assertEqual(self.store.lookups, 1)
+
+        public_model = self.models["FilePublicMetadataResponse"]
+        self.assertTrue(public_model.model_fields["created_at"].is_required())
+        self.assertTrue(public_model.model_fields["updated_at"].is_required())
+        incomplete = dict(row.model_dump())
+        incomplete.pop("created_at")
+        with self.assertRaises(ValidationError):
+            public_model.model_validate(incomplete)
 
         internal = self.models["FileModel"].model_validate(row.model_dump())
         self.assertEqual(internal.access_control, acl)
@@ -213,22 +267,23 @@ class FileApiCompatibilityTests(unittest.TestCase):
         row = FileRecord(access_control=acl)
         self.store.files = [row]
         self._set_flag(True)
+        self._refresh_route_flag()
 
         owner = types.SimpleNamespace(id="owner", role="user")
         response = asyncio.run(self.routes["get_file_by_id"]("file-01", user=owner))
-        self.assertEqual(response.content["id"], "file-01")
+        self.assertEqual(response.id, "file-01")
 
         admin = types.SimpleNamespace(id="admin", role="admin")
         admin_response = asyncio.run(
             self.routes["get_file_by_id"]("file-01", user=admin)
         )
-        self.assertEqual(admin_response.content["id"], "file-01")
+        self.assertEqual(admin_response.id, "file-01")
 
         reader_route = self.routes["get_file_by_id"]
         reader_route.__globals__["has_access_to_file"] = lambda *_args: True
         reader = types.SimpleNamespace(id="reader", role="user")
         self.assertEqual(
-            asyncio.run(reader_route("file-01", user=reader)).content["id"],
+            asyncio.run(reader_route("file-01", user=reader)).id,
             "file-01",
         )
 
@@ -244,6 +299,15 @@ class FileApiCompatibilityTests(unittest.TestCase):
             asyncio.run(reader_route("missing", user=owner))
         self.assertEqual(missing.exception.status_code, 404)
         self.assertEqual(self.store.lookups, 5)
+
+    def test_startup_flag_selects_matching_fastapi_response_models(self):
+        legacy = _registered_file_response_models(False, self.models)
+        self.assertEqual(legacy["/"], list[self.models["FileModelResponse"]])
+        self.assertEqual(legacy["/{id}"], Optional[self.models["FileModel"]])
+
+        enabled = _registered_file_response_models(True, self.models)
+        self.assertIs(enabled["/"], self.models["FileListResponse"])
+        self.assertIs(enabled["/{id}"], self.models["FilePublicMetadataResponse"])
 
 
 if __name__ == "__main__":

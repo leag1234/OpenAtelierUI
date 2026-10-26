@@ -80,6 +80,11 @@ class FileModelResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class FileListResponse(BaseModel):
+    items: list[FileModelResponse]
+    total: int
+
+
 class FilePublicMetadataResponse(BaseModel):
     """Public file metadata projection without internal access-control state."""
 
@@ -90,8 +95,8 @@ class FilePublicMetadataResponse(BaseModel):
     path: Optional[str] = None
     data: Optional[dict] = None
     meta: Optional[dict] = None
-    created_at: Optional[int] = None
-    updated_at: Optional[int] = None
+    created_at: Optional[int]
+    updated_at: Optional[int]
 
 
 class FileMetadataResponse(BaseModel):

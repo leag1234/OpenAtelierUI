@@ -16,11 +16,12 @@ from fastapi import (
     status,
     Query,
 )
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.env import SRC_LOG_LEVELS
 from open_webui.models.files import (
     FileForm,
+    FileListResponse,
     FileModel,
     FileModelResponse,
     FilePublicMetadataResponse,
@@ -45,6 +46,9 @@ router = APIRouter()
 
 def current_file_api_enabled():
     return os.environ.get("OPEN_WEBUI_CURRENT_FILE_API") == "1"
+
+
+CURRENT_FILE_API_ENABLED = current_file_api_enabled()
 
 
 ############################
@@ -170,7 +174,12 @@ def upload_file(
 ############################
 
 
-@router.get("/", response_model=list[FileModelResponse])
+@router.get(
+    "/",
+    response_model=(
+        FileListResponse if CURRENT_FILE_API_ENABLED else list[FileModelResponse]
+    ),
+)
 async def list_files(user=Depends(get_verified_user), content: bool = Query(True)):
     if user.role == "admin":
         files = Files.get_files()
@@ -181,12 +190,18 @@ async def list_files(user=Depends(get_verified_user), content: bool = Query(True
         for file in files:
             del file.data["content"]
 
-    if current_file_api_enabled():
+    if CURRENT_FILE_API_ENABLED:
         items = [
-            FileModelResponse.model_validate(file.model_dump()).model_dump(mode="json")
+            FileModelResponse.model_validate(
+                {
+                    key: value
+                    for key, value in file.model_dump().items()
+                    if key in FileModelResponse.model_fields
+                }
+            )
             for file in files
         ]
-        return JSONResponse(content={"items": items, "total": len(items)})
+        return FileListResponse(items=items, total=len(items))
 
     return files
 
@@ -263,7 +278,14 @@ async def delete_all_files(user=Depends(get_admin_user)):
 ############################
 
 
-@router.get("/{id}", response_model=Optional[FileModel])
+@router.get(
+    "/{id}",
+    response_model=(
+        FilePublicMetadataResponse
+        if CURRENT_FILE_API_ENABLED
+        else Optional[FileModel]
+    ),
+)
 async def get_file_by_id(id: str, user=Depends(get_verified_user)):
     file = Files.get_file_by_id(id)
 
@@ -278,9 +300,9 @@ async def get_file_by_id(id: str, user=Depends(get_verified_user)):
         or user.role == "admin"
         or has_access_to_file(id, "read", user)
     ):
-        if current_file_api_enabled():
+        if CURRENT_FILE_API_ENABLED:
             metadata = FilePublicMetadataResponse.model_validate(file.model_dump())
-            return JSONResponse(content=metadata.model_dump(mode="json"))
+            return metadata
         return file
     else:
         raise HTTPException(
