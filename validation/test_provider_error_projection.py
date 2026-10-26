@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import importlib.util
 import json
 import os
@@ -18,6 +19,22 @@ SPEC = importlib.util.spec_from_file_location("provider_errors_under_test", HELP
 provider_errors = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
 SPEC.loader.exec_module(provider_errors)
+
+
+class FragmentReader:
+    def __init__(self, chunks):
+        self.chunks = list(chunks)
+        self.requested = []
+
+    async def read(self, limit):
+        self.requested.append(limit)
+        if not self.chunks:
+            return b""
+        chunk = self.chunks.pop(0)
+        if len(chunk) > limit:
+            self.chunks.insert(0, chunk[limit:])
+            return chunk[:limit]
+        return chunk
 
 
 class ProviderErrorProjectionTests(unittest.TestCase):
@@ -111,6 +128,22 @@ class ProviderErrorProjectionTests(unittest.TestCase):
         response = self.build(302, b'{"error":{"message":"ignored"}}')
         self.assertEqual(response.status_code, 502)
         self.assertEqual(self.json_body(response)["error"]["message"], "Provider error response unavailable")
+
+    def test_bounded_body_reader_accumulates_fragments_and_stops_at_oversize_sentinel(self):
+        payload = b'{"error":{"message":"fragmented provider error"}}'
+        reader = FragmentReader([payload[:3], payload[3:19], payload[19:], b""])
+        body = asyncio.run(provider_errors.read_bounded_provider_error_body(reader))
+        response = self.build(401, body)
+        self.assertEqual(self.json_body(response)["error"]["message"], "fragmented provider error")
+        self.assertEqual(reader.chunks, [])
+        self.assertGreater(len(reader.requested), 2)
+
+        oversize = FragmentReader([b"x" * provider_errors.MAX_PROVIDER_ERROR_BYTES, b"sentinel"])
+        bounded = asyncio.run(provider_errors.read_bounded_provider_error_body(oversize))
+        self.assertEqual(len(bounded), provider_errors.MAX_PROVIDER_ERROR_BYTES + 1)
+        self.assertEqual(bounded[-1:], b"s")
+        self.assertEqual(oversize.chunks, [b"entinel"])
+        self.assertTrue(all(0 < count <= provider_errors.MAX_PROVIDER_ERROR_BYTES + 1 for count in oversize.requested))
 
     def test_outer_gateway_returns_marker_before_success_processing(self):
         source = (ROOT / "backend/open_webui/main.py").read_text(encoding="utf-8")

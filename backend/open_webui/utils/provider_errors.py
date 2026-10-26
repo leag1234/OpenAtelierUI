@@ -47,6 +47,18 @@ def provider_error_compat_enabled() -> bool:
     return os.environ.get("OPENATELIER_PROVIDER_ERROR_COMPAT") == "1"
 
 
+async def read_bounded_provider_error_body(reader) -> bytes:
+    """Accumulate fragmented reads while retaining at most limit plus one byte."""
+    body = bytearray()
+    while len(body) <= MAX_PROVIDER_ERROR_BYTES:
+        remaining = MAX_PROVIDER_ERROR_BYTES + 1 - len(body)
+        chunk = await reader.read(remaining)
+        if not chunk:
+            break
+        body.extend(chunk[:remaining])
+    return bytes(body)
+
+
 def _redact(value: str, secrets: tuple[str, ...]) -> str:
     for secret in secrets:
         if secret:
