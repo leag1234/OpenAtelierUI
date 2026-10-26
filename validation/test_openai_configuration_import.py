@@ -275,6 +275,78 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         self.assertIn("openai_configuration_value_unsupported", {item["code"] for item in payload["blockers"]})
 
+    def test_multiple_endpoints_preserve_index_order_and_allow_key_reuse(self):
+        urls = ["http://127.0.0.1:18081/v1", "http://127.0.0.1:18082/service/v1"]
+        keys = ["sk-first-synthetic-key", "sk-second-synthetic-key"]
+        values = {
+            **OPENAI_SETTINGS,
+            "openai.api_base_urls": urls,
+            "openai.api_keys": keys,
+        }
+        add_openai_settings(self.source, values)
+        target = self.root / "two-endpoints"
+        report = convert(
+            self.source, self.uploads, self.template, target,
+            include_openai_configuration=True,
+        )
+        self.assertEqual(report["openai_configuration"]["selected_key_count"], 4)
+        config = self.target_config(target)["openai"]
+        self.assertEqual(config["api_base_urls"], urls)
+        self.assertEqual(config["api_keys"], keys)
+        self.assertEqual(config["api_configs"], {})
+
+        self.tearDown()
+        self.setUp()
+        values["openai.api_keys"] = [keys[0], keys[0]]
+        add_openai_settings(self.source, values)
+        report = preview(
+            self.source, self.uploads, self.template,
+            include_openai_configuration=True,
+        )
+        self.assertFalse(report["fatal"])
+
+    def test_endpoint_list_bounds_and_pairing_refuse_before_target(self):
+        base = "http://127.0.0.1:18081/v1"
+        cases = (
+            ({"openai.api_base_urls": [], "openai.api_keys": []}, "openai_configuration_value_unsupported"),
+            ({"openai.api_base_urls": [base, "http://127.0.0.1:18082/v1"], "openai.api_keys": ["sk-one"]}, "openai_configuration_value_unsupported"),
+            ({"openai.api_base_urls": [base, base], "openai.api_keys": ["sk-one", "sk-two"]}, "openai_configuration_value_unsupported"),
+            ({"openai.api_base_urls": [base, "ftp://example.invalid/v1"], "openai.api_keys": ["sk-one", "sk-two"]}, "openai_configuration_value_unsupported"),
+            ({"openai.api_base_urls": [base], "openai.api_keys": ["sk-one", "sk-two"]}, "openai_configuration_value_unsupported"),
+        )
+        for replacement, expected in cases:
+            with self.subTest(replacement=replacement):
+                self.tearDown()
+                self.setUp()
+                values = {**OPENAI_SETTINGS, **replacement}
+                add_openai_settings(self.source, values)
+                self.assert_refused_before_target(expected)
+
+        self.tearDown()
+        self.setUp()
+        urls = [f"http://127.0.0.1:{18081 + index}/v1" for index in range(9)]
+        add_openai_settings(
+            self.source,
+            {**OPENAI_SETTINGS, "openai.api_base_urls": urls, "openai.api_keys": ["sk-key"] * len(urls)},
+        )
+        self.assert_refused_before_target("openai_configuration_value_unsupported")
+
+    def test_eight_endpoints_are_bounded_and_preserved(self):
+        urls = [f"http://127.0.0.1:{18081 + index}/v1" for index in range(8)]
+        keys = [f"sk-synthetic-key-{index}" for index in range(8)]
+        add_openai_settings(
+            self.source,
+            {**OPENAI_SETTINGS, "openai.api_base_urls": urls, "openai.api_keys": keys},
+        )
+        target = self.root / "eight-endpoints"
+        convert(
+            self.source, self.uploads, self.template, target,
+            include_openai_configuration=True,
+        )
+        config = self.target_config(target)["openai"]
+        self.assertEqual(config["api_base_urls"], urls)
+        self.assertEqual(config["api_keys"], keys)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

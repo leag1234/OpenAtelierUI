@@ -134,6 +134,7 @@ OPENAI_CONFIG_OLD_ALIASES = {
 }
 MAX_OPENAI_CONFIG_VALUE_BYTES = 16 * 1024
 MAX_OPENAI_API_KEY_CHARS = 4096
+MAX_OPENAI_ENDPOINTS = 8
 CHAT_UNSUPPORTED = {"tasks", "summary", "last_read_at", "current_message_id", "variables", "timer_at"}
 PRIVATE_CHAT_META_KEY = "_mdk_private_saved_work"
 PRIVATE_CHAT_META_VERSION = 1
@@ -591,27 +592,34 @@ def _parse_openai_configuration(connection: sqlite3.Connection) -> dict[str, obj
         )
     if (
         not isinstance(urls, list)
-        or len(urls) != 1
-        or not isinstance(urls[0], str)
-        or len(urls[0]) > MAX_NAMED_TOOL_URL_CHARS
-        or not _valid_named_tool_base_url(urls[0])
+        or not 1 <= len(urls) <= MAX_OPENAI_ENDPOINTS
+        or any(
+            not isinstance(url, str)
+            or len(url) > MAX_NAMED_TOOL_URL_CHARS
+            or not _valid_named_tool_base_url(url)
+            for url in urls
+        )
+        or len(set(urls)) != len(urls)
     ):
         raise MigrationError(
             "openai_configuration_value_unsupported",
-            "only one bounded credential-free HTTP(S) endpoint is supported",
+            "one to eight distinct bounded credential-free HTTP(S) endpoints are supported",
         )
     if (
         not isinstance(keys, list)
-        or len(keys) != 1
-        or not isinstance(keys[0], str)
-        or not keys[0]
-        or len(keys[0]) > MAX_OPENAI_API_KEY_CHARS
-        or not keys[0].isascii()
-        or any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in keys[0])
+        or len(keys) != len(urls)
+        or any(
+            not isinstance(key, str)
+            or not key
+            or len(key) > MAX_OPENAI_API_KEY_CHARS
+            or not key.isascii()
+            or any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in key)
+            for key in keys
+        )
     ):
         raise MigrationError(
             "openai_configuration_value_unsupported",
-            "only one bounded nonempty ASCII API key without whitespace is supported",
+            "each endpoint requires one bounded nonempty ASCII API key without whitespace",
         )
     if not isinstance(configs, dict) or configs:
         raise MigrationError(
