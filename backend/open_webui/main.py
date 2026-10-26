@@ -447,8 +447,19 @@ async def lifespan(app: FastAPI):
     yield
 
 
+DEFAULT_WEBUI_NAME = "Open WebUI"
+PROJECT_WEBUI_NAME = "OpenAtelierUI"
+
+
+def resolve_public_webui_name(configured_name: str, custom_name: str = "") -> str:
+    """Use the project identity for the inherited default, retaining overrides."""
+    if configured_name == DEFAULT_WEBUI_NAME and not custom_name:
+        return PROJECT_WEBUI_NAME
+    return configured_name
+
+
 app = FastAPI(
-    title="Open WebUI",
+    title=resolve_public_webui_name(WEBUI_NAME, os.environ.get("CUSTOM_NAME", "")),
     docs_url="/docs" if ENV == "dev" else None,
     openapi_url="/openapi.json" if ENV == "dev" else None,
     redoc_url=None,
@@ -462,7 +473,7 @@ app.state.config = AppConfig(
     redis_sentinels=get_sentinels_from_env(REDIS_SENTINEL_HOSTS, REDIS_SENTINEL_PORT),
 )
 
-app.state.WEBUI_NAME = WEBUI_NAME
+app.state.WEBUI_NAME = resolve_public_webui_name(WEBUI_NAME, os.environ.get("CUSTOM_NAME", ""))
 app.state.LICENSE_METADATA = None
 
 
@@ -1471,7 +1482,7 @@ async def get_manifest_json():
         return {
             "name": app.state.WEBUI_NAME,
             "short_name": app.state.WEBUI_NAME,
-            "description": "Open WebUI is an open, extensible, user-friendly interface for AI that adapts to your workflow.",
+            "description": "OpenAtelierUI is an open, extensible, user-friendly interface for AI that adapts to your workflow.",
             "start_url": "/",
             "display": "standalone",
             "background_color": "#343541",
@@ -1480,13 +1491,13 @@ async def get_manifest_json():
                 {
                     "src": "/static/logo.png",
                     "type": "image/png",
-                    "sizes": "500x500",
+                    "sizes": "512x512",
                     "purpose": "any",
                 },
                 {
                     "src": "/static/logo.png",
                     "type": "image/png",
-                    "sizes": "500x500",
+                    "sizes": "512x512",
                     "purpose": "maskable",
                 },
             ],
@@ -1500,7 +1511,7 @@ async def get_opensearch_xml():
     <ShortName>{app.state.WEBUI_NAME}</ShortName>
     <Description>Search {app.state.WEBUI_NAME}</Description>
     <InputEncoding>UTF-8</InputEncoding>
-    <Image width="16" height="16" type="image/x-icon">{app.state.config.WEBUI_URL}/static/favicon.png</Image>
+    <Image width="16" height="16" type="image/png">{app.state.config.WEBUI_URL}/static/favicon.png</Image>
     <Url type="text/html" method="get" template="{app.state.config.WEBUI_URL}/?q={"{searchTerms}"}"/>
     <moz:SearchForm>{app.state.config.WEBUI_URL}</moz:SearchForm>
     </OpenSearchDescription>

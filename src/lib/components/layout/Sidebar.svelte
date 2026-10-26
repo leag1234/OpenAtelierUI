@@ -530,7 +530,7 @@
 							crossorigin="anonymous"
 							src="{WEBUI_BASE_URL}/static/favicon.png"
 							class=" size-5 -translate-x-1.5 rounded-full"
-							alt="logo"
+							alt="OpenAtelierUI"
 						/>
 					</div>
 					<div class=" self-center font-medium text-sm text-gray-850 dark:text-white font-primary">

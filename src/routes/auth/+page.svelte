@@ -124,10 +124,14 @@
 
 			if (isDarkMode) {
 				const darkImage = new Image();
-				darkImage.src = '/static/favicon-dark.png';
+				const darkLogoPath =
+					$WEBUI_NAME === 'OpenAtelierUI'
+						? '/static/openatelierui-logotype-dark.svg'
+						: '/static/favicon-dark.png';
+				darkImage.src = darkLogoPath;
 
 				darkImage.onload = () => {
-					logo.src = '/static/favicon-dark.png';
+					logo.src = darkLogoPath;
 					logo.style.filter = ''; // Ensure no inversion is applied if favicon-dark.png exists
 				};
 
@@ -179,13 +183,23 @@
 		<div class="fixed m-10 z-50">
 			<div class="flex space-x-2">
 				<div class=" self-center">
-					<img
-						id="logo"
-						crossorigin="anonymous"
-						src="{WEBUI_BASE_URL}/static/splash.png"
-						class=" w-6 rounded-full"
-						alt="logo"
-					/>
+					{#if $WEBUI_NAME === 'OpenAtelierUI'}
+						<img
+							id="logo"
+							crossorigin="anonymous"
+							src="{WEBUI_BASE_URL}/static/openatelierui-logotype.svg"
+							class="h-7 w-44 object-contain object-left"
+							alt="OpenAtelierUI"
+						/>
+					{:else}
+						<img
+							id="logo"
+							crossorigin="anonymous"
+							src="{WEBUI_BASE_URL}/static/splash.png"
+							class="w-6 rounded-full"
+							alt={$WEBUI_NAME}
+						/>
+					{/if}
 				</div>
 			</div>
 		</div>

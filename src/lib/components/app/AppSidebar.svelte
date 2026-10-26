@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import Plus from '$lib/components/icons/Plus.svelte';
+	import { WEBUI_NAME } from '$lib/stores';
 
 	let selected = '';
 </script>
@@ -16,6 +17,7 @@
 		<Tooltip content="Home" placement="right">
 			<button
 				class=" cursor-pointer {selected === 'home' ? 'rounded-2xl' : 'rounded-full'}"
+				aria-label="Home"
 				on:click={() => {
 					selected = 'home';
 
@@ -24,12 +26,30 @@
 					}
 				}}
 			>
-				<img
-					src="/static/splash.png"
-					class="size-11 dark:invert p-0.5"
-					alt="logo"
-					draggable="false"
-				/>
+				{#if $WEBUI_NAME === 'OpenAtelierUI'}
+					<img
+						src="/static/favicon.svg"
+						class="size-11 p-0.5 dark:hidden"
+						alt=""
+						aria-hidden="true"
+						draggable="false"
+					/>
+					<img
+						src="/static/openatelierui-symbol-dark.svg"
+						class="hidden size-11 p-0.5 dark:block"
+						alt=""
+						aria-hidden="true"
+						draggable="false"
+					/>
+				{:else}
+					<img
+						src="/static/splash.png"
+						class="size-11 dark:invert p-0.5"
+						alt=""
+						aria-hidden="true"
+						draggable="false"
+					/>
+				{/if}
 			</button>
 		</Tooltip>
 	</div>
@@ -51,7 +71,7 @@
 			<img
 				src="/static/favicon.png"
 				class="size-10 {selected === '' ? 'rounded-2xl' : 'rounded-full'}"
-				alt="logo"
+				alt="OpenAtelierUI"
 				draggable="false"
 			/>
 		</button>
