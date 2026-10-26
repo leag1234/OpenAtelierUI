@@ -423,6 +423,104 @@ class ImportedProfileSourceIntegrationTests(unittest.TestCase):
             lookup(object(), "u1")
         connection.close()
 
+    def test_real_email_lookup_preserves_default_off_and_projects_one_profile_query(self):
+        namespace = {
+            "Optional": Optional,
+            "UserModel": self.UserModel,
+            "ImportedProfileUserModel": self.ImportedProfileUserModel,
+            "User": object(),
+            "ImportedProfileError": self.profile.ImportedProfileError,
+            "read_user_profile_fields": self.profile.read_user_profile_fields,
+        }
+        extract_method(USERS_SOURCE, "UsersTable", "get_user_by_email", namespace)
+        lookup = namespace["get_user_by_email"]
+
+        class Row:
+            id = "u1"
+            name = "Synthetic User"
+            email = "u1@example.invalid"
+            role = "user"
+            profile_image_url = "/user.png"
+            last_active_at = 1
+            updated_at = 2
+            created_at = 3
+
+        class Query:
+            def __init__(self, database):
+                self.database = database
+                self.filters = {}
+
+            def filter_by(self, **kwargs):
+                self.filters.update(kwargs)
+                self.database.filter_calls.append(dict(kwargs))
+                return self
+
+            def first(self):
+                email = self.filters["email"]
+                return self.database.row if email == self.database.row.email else None
+
+        class Database:
+            def __init__(self, session):
+                self.session = session
+                self.row = Row()
+                self.query_calls = 0
+                self.filter_calls = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return None
+
+            def query(self, _model):
+                self.query_calls += 1
+                return Query(self)
+
+            def execute(self, statement, parameters=None):
+                return self.session.execute(statement, parameters)
+
+        connection = sqlite3.connect(":memory:")
+        connection.row_factory = sqlite3.Row
+        connection.execute('CREATE TABLE "user" (id TEXT,bio TEXT,gender TEXT,date_of_birth DATE)')
+        connection.execute(
+            'INSERT INTO "user" VALUES (?,?,?,?)',
+            ("u1", "Synthetic profile", "Synthetic gender", "2000-01-02"),
+        )
+        session = SQLiteSession(connection)
+        database = Database(session)
+        enabled = {"value": False}
+        namespace["user_profile_fields_enabled"] = lambda: enabled["value"]
+        namespace["get_db"] = lambda: database
+
+        legacy = lookup(object(), "u1@example.invalid")
+        self.assertIs(type(legacy), self.UserModel)
+        self.assertEqual(database.filter_calls[-1], {"email": "u1@example.invalid"})
+        self.assertEqual(session.statements, [])
+        self.assertIsNone(lookup(object(), "U1@example.invalid"))
+        self.assertEqual(session.statements, [])
+
+        enabled["value"] = True
+        projected = lookup(object(), email="u1@example.invalid")
+        self.assertIs(type(projected), self.ImportedProfileUserModel)
+        self.assertEqual(projected.bio, "Synthetic profile")
+        self.assertEqual(projected.gender, "Synthetic gender")
+        self.assertEqual(projected.date_of_birth, datetime.date(2000, 1, 2))
+        self.assertEqual(len(session.statements), 1)
+        self.assertEqual(database.query_calls, 3)
+
+        self.assertIsNone(lookup(object(), "missing@example.invalid"))
+        self.assertEqual(len(session.statements), 1)
+        self.assertEqual(database.query_calls, 4)
+
+        namespace["read_user_profile_fields"] = lambda *_: (_ for _ in ()).throw(
+            RuntimeError("synthetic selected profile failure")
+        )
+        with self.assertRaisesRegex(self.profile.ImportedProfileError, "lookup is unavailable") as caught:
+            lookup(object(), "u1@example.invalid")
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertEqual(database.query_calls, 5)
+        connection.close()
+
     def test_actual_profile_forms_response_and_own_profile_route_are_opt_in(self):
         model_namespace = {
             "BaseModel": BaseModel,

@@ -125,3 +125,38 @@ The first host run of the new traceback assertion used a newer one-argument
 The test now uses the three-argument form available in the repository's Python
 runtime; the focused profile suite passes with the marker-redaction assertion
 executed.
+
+## Bounded email accessor continuation
+
+The measured installed-pipe case awaits `Users.get_user_by_id(caller_id)`, then
+awaits `Users.get_user_by_email(first.email)` and reads the same account's
+prepared profile. This continuation adds the existing opt-in profile projection
+to `UsersTable.get_user_by_email(email)` and the same Pipe-only proxy bridge
+already used for ID lookup. The email remains an exact query value; this change
+does not normalize it or change arbitrary in-process library access semantics.
+The native application `Users` singleton remains directly bound; only the
+adapted Pipe module receives the proxy. With profile fields enabled, the email
+method intentionally returns the already-established enriched typed shape.
+
+With the flag unset, the native email method remains on its original ORM path
+and performs no profile SELECT. With it enabled, the method does one ordinary
+email lookup and, for an existing account only, one selected profile SELECT;
+the returned value uses the existing typed profile model and JSON-safe date
+serializer. The proxy preserves positional and keyword `email` calls, native
+model/`None`/exception outcomes in synchronous pipes, and an awaitable
+thread-offloaded lookup for async pipes. A synthetic heartbeat test checks that
+an async pipe's blocking email accessor does not stall unrelated loop work.
+
+The host source tests pass, but current-installed-pipe replay and actual
+SQLAlchemy integration remain primary-owned and pending. The earlier
+partial-migration replay remains a failed baseline: before this change its
+selected installed pipe returned empty `200`/`DONE` results after three
+non-awaitable `UserModel` errors. This patch addresses only the measured email
+accessor gap; it does not claim the frozen end-to-end replay passes, broader
+plugin-import compatibility, full migration/cutover, or a durable schema
+decision. No routes, auth/session policy, importer, DDL, default, or dependency
+changed.
+
+The first compatibility-file run executed only its six pre-existing registered
+tests because the file uses an explicit `TESTS` tuple. The two new email bridge
+tests were then added to that registry and the final run executed all eight.

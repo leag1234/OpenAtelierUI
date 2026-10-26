@@ -28,6 +28,16 @@ class SyntheticUsers:
         time.sleep(0.06)
         if isinstance(self.value, BaseException):
             raise self.value
+        if isinstance(self.value, dict):
+            return next(iter(self.value.values()), None)
+        return self.value
+
+    def get_user_by_email(self, email):
+        time.sleep(0.06)
+        if isinstance(self.value, BaseException):
+            raise self.value
+        if isinstance(self.value, dict):
+            return self.value.get(email)
         return self.value
 
 
@@ -158,6 +168,72 @@ def test_async_not_found_and_lookup_errors_keep_native_outcomes():
         raise AssertionError("lookup exception was swallowed by the adapter")
 
 
+def test_sync_email_accessor_preserves_native_model_none_and_keyword_binding():
+    user = SyntheticUser()
+    users = SyntheticUsers(user)
+    module = types.ModuleType("synthetic_email_sync_plugin")
+    module.Users = users
+    module.Pipe = type("Pipe", (), {})
+    assert compat.adapt_pipe_module(module, users)
+
+    assert module.Users.get_user_by_email("user@synthetic.invalid") is user
+    assert module.Users.get_user_by_email(email="user@synthetic.invalid") is user
+
+    def unchanged_pipe():
+        return module.Users.get_user_by_email(email="user@synthetic.invalid")
+
+    async def execute():
+        return await assert_heartbeat_during(
+            compat.execute_pipe(unchanged_pipe, {}, lambda _: module)
+        )
+
+    assert asyncio.run(execute()) is user
+    users.value = None
+    assert module.Users.get_user_by_email(email="missing@synthetic.invalid") is None
+    for accessor in (users, module.Users):
+        try:
+            accessor.get_user_by_email(unknown="invalid-keyword")
+        except TypeError as error:
+            assert "email" in str(error)
+        else:
+            raise AssertionError("unexpected keyword was accepted")
+
+
+def test_async_email_accessor_is_awaitable_off_loop_and_propagates_none_and_error():
+    user = SyntheticUser()
+    users = SyntheticUsers({"user@synthetic.invalid": user})
+    module = types.ModuleType("synthetic_email_async_plugin")
+    module.Users = users
+    module.Pipe = type("Pipe", (), {})
+    assert compat.adapt_pipe_module(module, users)
+
+    async def pipe():
+        first = await module.Users.get_user_by_id(id="synthetic-user")
+        found = await module.Users.get_user_by_email(first.email)
+        missing = await module.Users.get_user_by_email("missing@synthetic.invalid")
+        return found, missing
+
+    async def execute():
+        return await assert_heartbeat_during(compat.execute_pipe(pipe, {}, lambda _: module))
+
+    found, missing = asyncio.run(execute())
+    assert found is user
+    assert missing is None
+
+    failure = LookupError("synthetic email lookup failure")
+    users.value = failure
+
+    async def failing_pipe():
+        return await module.Users.get_user_by_email("user@synthetic.invalid")
+
+    try:
+        asyncio.run(failing_pipe())
+    except LookupError as error:
+        assert error is failure
+    else:
+        raise AssertionError("lookup exception was swallowed by the adapter")
+
+
 TESTS = (
     test_unmodified_sync_pipe_lookup_runs_off_loop_and_reads_email,
     test_sync_accessor_preserves_native_model_identity_and_none,
@@ -165,6 +241,8 @@ TESTS = (
     test_non_pipe_and_unbound_modules_keep_original_binding,
     test_unmodified_async_pipe_awaits_lookup_off_loop_and_reads_email,
     test_async_not_found_and_lookup_errors_keep_native_outcomes,
+    test_sync_email_accessor_preserves_native_model_none_and_keyword_binding,
+    test_async_email_accessor_is_awaitable_off_loop_and_propagates_none_and_error,
 )
 
 

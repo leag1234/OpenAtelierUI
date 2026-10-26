@@ -176,6 +176,21 @@ class UsersTable:
             return None
 
     def get_user_by_email(self, email: str) -> Optional[UserModel]:
+        if user_profile_fields_enabled():
+            try:
+                with get_db() as db:
+                    user = db.query(User).filter_by(email=email).first()
+                    if user is None:
+                        return None
+                    model = UserModel.model_validate(user)
+                    profile = read_user_profile_fields(db, user.id)
+                    return ImportedProfileUserModel.model_validate(
+                        {**model.model_dump(), **profile}
+                    )
+            except ImportedProfileError:
+                raise
+            except Exception:
+                raise ImportedProfileError("prepared user profile lookup is unavailable") from None
         try:
             with get_db() as db:
                 user = db.query(User).filter_by(email=email).first()

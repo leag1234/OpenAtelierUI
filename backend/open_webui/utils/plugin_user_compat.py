@@ -2,15 +2,16 @@
 """Narrow sync/async bridge for legacy pipe imports of ``Users``.
 
 Only the exact imported ``Users`` binding in a dynamically loaded ``Pipe``
-module is replaced. Native application lookups and other plugin types retain
-their original behavior.
+module is replaced. The proxy bridges only the bounded ID and email lookup
+methods. Native application lookups and other plugin types retain their
+original behavior.
 """
 
 import asyncio
 
 
 class _UsersLookupProxy:
-    """Delegate Users APIs except for the one adapted accessor."""
+    """Delegate Users APIs except for the bounded ID/email accessors."""
 
     def __init__(self, users):
         self._users = users
@@ -26,6 +27,14 @@ class _UsersLookupProxy:
         # Async pipes can await this coroutine; the blocking legacy lookup
         # executes in a worker thread and resolves to UserModel or None.
         return asyncio.to_thread(lookup, id)
+
+    def get_user_by_email(self, email):
+        lookup = self._users.get_user_by_email
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return lookup(email)
+        return asyncio.to_thread(lookup, email)
 
     def __getattr__(self, name):
         return getattr(self._users, name)
