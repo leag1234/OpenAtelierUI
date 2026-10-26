@@ -42,6 +42,11 @@ from open_webui.utils.misc import (
 
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_access
+from open_webui.utils.provider_errors import (
+    MAX_PROVIDER_ERROR_BYTES,
+    build_provider_error_response,
+    provider_error_compat_enabled,
+)
 
 
 log = logging.getLogger(__name__)
@@ -724,6 +729,15 @@ async def generate_chat_completion(
                 ),
             },
         )
+
+        if r.status >= 400 and provider_error_compat_enabled():
+            error_body = await r.content.read(MAX_PROVIDER_ERROR_BYTES + 1)
+            return build_provider_error_response(
+                r.status,
+                error_body,
+                key,
+                request.headers.get("authorization"),
+            )
 
         # Check if response is SSE
         if "text/event-stream" in r.headers.get("Content-Type", ""):

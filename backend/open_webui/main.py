@@ -370,6 +370,7 @@ from open_webui.utils.chat import (
     chat_action as chat_action_handler,
 )
 from open_webui.utils.middleware import process_chat_payload, process_chat_response
+from open_webui.utils.provider_errors import ProviderErrorResponse
 from open_webui.utils.access_control import has_access
 
 from open_webui.utils.auth import (
@@ -1197,6 +1198,9 @@ async def chat_completion(
 
     try:
         response = await chat_completion_handler(request, form_data, user)
+
+        if isinstance(response, ProviderErrorResponse):
+            return response
 
         return await process_chat_response(
             request, response, form_data, user, metadata, model, events, tasks
