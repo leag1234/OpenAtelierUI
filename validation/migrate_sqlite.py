@@ -116,6 +116,24 @@ API_KEY_CONFIG_OLD_ALIASES = {
     "API_KEY_ALLOWED_ENDPOINTS",
     "auth.api_key.enable",
 }
+OPENAI_CONFIG_SOURCE_KEYS = {
+    "openai.enable",
+    "openai.api_base_urls",
+    "openai.api_keys",
+    "openai.api_configs",
+}
+OPENAI_CONFIG_OLD_ALIASES = {
+    "ENABLE_OPENAI_API",
+    "OPENAI_API_KEY",
+    "OPENAI_API_KEYS",
+    "OPENAI_API_BASE_URL",
+    "OPENAI_API_BASE_URLS",
+    "OPENAI_API_CONFIGS",
+    "openai.api_key",
+    "openai.api_base_url",
+}
+MAX_OPENAI_CONFIG_VALUE_BYTES = 16 * 1024
+MAX_OPENAI_API_KEY_CHARS = 4096
 CHAT_UNSUPPORTED = {"tasks", "summary", "last_read_at", "current_message_id", "variables", "timer_at"}
 PRIVATE_CHAT_META_KEY = "_mdk_private_saved_work"
 PRIVATE_CHAT_META_VERSION = 1
@@ -490,6 +508,121 @@ def _parse_api_key_configuration(connection: sqlite3.Connection) -> dict[str, ob
         "enable": enable,
         "endpoint_restrictions": restrictions,
         "allowed_endpoints": allowed_endpoints,
+    }
+
+
+def _parse_openai_configuration(connection: sqlite3.Connection) -> dict[str, object]:
+    """Read exactly the measured OpenAI-compatible endpoint settings."""
+    if "config" not in _tables(connection):
+        raise MigrationError(
+            "openai_configuration_source_schema_mismatch",
+            "selected OpenAI configuration table is unavailable",
+        )
+    if set(_columns(connection, "config")) != {"key", "value", "updated_at"}:
+        raise MigrationError(
+            "openai_configuration_source_schema_mismatch",
+            "selected OpenAI configuration schema is unsupported",
+        )
+
+    selected = {}
+    guarded_paths = OPENAI_CONFIG_SOURCE_KEYS
+    for row in connection.execute('SELECT "key","value" FROM "config"'):
+        key = row["key"]
+        if not isinstance(key, str):
+            continue
+        if key in OPENAI_CONFIG_OLD_ALIASES or key == "openai":
+            raise MigrationError(
+                "openai_configuration_ambiguous_override",
+                "configuration contains an unsupported OpenAI alias or parent override",
+            )
+        if key not in OPENAI_CONFIG_SOURCE_KEYS and any(
+            key == path or key.startswith(path + ".") or path.startswith(key + ".")
+            for path in guarded_paths
+        ):
+            raise MigrationError(
+                "openai_configuration_ambiguous_override",
+                "configuration contains an unsupported OpenAI dotted override",
+            )
+        if key not in OPENAI_CONFIG_SOURCE_KEYS:
+            continue
+        if key in selected:
+            raise MigrationError(
+                "openai_configuration_duplicate_key",
+                "selected OpenAI configuration contains duplicate settings",
+            )
+        raw = row["value"]
+        if not isinstance(raw, str):
+            raise MigrationError(
+                "openai_configuration_value_invalid",
+                "selected OpenAI configuration value has an unsupported type",
+            )
+        try:
+            if len(raw.encode("utf-8", errors="strict")) > MAX_OPENAI_CONFIG_VALUE_BYTES:
+                raise MigrationError(
+                    "openai_configuration_value_invalid",
+                    "selected OpenAI configuration value exceeds the supported bound",
+                )
+            selected[key] = json.loads(
+                raw,
+                object_pairs_hook=_reject_duplicate_json_keys,
+                parse_constant=_reject_nonfinite_json,
+            )
+        except MigrationError:
+            raise
+        except (UnicodeError, ValueError, TypeError, RecursionError):
+            raise MigrationError(
+                "openai_configuration_value_invalid",
+                "selected OpenAI configuration value is not supported JSON",
+            ) from None
+
+    if set(selected) != OPENAI_CONFIG_SOURCE_KEYS:
+        raise MigrationError(
+            "openai_configuration_missing_key",
+            "all four selected OpenAI configuration settings are required",
+        )
+    enable = selected["openai.enable"]
+    urls = selected["openai.api_base_urls"]
+    keys = selected["openai.api_keys"]
+    configs = selected["openai.api_configs"]
+    if type(enable) is not bool:
+        raise MigrationError(
+            "openai_configuration_value_invalid",
+            "OpenAI endpoint enablement must be a JSON boolean",
+        )
+    if (
+        not isinstance(urls, list)
+        or len(urls) != 1
+        or not isinstance(urls[0], str)
+        or len(urls[0]) > MAX_NAMED_TOOL_URL_CHARS
+        or not _valid_named_tool_base_url(urls[0])
+    ):
+        raise MigrationError(
+            "openai_configuration_value_unsupported",
+            "only one bounded credential-free HTTP(S) endpoint is supported",
+        )
+    if (
+        not isinstance(keys, list)
+        or len(keys) != 1
+        or not isinstance(keys[0], str)
+        or not keys[0]
+        or len(keys[0]) > MAX_OPENAI_API_KEY_CHARS
+        or not keys[0].isascii()
+        or any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in keys[0])
+    ):
+        raise MigrationError(
+            "openai_configuration_value_unsupported",
+            "only one bounded nonempty ASCII API key without whitespace is supported",
+        )
+    if not isinstance(configs, dict) or configs:
+        raise MigrationError(
+            "openai_configuration_value_unsupported",
+            "only an empty OpenAI endpoint options object is supported",
+        )
+    return {
+        "enable": enable,
+        "api_base_urls": urls,
+        "api_keys": keys,
+        "api_configs": configs,
     }
 
 
@@ -1710,6 +1843,7 @@ def _inspect_source(
     include_user_profile_fields: bool = False,
     include_api_keys: bool = False,
     include_api_key_configuration: bool = False,
+    include_openai_configuration: bool = False,
     include_user_permissions: bool = False,
     include_function_history: bool = False,
 ) -> dict:
@@ -1739,7 +1873,7 @@ def _inspect_source(
         template_info = _validate_template(
             template,
             require_named_tool_config=(
-                include_named_tool_configuration or include_api_key_configuration or include_user_permissions
+                include_named_tool_configuration or include_api_key_configuration or include_openai_configuration or include_user_permissions
             ),
             prepare_user_profile_fields=include_user_profile_fields,
         )
@@ -1748,6 +1882,7 @@ def _inspect_source(
         _block(report, error.code, 1, fatal=True, detail=str(error))
     object_access = {}
     named_tool_config_data = None
+    selected_openai_settings = None
     connection = _connect_ro(source)
     try:
         tables = _tables(connection)
@@ -1945,7 +2080,7 @@ def _inspect_source(
             known_users = {row[0] for row in connection.execute('SELECT id FROM "user"')}
             if any(row[0] not in known_users for row in connection.execute('SELECT user_id FROM "chat"')):
                 _block(report, "chat_owner_missing", 1, fatal=True)
-        if include_named_tool_configuration or include_api_key_configuration or include_user_permissions:
+        if include_named_tool_configuration or include_api_key_configuration or include_openai_configuration or include_user_permissions:
             config_rows = report["table_counts"].get("config", 0)
             verified = False
             defaults_source_hash = None
@@ -1960,6 +2095,11 @@ def _inspect_source(
                     api_key_settings = (
                         _parse_api_key_configuration(connection)
                         if include_api_key_configuration
+                        else None
+                    )
+                    openai_settings = (
+                        _parse_openai_configuration(connection)
+                        if include_openai_configuration
                         else None
                     )
                     user_permissions = (
@@ -1989,6 +2129,14 @@ def _inspect_source(
                                 "pinned old configuration defaults have an unsupported API-key shape",
                             )
                         api_key_config.update(api_key_settings)
+                    if openai_settings is not None:
+                        openai_config = target_config_data.setdefault("openai", {})
+                        if not isinstance(openai_config, dict):
+                            raise MigrationError(
+                                "openai_configuration_old_defaults_invalid",
+                                "pinned old configuration defaults have an unsupported OpenAI shape",
+                            )
+                        openai_config.update(openai_settings)
                     if user_permissions is not None:
                         user_config = target_config_data.setdefault("user", {})
                         if not isinstance(user_config, dict):
@@ -2001,6 +2149,7 @@ def _inspect_source(
                         "data": target_config_data,
                         "version": target_config_data["version"],
                     }
+                    selected_openai_settings = openai_settings
                     verified = True
                 except MigrationError as error:
                     _block(report, error.code, 1, fatal=True)
@@ -2008,6 +2157,7 @@ def _inspect_source(
                 selected_config_rows = (
                     (1 if include_named_tool_configuration else 0)
                     + (3 if include_api_key_configuration else 0)
+                    + (4 if include_openai_configuration else 0)
                     + (1 if include_user_permissions else 0)
                 )
                 remaining_config_rows = max(config_rows - selected_config_rows, 0)
@@ -2031,6 +2181,13 @@ def _inspect_source(
                         "api_key_configuration_prototype",
                         1,
                         detail="three selected API-key settings are mapped; remaining configuration is archived and cutover is disabled",
+                    )
+                if include_openai_configuration:
+                    _block(
+                        report,
+                        "openai_configuration_prototype",
+                        1,
+                        detail="four selected OpenAI-compatible endpoint settings are mapped; remaining configuration is archived and cutover is disabled",
                     )
                 if include_user_permissions:
                     _block(
@@ -2066,6 +2223,15 @@ def _inspect_source(
                     "defaults_literal_sha256": defaults_hash,
                     "remaining_config_rows": remaining_config_rows,
                 }
+            if include_openai_configuration:
+                report["openai_configuration"] = {
+                    "opt_in": True,
+                    "selected_key_count": 4 if verified else 0,
+                    "old_defaults_verified": bool(verified),
+                    "defaults_source_sha256": defaults_source_hash,
+                    "defaults_literal_sha256": defaults_hash,
+                    "remaining_config_rows": remaining_config_rows,
+                }
             if include_user_permissions:
                 report["user_permissions"] = {
                     "opt_in": True,
@@ -2090,7 +2256,7 @@ def _inspect_source(
     report["cutover_eligible"] = not report["blockers"]
     report["status"] = "eligible_for_review" if report["cutover_eligible"] else ("refused_fatal_input" if report["fatal"] else "blocked_partial_candidate")
     report["metrics"] = _metrics(started, source.stat().st_size + report.get("upload_bytes", 0))
-    return report, file_rows, object_access, group_memberships, private_chat_overrides, named_tool_config_data, api_key_overrides
+    return report, file_rows, object_access, group_memberships, private_chat_overrides, named_tool_config_data, api_key_overrides, selected_openai_settings
 
 
 def inspect_source(
@@ -2103,6 +2269,7 @@ def inspect_source(
     include_user_profile_fields: bool = False,
     include_api_keys: bool = False,
     include_api_key_configuration: bool = False,
+    include_openai_configuration: bool = False,
     include_user_permissions: bool = False,
     include_function_history: bool = False,
 ) -> tuple[dict, list, dict, dict, dict]:
@@ -2116,6 +2283,7 @@ def inspect_source(
         include_user_profile_fields=include_user_profile_fields,
         include_api_keys=include_api_keys,
         include_api_key_configuration=include_api_key_configuration,
+        include_openai_configuration=include_openai_configuration,
         include_user_permissions=include_user_permissions,
         include_function_history=include_function_history,
     )[:5]
@@ -2131,6 +2299,7 @@ def preview(
     include_user_profile_fields: bool = False,
     include_api_keys: bool = False,
     include_api_key_configuration: bool = False,
+    include_openai_configuration: bool = False,
     include_user_permissions: bool = False,
     include_function_history: bool = False,
 ) -> dict:
@@ -2143,6 +2312,7 @@ def preview(
         include_user_profile_fields=include_user_profile_fields,
         include_api_keys=include_api_keys,
         include_api_key_configuration=include_api_key_configuration,
+        include_openai_configuration=include_openai_configuration,
         include_user_permissions=include_user_permissions,
         include_function_history=include_function_history,
     )
@@ -2270,12 +2440,13 @@ def convert(
     include_user_profile_fields: bool = False,
     include_api_keys: bool = False,
     include_api_key_configuration: bool = False,
+    include_openai_configuration: bool = False,
     include_user_permissions: bool = False,
     include_function_history: bool = False,
     failpoint: Callable[[str], None] | None = None,
 ) -> dict:
     started = time.perf_counter()
-    report, upload_rows, object_access, group_memberships, private_chat_overrides, named_tool_config_data, api_key_overrides = _inspect_source(
+    report, upload_rows, object_access, group_memberships, private_chat_overrides, named_tool_config_data, api_key_overrides, openai_settings = _inspect_source(
         source_db,
         uploads_root,
         old_template,
@@ -2284,6 +2455,7 @@ def convert(
         include_user_profile_fields=include_user_profile_fields,
         include_api_keys=include_api_keys,
         include_api_key_configuration=include_api_key_configuration,
+        include_openai_configuration=include_openai_configuration,
         include_user_permissions=include_user_permissions,
         include_function_history=include_function_history,
     )
@@ -2333,7 +2505,7 @@ def convert(
         marker_before = _validate_template(
             template,
             require_named_tool_config=(
-                include_named_tool_configuration or include_api_key_configuration or include_user_permissions
+                include_named_tool_configuration or include_api_key_configuration or include_openai_configuration or include_user_permissions
             ),
             prepare_user_profile_fields=include_user_profile_fields,
         )["markers"]
@@ -2519,6 +2691,11 @@ def main(argv: list[str] | None = None) -> int:
             help="map only the three measured API-key policy settings into the old nested configuration",
         )
         command.add_argument(
+            "--include-openai-configuration",
+            action="store_true",
+            help="map only the four measured OpenAI-compatible endpoint settings into old configuration",
+        )
+        command.add_argument(
             "--include-user-permissions",
             action="store_true",
             help="map the exact measured nested boolean user-permissions setting into old configuration",
@@ -2540,6 +2717,7 @@ def main(argv: list[str] | None = None) -> int:
                 include_user_profile_fields=args.include_user_profile_fields,
                 include_api_keys=args.include_api_keys,
                 include_api_key_configuration=args.include_api_key_configuration,
+                include_openai_configuration=args.include_openai_configuration,
                 include_user_permissions=args.include_user_permissions,
                 include_function_history=args.include_function_history,
             )
@@ -2556,6 +2734,7 @@ def main(argv: list[str] | None = None) -> int:
                 include_user_profile_fields=args.include_user_profile_fields,
                 include_api_keys=args.include_api_keys,
                 include_api_key_configuration=args.include_api_key_configuration,
+                include_openai_configuration=args.include_openai_configuration,
                 include_user_permissions=args.include_user_permissions,
                 include_function_history=args.include_function_history,
             )
