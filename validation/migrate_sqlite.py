@@ -621,11 +621,23 @@ def _parse_openai_configuration(connection: sqlite3.Connection) -> dict[str, obj
             "openai_configuration_value_unsupported",
             "each endpoint requires one bounded nonempty ASCII API key without whitespace",
         )
-    if not isinstance(configs, dict) or configs:
+    if not isinstance(configs, dict):
         raise MigrationError(
             "openai_configuration_value_unsupported",
-            "only an empty OpenAI endpoint options object is supported",
+            "OpenAI endpoint configuration must be an object",
         )
+    if configs:
+        expected_indexes = {str(index) for index in range(len(urls))}
+        if set(configs) != expected_indexes or any(
+            type(configs[index]) is not dict
+            or set(configs[index]) != {"enable"}
+            or type(configs[index]["enable"]) is not bool
+            for index in expected_indexes
+        ):
+            raise MigrationError(
+                "openai_configuration_value_unsupported",
+                "only a complete canonical endpoint-index map with a boolean enable field is supported",
+            )
     return {
         "enable": enable,
         "api_base_urls": urls,

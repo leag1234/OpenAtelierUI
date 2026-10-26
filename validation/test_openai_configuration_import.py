@@ -347,6 +347,60 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
         self.assertEqual(config["api_base_urls"], urls)
         self.assertEqual(config["api_keys"], keys)
 
+    def test_complete_indexed_enable_map_preserves_false_and_true(self):
+        urls = ["http://127.0.0.1:18081/v1", "http://127.0.0.1:18082/v1"]
+        keys = ["sk-index-zero", "sk-index-one"]
+        states = {"0": {"enable": False}, "1": {"enable": True}}
+        add_openai_settings(
+            self.source,
+            {
+                **OPENAI_SETTINGS,
+                "openai.api_base_urls": urls,
+                "openai.api_keys": keys,
+                "openai.api_configs": states,
+            },
+        )
+        target = self.root / "indexed-enable-map"
+        report = convert(
+            self.source, self.uploads, self.template, target,
+            include_openai_configuration=True,
+        )
+        self.assertEqual(report["openai_configuration"]["selected_key_count"], 4)
+        config = self.target_config(target)["openai"]
+        self.assertEqual(config["api_base_urls"], urls)
+        self.assertEqual(config["api_keys"], keys)
+        self.assertEqual(config["api_configs"], states)
+        self.assertIs(config["api_configs"]["0"]["enable"], False)
+        self.assertIs(config["api_configs"]["1"]["enable"], True)
+
+    def test_sparse_or_unmeasured_endpoint_enable_maps_refuse_before_target(self):
+        urls = ["http://127.0.0.1:18081/v1", "http://127.0.0.1:18082/v1"]
+        keys = ["sk-index-zero", "sk-index-one"]
+        invalid_maps = (
+            {"0": {"enable": False}},
+            {"0": {"enable": False}, "2": {"enable": True}},
+            {"00": {"enable": False}, "1": {"enable": True}},
+            {"0": {"enable": False}, "1": {"enabled": True}},
+            {"0": {"enable": False}, "1": {"enable": True, "timeout": 1}},
+            {"0": {"enable": "false"}, "1": {"enable": True}},
+            {"0": [False], "1": {"enable": True}},
+            [False, True],
+        )
+        for config_map in invalid_maps:
+            with self.subTest(config_map=config_map):
+                self.tearDown()
+                self.setUp()
+                add_openai_settings(
+                    self.source,
+                    {
+                        **OPENAI_SETTINGS,
+                        "openai.api_base_urls": urls,
+                        "openai.api_keys": keys,
+                        "openai.api_configs": config_map,
+                    },
+                )
+                self.assert_refused_before_target("openai_configuration_value_unsupported")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
