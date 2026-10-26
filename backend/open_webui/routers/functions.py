@@ -9,18 +9,27 @@ from open_webui.models.functions import (
     FunctionResponse,
     Functions,
 )
+from open_webui.models.users import Users
+from open_webui.utils.imported_history import (
+    HistoryNotFound,
+    HistoryUnavailable,
+    get_current_function_metadata,
+    get_history as get_imported_function_history,
+    list_history as list_imported_function_history,
+)
 from open_webui.utils.plugin import load_function_module_by_id, replace_imports
 from open_webui.config import CACHE_DIR
 from open_webui.constants import ERROR_MESSAGES
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from open_webui.utils.auth import get_admin_user, get_verified_user
-from open_webui.env import SRC_LOG_LEVELS
+from open_webui.env import DATA_DIR, DATABASE_URL, SRC_LOG_LEVELS
 
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MAIN"])
 
 
 router = APIRouter()
+_FUNCTION_HISTORY_READS = os.environ.get("OPEN_WEBUI_IMPORTED_HISTORY_READS") == "1"
 
 ############################
 # GetFunctions
@@ -103,17 +112,73 @@ async def create_new_function(
 ############################
 
 
-@router.get("/id/{id}", response_model=Optional[FunctionModel])
+@router.get(
+    "/id/{id}",
+    response_model=None if _FUNCTION_HISTORY_READS else Optional[FunctionModel],
+)
 async def get_function_by_id(id: str, user=Depends(get_admin_user)):
     function = Functions.get_function_by_id(id)
 
     if function:
+        if _FUNCTION_HISTORY_READS:
+            try:
+                metadata = get_current_function_metadata(DATA_DIR, DATABASE_URL, function)
+            except HistoryUnavailable as error:
+                raise HTTPException(status_code=503, detail=str(error))
+            response = function.model_dump()
+            response["version_id"] = metadata["version_id"]
+            if "toggle" in metadata:
+                response.setdefault("meta", {})["toggle"] = metadata["toggle"]
+            return response
         return function
     else:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
+
+
+async def get_function_history(id: str, page: int = Query(default=1), user=Depends(get_admin_user)):
+    if user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+    function = Functions.get_function_by_id(id)
+    if not function:
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        return list_imported_function_history(
+            DATA_DIR, DATABASE_URL, "function", function, page, Users.get_user_by_id
+        )
+    except HistoryNotFound:
+        raise HTTPException(status_code=404, detail="Not found")
+    except HistoryUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error))
+
+
+async def get_function_history_version(
+    id: str, history_id: str, user=Depends(get_admin_user)
+):
+    if user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+    function = Functions.get_function_by_id(id)
+    if not function:
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        return get_imported_function_history(
+            DATA_DIR, DATABASE_URL, "function", function, history_id, Users.get_user_by_id
+        )
+    except HistoryNotFound:
+        raise HTTPException(status_code=404, detail="Version not found")
+    except HistoryUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error))
+
+
+if _FUNCTION_HISTORY_READS:
+    router.add_api_route(
+        "/id/{id}/history", get_function_history, methods=["GET"]
+    )
+    router.add_api_route(
+        "/id/{id}/history/{history_id}", get_function_history_version, methods=["GET"]
+    )
 
 
 ############################

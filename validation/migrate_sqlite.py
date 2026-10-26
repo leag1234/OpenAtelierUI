@@ -16,6 +16,7 @@ from datetime import date
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import ipaddress
 import re
@@ -1559,6 +1560,146 @@ def _validate_template(
         connection.close()
 
 
+def _validate_function_history(connection: sqlite3.Connection, tables: set[str]) -> bool:
+    """Validate the measured function-history subset before target creation."""
+    expected = {"id", "function_id", "parent_id", "snapshot", "user_id", "commit_message", "created_at"}
+    if "function_history" not in tables or set(_columns(connection, "function_history")) != expected:
+        raise ValueError("function history schema is outside the supported shape")
+    function_columns = set(_columns(connection, "function")) if "function" in tables else set()
+    if not {"id", "user_id", "version_id", "meta"}.issubset(function_columns):
+        raise ValueError("function history requires known active function links")
+    if "user" not in tables or "id" not in _columns(connection, "user"):
+        raise ValueError("function history requires known authors")
+    if _count(connection, "function_history") > 10_000:
+        raise ValueError("function history exceeds the revision limit")
+
+    function_rows = {
+        row["id"]: row
+        for row in connection.execute('SELECT id,user_id,version_id,meta FROM "function"')
+        if isinstance(row["id"], str) and row["id"]
+    }
+    user_ids = {row[0] for row in connection.execute('SELECT id FROM "user"')}
+    rows = connection.execute(
+        'SELECT id,function_id,parent_id,snapshot,user_id,commit_message,created_at FROM "function_history"'
+    ).fetchall()
+    by_id = {}
+    total_snapshot_bytes = 0
+    for row in rows:
+        revision_id, function_id = row["id"], row["function_id"]
+        if not isinstance(revision_id, str) or not revision_id or revision_id in by_id:
+            raise ValueError("function history contains an invalid or duplicate revision id")
+        if not isinstance(function_id, str) or function_id not in function_rows:
+            raise ValueError("function history references an unknown function")
+        if not isinstance(row["user_id"], str) or row["user_id"] not in user_ids:
+            raise ValueError("function history references an unknown author")
+        if row["parent_id"] is not None and (not isinstance(row["parent_id"], str) or not row["parent_id"]):
+            raise ValueError("function history has an invalid parent id")
+        if row["commit_message"] is not None and not isinstance(row["commit_message"], str):
+            raise ValueError("function history has an invalid commit message")
+        if not isinstance(row["created_at"], int) or isinstance(row["created_at"], bool):
+            raise ValueError("function history has an invalid creation time")
+        snapshot_text = row["snapshot"]
+        if not isinstance(snapshot_text, str):
+            raise ValueError("function history snapshot is not text")
+        try:
+            encoded = snapshot_text.encode("utf-8", errors="strict")
+        except UnicodeEncodeError:
+            raise ValueError("function history snapshot contains invalid Unicode") from None
+        total_snapshot_bytes += len(encoded)
+        if len(encoded) > 256 * 1024 or total_snapshot_bytes > 8 * 1024 * 1024:
+            raise ValueError("function history exceeds the snapshot or dataset limit")
+        try:
+            snapshot = json.loads(
+                snapshot_text,
+                object_pairs_hook=_reject_duplicate_json_keys,
+                parse_constant=_reject_nonfinite_json,
+            )
+        except (json.JSONDecodeError, RecursionError, ValueError):
+            raise ValueError("function history snapshot is invalid JSON") from None
+        try:
+            _validate_function_json_value(snapshot)
+        except RecursionError:
+            raise ValueError("function history snapshot nesting is unsupported") from None
+        if (
+            not isinstance(snapshot, dict)
+            or set(snapshot) != {"name", "content", "meta"}
+            or not isinstance(snapshot["name"], str)
+            or not isinstance(snapshot["content"], str)
+            or not isinstance(snapshot["meta"], dict)
+        ):
+            raise ValueError("function history snapshot is outside the supported object shape")
+        by_id[revision_id] = {
+            "function_id": function_id,
+            "parent_id": row["parent_id"],
+        }
+
+    children = {}
+    for revision_id, row in by_id.items():
+        parent_id = row["parent_id"]
+        if parent_id is None:
+            continue
+        parent = by_id.get(parent_id)
+        if parent is None or parent["function_id"] != row["function_id"]:
+            raise ValueError("function history parent is missing or belongs to another function")
+        children[revision_id] = parent_id
+    settled = set()
+    for revision_id in by_id:
+        path = set()
+        current = revision_id
+        while current in children and current not in settled:
+            if current in path:
+                raise ValueError("function history contains a parent cycle")
+            path.add(current)
+            current = children[current]
+        settled.update(path)
+    resource_ids = {}
+    for revision_id, row in by_id.items():
+        resource_ids.setdefault(row["function_id"], set()).add(revision_id)
+    for function_id, function in function_rows.items():
+        version_id = function["version_id"]
+        history_ids = resource_ids.get(function_id, set())
+        if history_ids:
+            if not isinstance(function["user_id"], str) or function["user_id"] not in user_ids:
+                raise ValueError("function history resource has no known owner")
+            if not isinstance(version_id, str) or version_id not in history_ids:
+                raise ValueError("function current-version link does not match retained history")
+            try:
+                meta = json.loads(function["meta"], object_pairs_hook=_reject_duplicate_json_keys)
+            except (json.JSONDecodeError, RecursionError, TypeError, ValueError):
+                raise ValueError("function history active metadata is invalid") from None
+            try:
+                _validate_function_json_value(meta)
+            except RecursionError:
+                raise ValueError("function history active metadata nesting is unsupported") from None
+            if not isinstance(meta, dict) or not isinstance(meta.get("toggle"), bool):
+                raise ValueError("function history active metadata lacks the measured toggle")
+        elif isinstance(version_id, str) and version_id:
+            raise ValueError("function current-version link has no retained history")
+    return True
+
+
+def _reject_nonfinite_json(value: str):
+    raise ValueError("non-finite JSON number")
+
+
+def _validate_function_json_value(value) -> None:
+    if isinstance(value, str):
+        try:
+            value.encode("utf-8", errors="strict")
+        except UnicodeEncodeError:
+            raise ValueError("function history snapshot contains invalid Unicode") from None
+    elif isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("function history snapshot contains a non-finite number")
+    elif isinstance(value, list):
+        for item in value:
+            _validate_function_json_value(item)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _validate_function_json_value(key)
+            _validate_function_json_value(item)
+
+
 def _inspect_source(
     source_db: str | Path,
     uploads_root: str | Path,
@@ -1570,6 +1711,7 @@ def _inspect_source(
     include_api_keys: bool = False,
     include_api_key_configuration: bool = False,
     include_user_permissions: bool = False,
+    include_function_history: bool = False,
 ) -> dict:
     started = time.perf_counter()
     source = _db_path(source_db, label="source database")
@@ -1636,7 +1778,7 @@ def _inspect_source(
             if table in tables and _count(connection, table) and not (
                 table == "config"
                 and (include_named_tool_configuration or include_api_key_configuration or include_user_permissions)
-            ):
+            ) and not (table == "function_history" and include_function_history):
                 _block(report, "unsupported_nonempty_domain_" + table, _count(connection, table), detail="full bytes are retained in the source archive; old target behavior is not implemented")
         valid_required = {name: name in tables and required.issubset(_columns(connection, name)) for name, required in SOURCE_REQUIRED.items()}
         profile_fields_verified = False
@@ -1731,8 +1873,8 @@ def _inspect_source(
             extras = set(columns) - SOURCE_REQUIRED["function"] - {"version_id"}
             if extras:
                 _block(report, "unknown_function_columns", len(extras), fatal=True)
-            if "version_id" in columns:
-                linked = connection.execute('SELECT COUNT(*) FROM "function" WHERE version_id IS NOT NULL AND version_id != ""').fetchone()[0]
+            if "version_id" in columns and not include_function_history:
+                linked = connection.execute("SELECT COUNT(*) FROM \"function\" WHERE version_id IS NOT NULL AND version_id != ''").fetchone()[0]
                 if linked:
                     _block(report, "function_revision_link_not_preserved", linked, detail="function_history is retained in the source archive but not usable in the old target")
             known_users = {row[0] for row in connection.execute('SELECT id FROM "user"')} if valid_required.get("user") else set()
@@ -1741,6 +1883,30 @@ def _inspect_source(
                     _block(report, "function_owner_missing", 1, fatal=True)
                 if row["is_global"] not in (0, 1):
                     _block(report, "invalid_function_global_flag", 1, fatal=True)
+        function_history_selected = False
+        if include_function_history:
+            try:
+                function_history_selected = _validate_function_history(connection, tables)
+            except ValueError as error:
+                _block(report, "invalid_function_history", 1, fatal=True, detail=str(error))
+            if function_history_selected:
+                history_count = _count(connection, "function_history")
+                _block(
+                    report,
+                    "function_history_prototype",
+                    1,
+                    detail="validated function revisions are copied to an opt-in inert sidecar; restoration and cutover remain unsupported",
+                )
+                report["function_history"] = {
+                    "opt_in": True,
+                    "prepared": True,
+                    "revision_count": history_count,
+                    "resource_count": connection.execute(
+                        'SELECT COUNT(DISTINCT function_id) FROM "function_history"'
+                    ).fetchone()[0],
+                }
+            else:
+                report["function_history"] = {"opt_in": True, "prepared": False, "revision_count": 0, "resource_count": 0}
         _validate_chat(connection, report, include_private_chat_metadata=include_private_chat_metadata)
         private_chat_overrides = (
             _private_chat_metadata_overrides(connection, report)
@@ -1938,6 +2104,7 @@ def inspect_source(
     include_api_keys: bool = False,
     include_api_key_configuration: bool = False,
     include_user_permissions: bool = False,
+    include_function_history: bool = False,
 ) -> tuple[dict, list, dict, dict, dict]:
     """Inspect source inputs while preserving the original five-value API."""
     return _inspect_source(
@@ -1950,6 +2117,7 @@ def inspect_source(
         include_api_keys=include_api_keys,
         include_api_key_configuration=include_api_key_configuration,
         include_user_permissions=include_user_permissions,
+        include_function_history=include_function_history,
     )[:5]
 
 
@@ -1964,6 +2132,7 @@ def preview(
     include_api_keys: bool = False,
     include_api_key_configuration: bool = False,
     include_user_permissions: bool = False,
+    include_function_history: bool = False,
 ) -> dict:
     report, _, _, _, _ = inspect_source(
         source_db,
@@ -1975,6 +2144,7 @@ def preview(
         include_api_keys=include_api_keys,
         include_api_key_configuration=include_api_key_configuration,
         include_user_permissions=include_user_permissions,
+        include_function_history=include_function_history,
     )
     return report
 
@@ -2101,6 +2271,7 @@ def convert(
     include_api_keys: bool = False,
     include_api_key_configuration: bool = False,
     include_user_permissions: bool = False,
+    include_function_history: bool = False,
     failpoint: Callable[[str], None] | None = None,
 ) -> dict:
     started = time.perf_counter()
@@ -2114,6 +2285,7 @@ def convert(
         include_api_keys=include_api_keys,
         include_api_key_configuration=include_api_key_configuration,
         include_user_permissions=include_user_permissions,
+        include_function_history=include_function_history,
     )
     source = Path(source_db).resolve(strict=True)
     template = Path(old_template).resolve(strict=True)
@@ -2227,8 +2399,14 @@ def convert(
                 report["user_profile_fields"]["target_readback_exact"] = True
         finally:
             target_readback.close()
-        if include_history_sidecar:
-            history = write_history_sidecar(source, app_db, attempt / "imported-history.sqlite")
+        if include_history_sidecar or include_function_history:
+            history = write_history_sidecar(
+                source,
+                app_db,
+                attempt / "imported-history.sqlite",
+                include_function_history=include_function_history,
+                include_tool_model_history=include_history_sidecar,
+            )
             report["imported_history_sidecar"] = {
                 **history,
                 "opt_in": True,
@@ -2236,6 +2414,8 @@ def convert(
                 "runtime_path": "DATA_DIR/imported-history.sqlite",
                 "history_is_functionally_cut_over": False,
             }
+            if include_function_history:
+                report["imported_history_sidecar"]["function_history_enabled"] = True
         if _digest(source) != report["source"]["sha256"] or _digest(template) != report["target_template"]["sha256"]:
             raise MigrationError("original_changed", "source or template bytes changed during conversion", report)
         if failpoint:
@@ -2251,7 +2431,7 @@ def convert(
         report["archive"] = {"path": str(archive_final), "source_sqlite": "source.sqlite", "source_sqlite_sha256": _digest(source_copy), "upload_count": len(upload_rows), "exact_source_copy": True, "inside_app_target": False}
         report["limitations"].extend([
             "No cutover or activation is performed by this tool.",
-            "Archived-only config, function-history, session-stamp and other blocker domains are not functional in the old target.",
+            "Archived-only config, unselected history domains, session-stamp and other blocker domains remain outside this opt-in history prototype.",
             "Post-import writes must be exported separately before restoring any earlier target; this prototype has no reverse importer.",
         ])
         report["metrics"] = _metrics(started, report["source"]["bytes"] + report.get("upload_bytes", 0))
@@ -2343,6 +2523,11 @@ def main(argv: list[str] | None = None) -> int:
             action="store_true",
             help="map the exact measured nested boolean user-permissions setting into old configuration",
         )
+        command.add_argument(
+            "--include-function-history",
+            action="store_true",
+            help="copy validated function revisions into the opt-in inert history sidecar",
+        )
     args = parser.parse_args(argv)
     try:
         if args.command == "preview":
@@ -2356,6 +2541,7 @@ def main(argv: list[str] | None = None) -> int:
                 include_api_keys=args.include_api_keys,
                 include_api_key_configuration=args.include_api_key_configuration,
                 include_user_permissions=args.include_user_permissions,
+                include_function_history=args.include_function_history,
             )
         else:
             report = convert(
@@ -2371,6 +2557,7 @@ def main(argv: list[str] | None = None) -> int:
                 include_api_keys=args.include_api_keys,
                 include_api_key_configuration=args.include_api_key_configuration,
                 include_user_permissions=args.include_user_permissions,
+                include_function_history=args.include_function_history,
             )
     except MigrationError as error:
         report = {"status": "refused", "error_code": error.code, **error.report}

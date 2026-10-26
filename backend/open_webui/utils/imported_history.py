@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
-"""Opt-in reader for a bounded imported Tool/Model history sidecar.
+"""Opt-in reader for bounded imported Tool/Model/Function history.
 
 Snapshots are inert JSON. This module never imports or executes their content.
 """
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import sqlite3
 from pathlib import Path
@@ -48,6 +49,7 @@ def _row_fingerprint(kind: str, row: sqlite3.Row | dict) -> str:
     columns = {
         "tool": ("id", "user_id", "name", "content", "specs", "meta", "valves", "updated_at", "created_at"),
         "model": ("id", "user_id", "base_model_id", "name", "params", "meta", "is_active", "updated_at", "created_at"),
+        "function": ("id", "user_id", "name", "type", "content", "meta", "valves", "is_active", "is_global", "updated_at", "created_at"),
     }[kind]
     material = {key: row[key] for key in columns}
     return hashlib.sha256(json.dumps(material, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
@@ -66,7 +68,14 @@ def _target_row(target_db: Path, kind: str, resource_id: str):
         connection.close()
 
 
-def write_history_sidecar(source_db: str | Path, target_db: str | Path, output: str | Path) -> dict:
+def write_history_sidecar(
+    source_db: str | Path,
+    target_db: str | Path,
+    output: str | Path,
+    *,
+    include_function_history: bool = False,
+    include_tool_model_history: bool = True,
+) -> dict:
     """Create a fresh history-only SQLite file from an already validated source."""
     source_path, target_path, output_path = Path(source_db), Path(target_db), Path(output)
     if output_path.exists() or output_path.is_symlink():
@@ -87,9 +96,17 @@ def write_history_sidecar(source_db: str | Path, target_db: str | Path, output: 
           CREATE TABLE model_history(id TEXT PRIMARY KEY, model_id TEXT NOT NULL, parent_id TEXT, snapshot TEXT NOT NULL, user_id TEXT NOT NULL, commit_message TEXT, created_at INTEGER NOT NULL);
           CREATE INDEX model_history_page ON model_history(model_id, created_at DESC, id DESC);
         """)
+        if include_function_history:
+            destination.executescript("""
+              CREATE TABLE function_history(id TEXT PRIMARY KEY, function_id TEXT NOT NULL, parent_id TEXT, snapshot TEXT NOT NULL, user_id TEXT NOT NULL, commit_message TEXT, created_at INTEGER NOT NULL);
+              CREATE INDEX function_history_page ON function_history(function_id, created_at DESC, id DESC);
+            """)
         total = 0
         source_history_bytes = 0
-        for kind, owner_column in (("tool", "tool_id"), ("model", "model_id")):
+        kinds = [("tool", "tool_id"), ("model", "model_id")] if include_tool_model_history else []
+        if include_function_history:
+            kinds.append(("function", "function_id"))
+        for kind, owner_column in kinds:
             history_table = kind + "_history"
             if history_table not in {row[0] for row in source.execute("SELECT name FROM sqlite_master WHERE type='table'")}:
                 continue
@@ -103,7 +120,11 @@ def write_history_sidecar(source_db: str | Path, target_db: str | Path, output: 
                 source_history_bytes += len(encoded.encode("utf-8"))
                 if source_history_bytes > MAX_DATASET_BYTES:
                     raise ValueError("history dataset limit exceeded")
-                parsed = json.loads(encoded)
+                parsed = (
+                    _strict_function_snapshot(encoded)
+                    if kind == "function"
+                    else json.loads(encoded)
+                )
                 if not isinstance(parsed, dict):
                     raise ValueError("history snapshot is not a JSON object")
                 destination.execute(f'INSERT INTO "{history_table}" VALUES (?,?,?,?,?,?,?)', tuple(row[key] for key in ("id", owner_column, "parent_id", "snapshot", "user_id", "commit_message", "created_at")))
@@ -139,6 +160,8 @@ def write_history_sidecar(source_db: str | Path, target_db: str | Path, output: 
 def _open_verified(data_dir: str | Path, database_url: str, kind: str, resource_id: str, owner_id: str):
     connection = None
     try:
+        if kind not in {"tool", "model", "function"}:
+            raise HistoryUnavailable("Imported history is unavailable")
         if os.environ.get("OPEN_WEBUI_IMPORTED_HISTORY_READS") != "1":
             raise HistoryUnavailable("Imported history is unavailable")
         if not database_url.startswith("sqlite:///"):
@@ -154,6 +177,12 @@ def _open_verified(data_dir: str | Path, database_url: str, kind: str, resource_
         connection = _connect(sidecar, immutable=True)
         manifest = connection.execute("SELECT * FROM history_manifest WHERE kind=? AND resource_id=?", (kind, resource_id)).fetchone()
         if manifest is None:
+            if kind == "function":
+                retained = connection.execute(
+                    "SELECT 1 FROM function_history WHERE function_id=? LIMIT 1", (resource_id,)
+                ).fetchone()
+                if retained is not None:
+                    raise HistoryUnavailable("Imported history is stale")
             connection.close()
             connection = None
             raise HistoryNotFound()
@@ -177,6 +206,15 @@ def _open_verified(data_dir: str | Path, database_url: str, kind: str, resource_
             connection.close()
             connection = None
             raise HistoryUnavailable("Imported history is unavailable")
+        owner_column = {"tool": "tool_id", "model": "model_id", "function": "function_id"}[kind]
+        pointer = connection.execute(
+            f'SELECT 1 FROM "{kind}_history" WHERE "{owner_column}"=? AND id=?',
+            (resource_id, manifest["current_version_id"]),
+        ).fetchone()
+        if pointer is None:
+            connection.close()
+            connection = None
+            raise HistoryUnavailable("Imported history is stale")
         return connection, manifest
     except HistoryNotFound:
         if connection is not None:
@@ -249,19 +287,69 @@ def get_history(data_dir: str | Path, database_url: str, kind: str, resource, ve
         if not isinstance(snapshot_text, str) or len(snapshot_text.encode("utf-8")) > MAX_SNAPSHOT_BYTES:
             raise HistoryUnavailable("Imported history is unavailable")
         result = _project(connection, kind, row, user_lookup)
-        snapshot = json.loads(snapshot_text)
+        snapshot = (
+            _strict_function_snapshot(snapshot_text)
+            if kind == "function"
+            else json.loads(snapshot_text)
+        )
         if not isinstance(snapshot, dict):
             raise HistoryUnavailable("Imported history is unavailable")
         result["snapshot"] = snapshot
         if len(json.dumps(result, separators=(",", ":")).encode("utf-8")) > MAX_RESPONSE_BYTES:
             raise HistoryUnavailable("Imported history response is unavailable")
         return result
-    except (sqlite3.Error, ValueError) as error:
+    except (sqlite3.Error, ValueError, RecursionError) as error:
         if isinstance(error, HistoryUnavailable):
             raise
         raise HistoryUnavailable("Imported history is unavailable") from error
     finally:
         connection.close()
+
+
+def _reject_nonfinite_json(value: str):
+    raise ValueError("non-finite JSON number")
+
+
+def _validate_json_unicode_and_numbers(value) -> None:
+    if isinstance(value, str):
+        value.encode("utf-8", errors="strict")
+    elif isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("non-finite JSON number")
+    elif isinstance(value, list):
+        for item in value:
+            _validate_json_unicode_and_numbers(item)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _validate_json_unicode_and_numbers(key)
+            _validate_json_unicode_and_numbers(item)
+
+
+def _strict_function_snapshot(snapshot_text: str) -> dict:
+    snapshot = json.loads(
+        snapshot_text,
+        parse_constant=_reject_nonfinite_json,
+        object_pairs_hook=_unique_json_object,
+    )
+    _validate_json_unicode_and_numbers(snapshot)
+    if (
+        not isinstance(snapshot, dict)
+        or set(snapshot) != {"name", "content", "meta"}
+        or not isinstance(snapshot["name"], str)
+        or not isinstance(snapshot["content"], str)
+        or not isinstance(snapshot["meta"], dict)
+    ):
+        raise HistoryUnavailable("Imported history is unavailable")
+    return snapshot
+
+
+def _unique_json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
 
 
 def get_current_version_id(data_dir: str | Path, database_url: str, kind: str, resource) -> str:
@@ -284,3 +372,49 @@ def get_current_version_id(data_dir: str | Path, database_url: str, kind: str, r
         raise HistoryUnavailable("Imported history is unavailable") from error
     finally:
         connection.close()
+
+
+def get_current_function_metadata(data_dir: str | Path, database_url: str, resource) -> dict:
+    """Return the measured active pointer and toggle from a verified function row."""
+    try:
+        connection, manifest = _open_verified(
+            data_dir, database_url, "function", resource.id, resource.user_id
+        )
+    except HistoryNotFound:
+        active = _target_row(Path(data_dir) / "webui.db", "function", resource.id)
+        if active.get("user_id") != resource.user_id:
+            raise HistoryUnavailable("Imported history is stale")
+        result = {"version_id": None}
+        try:
+            result["toggle"] = _function_toggle(active.get("meta"))
+        except HistoryUnavailable:
+            pass
+        return result
+    try:
+        version_id = manifest["current_version_id"]
+        if not isinstance(version_id, str) or not version_id:
+            raise HistoryUnavailable("Imported history is stale")
+        pointer = connection.execute(
+            "SELECT 1 FROM function_history WHERE function_id=? AND id=?",
+            (resource.id, version_id),
+        ).fetchone()
+        if pointer is None:
+            raise HistoryUnavailable("Imported history is stale")
+        active = _target_row(Path(data_dir) / "webui.db", "function", resource.id)
+        if active.get("user_id") != resource.user_id:
+            raise HistoryUnavailable("Imported history is stale")
+        return {"version_id": version_id, "toggle": _function_toggle(active.get("meta"))}
+    except sqlite3.Error as error:
+        raise HistoryUnavailable("Imported history is unavailable") from error
+    finally:
+        connection.close()
+
+
+def _function_toggle(raw_meta) -> bool:
+    try:
+        meta = json.loads(raw_meta) if isinstance(raw_meta, str) else raw_meta
+    except (json.JSONDecodeError, TypeError, RecursionError):
+        raise HistoryUnavailable("Imported history is stale") from None
+    if not isinstance(meta, dict) or not isinstance(meta.get("toggle"), bool):
+        raise HistoryUnavailable("Imported history is stale")
+    return meta["toggle"]
