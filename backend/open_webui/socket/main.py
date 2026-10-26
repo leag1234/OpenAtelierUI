@@ -373,14 +373,32 @@ def get_event_emitter(request_info, update_db=True):
 
 def get_event_call(request_info):
     async def __event_caller__(event_data):
+        user_id = request_info.get("user_id") if isinstance(request_info, dict) else None
+        session_id = request_info.get("session_id") if isinstance(request_info, dict) else None
+        if (
+            not isinstance(user_id, str)
+            or not user_id
+            or not isinstance(session_id, str)
+            or not session_id
+        ):
+            raise ValueError("Callback session unavailable")
+        session = SESSION_POOL.get(session_id)
+        if not isinstance(session, dict) or session.get("id") != user_id:
+            raise ValueError("Callback session unavailable")
+
+        event_name = (
+            "events"
+            if os.environ.get("OPENATELIER_EVENT_CHANNEL_COMPAT") == "1"
+            else "chat-events"
+        )
         response = await sio.call(
-            "chat-events",
+            event_name,
             {
                 "chat_id": request_info.get("chat_id", None),
                 "message_id": request_info.get("message_id", None),
                 "data": event_data,
             },
-            to=request_info["session_id"],
+            to=session_id,
         )
         return response
 
