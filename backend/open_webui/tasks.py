@@ -1,5 +1,6 @@
 # tasks.py
 import asyncio
+import logging
 from typing import Dict
 from uuid import uuid4
 
@@ -25,6 +26,18 @@ def cleanup_task(task_id: str, id=None):
             chat_tasks.pop(id, None)
 
 
+def _task_done(task, task_id: str, id=None):
+    try:
+        if not task.cancelled() and task.exception() is not None:
+            logging.getLogger(__name__).warning(
+                "A background task failed."
+            )
+    except asyncio.CancelledError:
+        pass
+    finally:
+        cleanup_task(task_id, id)
+
+
 def create_task(coroutine, id=None):
     """
     Create a new asyncio task and add it to the global task dictionary.
@@ -32,8 +45,8 @@ def create_task(coroutine, id=None):
     task_id = str(uuid4())  # Generate a unique ID for the task
     task = asyncio.create_task(coroutine)  # Create the task
 
-    # Add a done callback for cleanup
-    task.add_done_callback(lambda t: cleanup_task(task_id, id))
+    # Retrieve unexpected task failures and remove completed task references.
+    task.add_done_callback(lambda t: _task_done(t, task_id, id))
     tasks[task_id] = task
 
     # If an ID is provided, associate the task with that ID

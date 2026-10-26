@@ -369,7 +369,11 @@ from open_webui.utils.chat import (
     chat_completed as chat_completed_handler,
     chat_action as chat_action_handler,
 )
-from open_webui.utils.middleware import process_chat_payload, process_chat_response
+from open_webui.utils.middleware import (
+    process_chat_payload,
+    process_chat_response,
+)
+from open_webui.utils.async_plugin import run_async_plugin_completion
 from open_webui.utils.provider_errors import ProviderErrorResponse
 from open_webui.utils.access_control import has_access
 
@@ -384,6 +388,7 @@ from open_webui.utils.oauth import OAuthManager
 from open_webui.utils.security_headers import SecurityHeadersMiddleware
 
 from open_webui.tasks import (
+    create_task,
     list_task_ids_by_chat_id,
     stop_task,
     list_tasks,
@@ -1114,6 +1119,19 @@ async def get_base_models(request: Request, user=Depends(get_admin_user)):
     return {"data": models}
 
 
+def _async_plugin_compat_requested(form_data, model_item, model, metadata):
+    if os.environ.get("OPENATELIER_ASYNC_PLUGIN_COMPAT") != "1":
+        return False
+    if form_data.get("stream") is not False or model_item.get("direct", False):
+        return False
+    if not model.get("pipe"):
+        return False
+    return all(
+        isinstance(metadata.get(field), str) and metadata[field]
+        for field in ("chat_id", "message_id", "session_id")
+    )
+
+
 @app.post("/api/v1/chat/completions")
 @app.post("/api/chat/completions")
 async def chat_completion(
@@ -1193,6 +1211,26 @@ async def chat_completion(
         form_data, metadata, events = await process_chat_payload(
             request, form_data, user, metadata, model
         )
+
+        if _async_plugin_compat_requested(form_data, model_item, model, metadata):
+            task_id, _ = create_task(
+                run_async_plugin_completion(
+                    request,
+                    chat_completion_handler,
+                    form_data,
+                    user,
+                    metadata,
+                    model,
+                    events,
+                    tasks,
+                ),
+                id=metadata["chat_id"],
+            )
+            return {
+                "status": True,
+                "task_ids": [task_id],
+                "chat_id": metadata["chat_id"],
+            }
 
     except Exception as e:
         log.debug(f"Error processing chat payload: {e}")

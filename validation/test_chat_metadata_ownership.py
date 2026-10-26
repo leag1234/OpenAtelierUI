@@ -132,6 +132,9 @@ class ChatMetadataOwnershipTests(unittest.TestCase):
             "process_chat_payload": process_payload,
             "chat_completion_handler": completion_handler,
             "process_chat_response": process_response,
+            # This older source-extracted control intentionally exercises only
+            # the pre-prototype immediate path.
+            "_async_plugin_compat_requested": lambda *_args: False,
             "ProviderErrorResponse": ProviderErrorResponse,
             "log": LogStub(),
         }
