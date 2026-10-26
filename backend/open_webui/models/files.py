@@ -198,6 +198,22 @@ class FilesTable:
                 for file in db.query(File).filter_by(user_id=user_id).all()
             ]
 
+    def get_files_page(
+        self, user_id: Optional[str], page: int
+    ) -> tuple[int, list[FileModel]]:
+        with get_db() as db:
+            query = db.query(File)
+            if user_id is not None:
+                query = query.filter(File.user_id == user_id)
+            total = query.count()
+            files = (
+                query.order_by(File.updated_at.desc(), File.id.desc())
+                .offset((page - 1) * 50)
+                .limit(50)
+                .all()
+            )
+            return total, [FileModel.model_validate(file) for file in files]
+
     def update_file_hash_by_id(self, id: str, hash: str) -> Optional[FileModel]:
         with get_db() as db:
             try:

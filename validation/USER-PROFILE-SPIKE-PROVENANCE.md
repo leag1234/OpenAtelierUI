@@ -212,3 +212,37 @@ registrations, list exclusions/internal ACL preservation, public metadata
 shape, and default-off route shapes. Primary’s installed FastAPI/Pydantic wire
 and generated-schema replay remains pending; the initial commit’s failed
 expectation and rejection are retained here.
+
+## FILE-API bounded pagination continuation
+
+Source50 adds opt-in pagination only to the current-profile `GET
+/api/v1/files/` branch. Its native `page` parameter defaults to1 and has a
+minimum of1; the legacy branch remains registered without a `page` parameter
+or changed response model. The handler calls `FilesTable.get_files_page`,
+which applies the existing owner filter (or no filter for admins), counts the
+selected rows, orders by `updated_at DESC, id DESC`, and applies offset and a
+fixed limit of50 before materializing models. The existing public list
+projection remains limited to declared `FileModelResponse` fields. With
+`content=false`, it copies each data dictionary before removing `content`,
+leaving the stored model unchanged.
+
+The source-bound suite passes all8 named tests via
+`python3 backend/open_webui/test/test_file_api_compat.py`; `git diff --check`
+also passes. It executes the actual conditional route-registration block and
+the actual extracted query helper against controlled fakes, checking default
+off route/schema shape, enabled response registration and page constraint,
+member/admin filtering, order, count, bounded page sizes, and copy-only content
+omission. Early focused runs exposed test-harness issues (a `Query` sentinel
+used as a direct-call default, an expectation inconsistent with descending
+order, and missing synthetic AST locations); these were repaired, and the
+final named run executes all8 tests successfully.
+
+The measured profile is page size50, page numbers beginning at1, and ordering
+by `updated_at DESC, id DESC`. Current synthetic observations included member
+pages of50/16/empty from66 files and admin pages of50/17 from67. The source
+tests do not qualify actual SQL query count, generated OpenAPI, HTTP422 before
+storage access, larger-data performance, concurrent updates during paging,
+other database engines, or complete administrator-list compatibility. Those
+remain primary-owned installed-library and mounted-runtime checks. Source49's
+failed page behavior and earlier commits remain preserved; this bounded
+continuation does not claim full file API or migration acceptance.

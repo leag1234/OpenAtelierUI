@@ -174,36 +174,45 @@ def upload_file(
 ############################
 
 
-@router.get(
-    "/",
-    response_model=(
-        FileListResponse if CURRENT_FILE_API_ENABLED else list[FileModelResponse]
-    ),
-)
-async def list_files(user=Depends(get_verified_user), content: bool = Query(True)):
-    if user.role == "admin":
-        files = Files.get_files()
-    else:
-        files = Files.get_files_by_user_id(user.id)
-
-    if not content:
+if CURRENT_FILE_API_ENABLED:
+    @router.get("/", response_model=FileListResponse)
+    async def list_files(
+        user=Depends(get_verified_user),
+        content: bool = Query(True),
+        page: int = Query(1, ge=1),
+    ):
+        total, files = Files.get_files_page(
+            user_id=None if user.role == "admin" else user.id,
+            page=page,
+        )
+        items = []
         for file in files:
-            del file.data["content"]
+            values = file.model_dump()
+            data = values.get("data")
+            if not content and isinstance(data, dict):
+                values["data"] = dict(data)
+                values["data"].pop("content", None)
+            public_values = {
+                key: value
+                for key, value in values.items()
+                if key in FileModelResponse.model_fields
+            }
+            items.append(FileModelResponse.model_validate(public_values))
+        return FileListResponse(items=items, total=total)
 
-    if CURRENT_FILE_API_ENABLED:
-        items = [
-            FileModelResponse.model_validate(
-                {
-                    key: value
-                    for key, value in file.model_dump().items()
-                    if key in FileModelResponse.model_fields
-                }
-            )
-            for file in files
-        ]
-        return FileListResponse(items=items, total=len(items))
+else:
+    @router.get("/", response_model=list[FileModelResponse])
+    async def list_files(user=Depends(get_verified_user), content: bool = Query(True)):
+        if user.role == "admin":
+            files = Files.get_files()
+        else:
+            files = Files.get_files_by_user_id(user.id)
 
-    return files
+        if not content:
+            for file in files:
+                del file.data["content"]
+
+        return files
 
 
 ############################
