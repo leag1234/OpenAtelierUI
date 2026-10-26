@@ -14,7 +14,7 @@ from fastapi import Request, status
 from starlette.responses import Response, StreamingResponse, JSONResponse
 
 
-from open_webui.models.users import UserModel
+from open_webui.models.users import ImportedProfileUserModel, UserModel
 
 from open_webui.socket.main import (
     sio,
@@ -422,12 +422,7 @@ async def chat_action(request: Request, action_id: str, form_data: dict, user: A
                     params[key] = value
 
             if "__user__" in sig.parameters:
-                __user__ = {
-                    "id": user.id,
-                    "email": user.email,
-                    "name": user.name,
-                    "role": user.role,
-                }
+                __user__ = _action_user_context(user)
 
                 try:
                     if hasattr(function_module, "UserValves"):
@@ -450,3 +445,20 @@ async def chat_action(request: Request, action_id: str, form_data: dict, user: A
             return Exception(f"Error: {e}")
 
     return data
+
+
+def _action_user_context(user: UserModel) -> dict:
+    """Build the legacy Action user mapping plus explicitly enabled profile fields."""
+    context = {
+        "id": user.id,
+        "email": user.email,
+        "name": user.name,
+        "role": user.role,
+    }
+    if isinstance(user, ImportedProfileUserModel):
+        context.update(
+            user.model_dump(
+                include={"bio", "gender", "date_of_birth", "settings"}
+            )
+        )
+    return context

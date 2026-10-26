@@ -631,6 +631,7 @@ class ImportedProfileSourceIntegrationTests(unittest.TestCase):
                     "Request": object,
                     "Response": object,
                     "get_current_user": object(),
+                    "is_validated_api_key_request": lambda request, user_id: False,
                     "get_validated_session_context": lambda request, user_id: ("retained-token", 2000, "stamp"),
                     "datetime": datetime,
                     "time": types.SimpleNamespace(time=lambda: 1000),
