@@ -160,3 +160,33 @@ changed.
 The first compatibility-file run executed only its six pre-existing registered
 tests because the file uses an explicit `TESTS` tuple. The two new email bridge
 tests were then added to that registry and the final run executed all eight.
+
+## Bounded file response continuation
+
+The FILE-API source49 slice adds the exact opt-in flag
+`OPEN_WEBUI_CURRENT_FILE_API=1` to only the no-page `GET /api/v1/files/` and
+`GET /api/v1/files/{id}` response branches. With the flag unset, the old list
+array and `FileModel` metadata serialization remain in place. With it enabled,
+the list wraps the already-selected `FileModelResponse` items in an object with
+`items` and integer `total`; it does not assert behavior for page parameters or
+unmeasured admin-list scope. The detail response uses a new public DTO with the
+measured metadata keys and omits `access_control` from that public projection.
+The ORM model and stored ACL remain intact, and the old owner/admin/read-grant
+checks and 404 behavior run before serialization.
+
+The source-bound file route test covers the flag-off shapes, enabled list keys
+and count, ACL-free public metadata with retained internal ACL, owner/admin and
+read-granted success, denied and missing 404 behavior. Its first run asserted
+that the owner-filtered legacy list was the exact store list object; the old
+store method correctly returns a new list containing the same row objects. The
+assertion now checks that observed legacy behavior. Source48’s measured
+current-client replay remains the baseline: saved-file identity/bytes/access
+and follow-up operations were preserved, while the top-level list envelope and
+extra public metadata field differed. This slice does not claim the corrected
+frozen replay, full pagination, complete admin listing, or full file API
+compatibility until primary’s independent review and mounted replay finish.
+
+The first `py_compile` invocation tried to create bytecode beneath a protected
+user Library cache and failed with `PermissionError` before compiling either
+file. No application files changed from that attempt. The syntax check was
+rerun with `PYTHONPYCACHEPREFIX` pointed at a temporary cache directory.

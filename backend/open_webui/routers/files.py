@@ -16,13 +16,14 @@ from fastapi import (
     status,
     Query,
 )
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.env import SRC_LOG_LEVELS
 from open_webui.models.files import (
     FileForm,
     FileModel,
     FileModelResponse,
+    FilePublicMetadataResponse,
     Files,
 )
 from open_webui.models.knowledge import Knowledges
@@ -40,6 +41,10 @@ log.setLevel(SRC_LOG_LEVELS["MODELS"])
 
 
 router = APIRouter()
+
+
+def current_file_api_enabled():
+    return os.environ.get("OPEN_WEBUI_CURRENT_FILE_API") == "1"
 
 
 ############################
@@ -176,6 +181,13 @@ async def list_files(user=Depends(get_verified_user), content: bool = Query(True
         for file in files:
             del file.data["content"]
 
+    if current_file_api_enabled():
+        items = [
+            FileModelResponse.model_validate(file.model_dump()).model_dump(mode="json")
+            for file in files
+        ]
+        return JSONResponse(content={"items": items, "total": len(items)})
+
     return files
 
 
@@ -266,6 +278,9 @@ async def get_file_by_id(id: str, user=Depends(get_verified_user)):
         or user.role == "admin"
         or has_access_to_file(id, "read", user)
     ):
+        if current_file_api_enabled():
+            metadata = FilePublicMetadataResponse.model_validate(file.model_dump())
+            return JSONResponse(content=metadata.model_dump(mode="json"))
         return file
     else:
         raise HTTPException(
