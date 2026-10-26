@@ -545,7 +545,7 @@ def _empty_api_key_data(value: object) -> bool:
         decoded = json.loads(value, object_pairs_hook=_reject_duplicate_json_keys)
     except (ValueError, TypeError, RecursionError):
         return False
-    return decoded is None or decoded == {} or decoded == []
+    return decoded is None or decoded == {}
 
 
 def _validate_api_key_import(

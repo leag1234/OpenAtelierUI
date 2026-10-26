@@ -214,6 +214,7 @@ class ImportedApiKeyTests(unittest.TestCase):
             ("malformed_key", {"key": "sha256$hash"}),
             ("expired_key", {"expires_at": 1800000000}),
             ("nonempty_key_data", {"data": '{"restriction":"synthetic"}'}),
+            ("empty_array_key_data", {"data": "[]"}),
             ("unknown_column", {"table_columns": "id TEXT,user_id TEXT,key TEXT,data TEXT,expires_at INTEGER,last_used_at INTEGER,created_at INTEGER,updated_at INTEGER,scope TEXT"}),
             ("missing_owner", {"owner": "missing-user"}),
         ]
