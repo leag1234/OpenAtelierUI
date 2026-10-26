@@ -84,6 +84,10 @@ from open_webui.routers.retrieval import (
     get_ef,
     get_rf,
 )
+from open_webui.utils.lazy_local_embedding import (
+    DeferredLocalEmbedding,
+    lazy_local_embedding_startup_enabled,
+)
 
 from open_webui.internal.db import Session, engine
 from open_webui.utils.imported_profile import (
@@ -691,11 +695,23 @@ app.state.YOUTUBE_LOADER_TRANSLATION = None
 
 
 try:
-    app.state.ef = get_ef(
-        app.state.config.RAG_EMBEDDING_ENGINE,
-        app.state.config.RAG_EMBEDDING_MODEL,
-        RAG_EMBEDDING_MODEL_AUTO_UPDATE,
-    )
+    if (
+        lazy_local_embedding_startup_enabled()
+        and app.state.config.RAG_EMBEDDING_ENGINE == ""
+        and app.state.config.RAG_EMBEDDING_MODEL
+    ):
+        app.state.ef = DeferredLocalEmbedding(
+            get_ef,
+            app.state.config.RAG_EMBEDDING_ENGINE,
+            app.state.config.RAG_EMBEDDING_MODEL,
+            RAG_EMBEDDING_MODEL_AUTO_UPDATE,
+        )
+    else:
+        app.state.ef = get_ef(
+            app.state.config.RAG_EMBEDDING_ENGINE,
+            app.state.config.RAG_EMBEDDING_MODEL,
+            RAG_EMBEDDING_MODEL_AUTO_UPDATE,
+        )
 
     app.state.rf = get_rf(
         app.state.config.RAG_RERANKING_MODEL,
