@@ -1262,7 +1262,7 @@ async def stop_task_endpoint(task_id: str, user=Depends(get_admin_user)):
     try:
         result = await stop_task(task_id)
         return result
-    except ValueError as e:
+    except TaskNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 

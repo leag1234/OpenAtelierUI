@@ -121,6 +121,22 @@ class TaskOwnershipTests(unittest.TestCase):
         route = self.routes["stop_tasks_by_chat_id_endpoint"]
         self.assertIs(inspect.signature(route).parameters["user"].default.call, self.verified)
 
+    def test_global_stop_maps_only_registry_absence_to_not_found(self):
+        async def missing(_task_id):
+            raise self.task_api["TaskNotFoundError"]("missing task")
+
+        self.routes["stop_task"] = missing
+        with self.assertRaises(HTTPError) as raised:
+            asyncio.run(self.routes["stop_task_endpoint"]("id", user=object()))
+        self.assertEqual(raised.exception.status_code, 404)
+
+        async def task_failure(_task_id):
+            raise ValueError("synthetic task failure")
+
+        self.routes["stop_task"] = task_failure
+        with self.assertRaisesRegex(ValueError, "synthetic task failure"):
+            asyncio.run(self.routes["stop_task_endpoint"]("id", user=object()))
+
     def test_foreign_and_missing_chat_refuse_before_task_registry_access(self):
         async def forbidden(*_args):
             raise AssertionError("task registry accessed before ownership check")
