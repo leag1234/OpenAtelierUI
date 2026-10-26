@@ -37,6 +37,18 @@ def add_api_key_settings(source: Path, values: dict | None = None) -> None:
             )
 
 
+def add_unrelated_auth_settings(source: Path) -> None:
+    """Add auth settings outside the selected API-key policy paths."""
+    with sqlite3.connect(source) as db:
+        db.executemany(
+            "INSERT INTO config(key,value,updated_at) VALUES (?,?,NULL)",
+            (
+                ("auth.jwt_expiry", json.dumps("4w")),
+                ("auth.oauth.synthetic_enabled", json.dumps(False)),
+            ),
+        )
+
+
 class ApiKeyConfigurationImportTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -213,6 +225,7 @@ class ApiKeyConfigurationImportTests(unittest.TestCase):
 
     def test_cli_preview_and_convert_accept_the_opt_in_without_values_in_report(self):
         add_api_key_settings(self.source)
+        add_unrelated_auth_settings(self.source)
         script = Path(__file__).with_name("migrate_sqlite.py")
         common = [
             sys.executable,
@@ -231,6 +244,8 @@ class ApiKeyConfigurationImportTests(unittest.TestCase):
         self.assertEqual(preview_result.returncode, 3, preview_result.stderr)
         preview_report = json.loads(preview_result.stdout)
         self.assertEqual(preview_report["api_key_configuration"]["selected_key_count"], 3)
+        self.assertEqual(preview_report["api_key_configuration"]["remaining_config_rows"], 2)
+        self.assertFalse(preview_report["fatal"])
         self.assertNotIn("auth.enable_api_keys", preview_result.stdout)
 
         target = self.root / "cli-target"
@@ -243,6 +258,54 @@ class ApiKeyConfigurationImportTests(unittest.TestCase):
         self.assertEqual(convert_result.returncode, 3, convert_result.stderr)
         self.assertTrue(target.is_dir())
         self.assertEqual(self.target_config(target)["auth"]["api_key"]["enable"], True)
+
+        # Repeat through the actual CLI with both opt-ins enabled. The
+        # unrelated auth siblings remain archive-only while named tools and
+        # selected API-key settings share the single old config record.
+        self.tearDown()
+        self.setUp()
+        add_named_tool_configuration(self.source, other_rows=2)
+        add_api_key_settings(self.source)
+        add_unrelated_auth_settings(self.source)
+        combined_common = [
+            *common[:3],
+            "--source-db", str(self.source),
+            "--uploads-root", str(self.uploads),
+            "--empty-old-target-template", str(self.template),
+            "--include-named-tool-configuration",
+            FLAG,
+        ]
+        combined_preview = subprocess.run(
+            [sys.executable, str(script), "preview", *combined_common[3:]],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(combined_preview.returncode, 3, combined_preview.stderr)
+        combined_report = json.loads(combined_preview.stdout)
+        self.assertFalse(combined_report["fatal"])
+        self.assertEqual(combined_report["table_counts"]["config"], 8)
+        self.assertEqual(combined_report["api_key_configuration"]["remaining_config_rows"], 4)
+        self.assertEqual(combined_report["named_tool_configuration"]["remaining_config_rows"], 4)
+
+        combined_target = self.root / "cli-combined-target"
+        combined_convert = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "convert",
+                *combined_common[3:],
+                "--new-target-dir",
+                str(combined_target),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(combined_convert.returncode, 3, combined_convert.stderr)
+        combined_data = self.target_config(combined_target)
+        self.assertEqual(combined_data["auth"]["api_key"]["enable"], True)
+        self.assertEqual(len(combined_data["tool_server"]["connections"]), 1)
 
 
 if __name__ == "__main__":

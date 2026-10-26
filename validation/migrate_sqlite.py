@@ -403,7 +403,6 @@ def _parse_api_key_configuration(connection: sqlite3.Connection) -> dict[str, ob
     # their nested old-target destinations. Other unrelated config keys stay
     # archive-only and are counted separately.
     guarded_paths = {
-        "auth",
         "auth.api_key",
         "auth.enable_api_keys",
         "auth.api_key.enable",
@@ -420,9 +419,14 @@ def _parse_api_key_configuration(connection: sqlite3.Connection) -> dict[str, ob
                 "api_key_configuration_ambiguous_override",
                 "configuration contains an unsupported API-key alias or override",
             )
-        if key not in API_KEY_CONFIG_SOURCE_KEYS and any(
-            key == path or key.startswith(path + ".") or path.startswith(key + ".")
-            for path in guarded_paths
+        if key not in API_KEY_CONFIG_SOURCE_KEYS and (
+            # Only these exact auth parent objects overlap the selected
+            # settings. Other auth.* settings remain archive-only.
+            key in {"auth", "auth.api_key"}
+            or any(
+                key == path or key.startswith(path + ".") or path.startswith(key + ".")
+                for path in guarded_paths
+            )
         ):
             raise MigrationError(
                 "api_key_configuration_ambiguous_override",
