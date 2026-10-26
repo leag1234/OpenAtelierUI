@@ -91,6 +91,17 @@ IMPORTED_USER_PROFILE_FIELDS = {"bio", "gender", "date_of_birth"}
 IMPORTED_USER_PROFILE_TYPES = {"bio": "TEXT", "gender": "TEXT", "date_of_birth": "DATE"}
 MAX_IMPORTED_USER_BIO_BYTES = 8192
 MAX_IMPORTED_USER_GENDER_BYTES = 128
+MAX_IMPORTED_API_KEY_ROWS = 1000
+API_KEY_COLUMNS = {
+    "id", "user_id", "key", "data", "expires_at", "last_used_at", "created_at", "updated_at"
+}
+API_KEY_PATTERN = re.compile(r"^sk-[0-9a-f]{32}$")
+API_KEY_POLICY_CONFIG = {
+    "auth.enable_api_keys": True,
+    "user.permissions": None,
+    "auth.api_key.endpoint_restrictions": False,
+    "auth.api_key.allowed_endpoints": "",
+}
 CHAT_UNSUPPORTED = {"tasks", "summary", "last_read_at", "current_message_id", "variables", "timer_at"}
 PRIVATE_CHAT_META_KEY = "_mdk_private_saved_work"
 PRIVATE_CHAT_META_VERSION = 1
@@ -484,6 +495,166 @@ def _block(report: dict, code: str, count: int, *, fatal: bool = False, detail: 
     report["blockers"].append(item)
     if fatal:
         report["fatal"] = True
+
+
+def _api_key_config_is_eligible(connection: sqlite3.Connection) -> bool:
+    if "config" not in _tables(connection):
+        return False
+    columns = set(_columns(connection, "config"))
+    if not {"key", "value"}.issubset(columns):
+        return False
+    wanted = set(API_KEY_POLICY_CONFIG)
+    rows = []
+    for row in connection.execute('SELECT "key","value" FROM "config"'):
+        key = row["key"]
+        if isinstance(key, str) and key.startswith("user.permissions."):
+            # Refuse dotted overrides instead of guessing how the current
+            # config loader resolves them against its nested parent object.
+            return False
+        if key in wanted:
+            rows.append((key, row["value"]))
+    values = {}
+    for key, raw in rows:
+        if key in values or not isinstance(raw, str):
+            return False
+        try:
+            values[key] = json.loads(raw, object_pairs_hook=_reject_duplicate_json_keys)
+        except (ValueError, TypeError, RecursionError):
+            return False
+    if set(values) != wanted:
+        return False
+    for key, expected in API_KEY_POLICY_CONFIG.items():
+        value = values[key]
+        if key == "user.permissions":
+            if not isinstance(value, dict):
+                return False
+            features = value.get("features")
+            if not isinstance(features, dict) or features.get("api_keys") is not True:
+                return False
+        elif value != expected or type(value) is not type(expected):
+            return False
+    return True
+
+
+def _empty_api_key_data(value: object) -> bool:
+    if value is None or value == "":
+        return True
+    if not isinstance(value, str):
+        return False
+    try:
+        decoded = json.loads(value, object_pairs_hook=_reject_duplicate_json_keys)
+    except (ValueError, TypeError, RecursionError):
+        return False
+    return decoded is None or decoded == {} or decoded == []
+
+
+def _validate_api_key_import(
+    connection: sqlite3.Connection,
+    report: dict,
+    tables: set[str],
+    valid_required: dict[str, bool],
+) -> dict[str, str]:
+    """Validate the one measured legacy key shape without exposing row values."""
+    report["api_key_import"] = {
+        "opt_in": True,
+        "eligible": False,
+        "selected_key_count": 0,
+        "key_record_metadata_preserved": False,
+    }
+    if "api_key" not in tables or _count(connection, "api_key") == 0:
+        report["api_key_import"]["eligible"] = True
+        return {}
+    count = _count(connection, "api_key")
+    if count > MAX_IMPORTED_API_KEY_ROWS:
+        _block(report, "api_key_resource_cap_exceeded", count, fatal=True)
+        return {}
+    if set(_columns(connection, "api_key")) != API_KEY_COLUMNS:
+        _block(report, "api_key_source_schema_unsupported", 1, fatal=True)
+        return {}
+    if not valid_required.get("auth") or not valid_required.get("user"):
+        _block(report, "api_key_owner_schema_unavailable", 1, fatal=True)
+        return {}
+    if not _api_key_config_is_eligible(connection):
+        _block(report, "api_key_source_policy_unsupported", 1, fatal=True)
+        return {}
+
+    users = {
+        row["id"]: row["role"]
+        for row in connection.execute('SELECT id,role FROM "user"')
+    }
+    auth_active = {
+        row["id"]: row["active"]
+        for row in connection.execute('SELECT id,active FROM "auth"')
+    }
+    rows = [dict(row) for row in connection.execute('SELECT * FROM "api_key" ORDER BY id')]
+    ids, owners, keys = set(), set(), set()
+    mapped = {}
+    invalid = False
+    for row in rows:
+        identity, owner, key = row["id"], row["user_id"], row["key"]
+        if (
+            not isinstance(identity, str) or not identity or len(identity) > 255
+            or identity in ids
+            or not isinstance(owner, str) or not owner or len(owner) > 255
+            or owner in owners
+            or not isinstance(key, str) or API_KEY_PATTERN.fullmatch(key) is None
+            or key in keys
+            or not _empty_api_key_data(row["data"])
+            or row["expires_at"] is not None
+            or (row["last_used_at"] is not None and (type(row["last_used_at"]) is not int or row["last_used_at"] < 0))
+            or type(row["created_at"]) is not int or row["created_at"] < 0
+            or type(row["updated_at"]) is not int or row["updated_at"] < 0
+        ):
+            invalid = True
+            continue
+        if (
+            owner not in users or owner not in auth_active
+            or users[owner] not in {"user", "admin"}
+            or auth_active[owner] != 1
+        ):
+            invalid = True
+            continue
+        ids.add(identity)
+        owners.add(owner)
+        keys.add(key)
+        mapped[owner] = key
+
+    if invalid or len(mapped) != count:
+        _block(report, "api_key_record_unsupported", count, fatal=True)
+        return {}
+
+    # A nonempty group permission object is outside this key-sharing profile.
+    # The existing group importer also rejects it; this explicit guard makes
+    # the API-key eligibility rule independent of that later validation order.
+    if "group" in tables and _count(connection, "group"):
+        group_columns = set(_columns(connection, "group"))
+        if "permissions" not in group_columns:
+            _block(report, "api_key_group_permissions_unsupported", 1, fatal=True)
+            return {}
+        for row in connection.execute('SELECT permissions FROM "group"'):
+            try:
+                permissions = json.loads(
+                    row[0], object_pairs_hook=_reject_duplicate_json_keys
+                )
+            except (ValueError, TypeError, RecursionError):
+                _block(report, "api_key_group_permissions_unsupported", 1, fatal=True)
+                return {}
+            if not isinstance(permissions, dict) or permissions:
+                _block(report, "api_key_group_permissions_unsupported", 1, fatal=True)
+                return {}
+
+    report["api_key_import"].update({
+        "eligible": True,
+        "selected_key_count": len(mapped),
+    })
+    _block(
+        report,
+        "api_key_record_metadata_not_preserved",
+        count,
+        detail="key-record IDs and usage/timestamp metadata remain in the exact source archive; the original key is copied only to the same legacy user field",
+    )
+    report["preserved_domains"].append("validated opaque API key bytes on the matching legacy user field")
+    return mapped
 
 
 def _source_file_rows(connection: sqlite3.Connection, uploads_root: str | Path, report: dict) -> list[dict]:
@@ -1195,6 +1366,7 @@ def _inspect_source(
     include_private_chat_metadata: bool = False,
     include_named_tool_configuration: bool = False,
     include_user_profile_fields: bool = False,
+    include_api_keys: bool = False,
 ) -> dict:
     started = time.perf_counter()
     source = _db_path(source_db, label="source database")
@@ -1249,7 +1421,11 @@ def _inspect_source(
             if table not in KNOWN_TABLES:
                 continue
             count = _count(connection, table)
-            if count and table not in APP_TABLES | MARKER_TABLES | {"config", "function_history", "access_grant", "group", "group_member", "tool_history", "model_history"}:
+            if (
+                count
+                and table not in APP_TABLES | MARKER_TABLES | {"config", "function_history", "access_grant", "group", "group_member", "tool_history", "model_history"}
+                and not (table == "api_key" and include_api_keys)
+            ):
                 _block(report, "unsupported_nonempty_domain_" + table, count, fatal=True)
         for table in ("config", "function_history"):
             if table in tables and _count(connection, table) and not (table == "config" and include_named_tool_configuration):
@@ -1386,6 +1562,11 @@ def _inspect_source(
             user_emails = {row[0]: row[1] for row in connection.execute('SELECT id,email FROM "user"')}
             if any(auth_emails[identity] != user_emails[identity] for identity in auth_ids & user_ids):
                 _block(report, "auth_user_email_mismatch", 1, fatal=True)
+        api_key_overrides = (
+            _validate_api_key_import(connection, report, set(tables), valid_required)
+            if include_api_keys
+            else {}
+        )
         if valid_required.get("chat") and valid_required.get("user"):
             known_users = {row[0] for row in connection.execute('SELECT id FROM "user"')}
             if any(row[0] not in known_users for row in connection.execute('SELECT user_id FROM "chat"')):
@@ -1458,7 +1639,7 @@ def _inspect_source(
     report["cutover_eligible"] = not report["blockers"]
     report["status"] = "eligible_for_review" if report["cutover_eligible"] else ("refused_fatal_input" if report["fatal"] else "blocked_partial_candidate")
     report["metrics"] = _metrics(started, source.stat().st_size + report.get("upload_bytes", 0))
-    return report, file_rows, object_access, group_memberships, private_chat_overrides, named_tool_config_data
+    return report, file_rows, object_access, group_memberships, private_chat_overrides, named_tool_config_data, api_key_overrides
 
 
 def inspect_source(
@@ -1469,6 +1650,7 @@ def inspect_source(
     include_private_chat_metadata: bool = False,
     include_named_tool_configuration: bool = False,
     include_user_profile_fields: bool = False,
+    include_api_keys: bool = False,
 ) -> tuple[dict, list, dict, dict, dict]:
     """Inspect source inputs while preserving the original five-value API."""
     return _inspect_source(
@@ -1478,6 +1660,7 @@ def inspect_source(
         include_private_chat_metadata=include_private_chat_metadata,
         include_named_tool_configuration=include_named_tool_configuration,
         include_user_profile_fields=include_user_profile_fields,
+        include_api_keys=include_api_keys,
     )[:5]
 
 
@@ -1489,6 +1672,7 @@ def preview(
     include_private_chat_metadata: bool = False,
     include_named_tool_configuration: bool = False,
     include_user_profile_fields: bool = False,
+    include_api_keys: bool = False,
 ) -> dict:
     report, _, _, _, _ = inspect_source(
         source_db,
@@ -1497,6 +1681,7 @@ def preview(
         include_private_chat_metadata=include_private_chat_metadata,
         include_named_tool_configuration=include_named_tool_configuration,
         include_user_profile_fields=include_user_profile_fields,
+        include_api_keys=include_api_keys,
     )
     return report
 
@@ -1529,6 +1714,7 @@ def _copy_domains(
     private_chat_overrides: dict[str, dict[str, str]] | None = None,
     named_tool_config_data: dict | None = None,
     include_user_profile_fields: bool = False,
+    api_key_overrides: dict[str, str] | None = None,
 ) -> dict:
     counts = {}
     counts["auth"] = _insert_rows(source, target, "auth", {"id": "id", "email": "email", "password": "password", "active": "active"})
@@ -1543,7 +1729,13 @@ def _copy_domains(
             "gender": "gender",
             "date_of_birth": "date_of_birth",
         })
-    counts["user"] = _insert_rows(source, target, "user", user_mapping)
+    counts["user"] = _insert_rows(
+        source,
+        target,
+        "user",
+        user_mapping,
+        {"api_key": api_key_overrides or {}},
+    )
     counts["chat"] = _insert_rows(source, target, "chat", {
         "id": "id", "user_id": "user_id", "title": "title", "share_id": "share_id", "archived": "archived",
         "created_at": "created_at", "updated_at": "updated_at", "chat": "chat", "pinned": "pinned",
@@ -1613,16 +1805,18 @@ def convert(
     include_private_chat_metadata: bool = False,
     include_named_tool_configuration: bool = False,
     include_user_profile_fields: bool = False,
+    include_api_keys: bool = False,
     failpoint: Callable[[str], None] | None = None,
 ) -> dict:
     started = time.perf_counter()
-    report, upload_rows, object_access, group_memberships, private_chat_overrides, named_tool_config_data = _inspect_source(
+    report, upload_rows, object_access, group_memberships, private_chat_overrides, named_tool_config_data, api_key_overrides = _inspect_source(
         source_db,
         uploads_root,
         old_template,
         include_private_chat_metadata=include_private_chat_metadata,
         include_named_tool_configuration=include_named_tool_configuration,
         include_user_profile_fields=include_user_profile_fields,
+        include_api_keys=include_api_keys,
     )
     source = Path(source_db).resolve(strict=True)
     template = Path(old_template).resolve(strict=True)
@@ -1683,6 +1877,7 @@ def convert(
                 object_access, group_memberships, private_chat_overrides,
                 named_tool_config_data,
                 include_user_profile_fields=include_user_profile_fields,
+                api_key_overrides=api_key_overrides,
             )
             if failpoint:
                 failpoint("after_rows_before_commit")
@@ -1834,6 +2029,11 @@ def main(argv: list[str] | None = None) -> int:
             action="store_true",
             help="prepare the opt-in nullable bio/gender/date_of_birth fields on a fresh old-target copy",
         )
+        command.add_argument(
+            "--include-api-keys",
+            action="store_true",
+            help="copy only validated supported opaque keys to their matching legacy user fields",
+        )
     args = parser.parse_args(argv)
     try:
         if args.command == "preview":
@@ -1844,6 +2044,7 @@ def main(argv: list[str] | None = None) -> int:
                 include_private_chat_metadata=args.include_private_chat_metadata,
                 include_named_tool_configuration=args.include_named_tool_configuration,
                 include_user_profile_fields=args.include_user_profile_fields,
+                include_api_keys=args.include_api_keys,
             )
         else:
             report = convert(
@@ -1856,6 +2057,7 @@ def main(argv: list[str] | None = None) -> int:
                 include_private_chat_metadata=args.include_private_chat_metadata,
                 include_named_tool_configuration=args.include_named_tool_configuration,
                 include_user_profile_fields=args.include_user_profile_fields,
+                include_api_keys=args.include_api_keys,
             )
     except MigrationError as error:
         report = {"status": "refused", "error_code": error.code, **error.report}
