@@ -1,13 +1,19 @@
 # SPDX-License-Identifier: BSD-3-Clause
-"""Narrow sync/async bridge for legacy pipe imports of ``Users``.
+"""Narrow sync/async bridges for legacy plugin imports of ``Users``.
 
-Only the exact imported ``Users`` binding in a dynamically loaded ``Pipe``
-module is replaced. The proxy bridges only the bounded ID and email lookup
-methods. Native application lookups and other plugin types retain their
+Only exact imported ``Users`` bindings in dynamically loaded ``Pipe`` or
+``Filter`` modules are replaced. The proxies bridge only bounded ID and email
+lookups. Native application lookups and other plugin types retain their
 original behavior.
 """
 
 import asyncio
+from contextvars import ContextVar
+
+
+_filter_async_user_lookups = ContextVar(
+    "openatelier_filter_async_user_lookups", default=False
+)
 
 
 class _UsersLookupProxy:
@@ -56,6 +62,50 @@ def adapt_pipe_module(module, users):
         module.__dict__[name] = proxy
     module.__dict__["__openatelier_user_lookup_compat__"] = True
     return True
+
+
+class _FilterUsersLookupProxy(_UsersLookupProxy):
+    """Bridge only awaited ID/email lookups in adapted Filter handlers."""
+
+    def get_user_by_id(self, id):
+        lookup = self._users.get_user_by_id
+        if _filter_async_user_lookups.get():
+            return asyncio.to_thread(lookup, id)
+        return lookup(id)
+
+    def get_user_by_email(self, email):
+        lookup = self._users.get_user_by_email
+        if _filter_async_user_lookups.get():
+            return asyncio.to_thread(lookup, email)
+        return lookup(email)
+
+
+def adapt_filter_module(module, users):
+    """Adapt exact module-level Users bindings in a dynamically loaded Filter."""
+    if getattr(module, "Filter", None) is None:
+        return False
+    bindings = [name for name, value in module.__dict__.items() if value is users]
+    if not bindings:
+        return False
+    proxy = _FilterUsersLookupProxy(users)
+    for name in bindings:
+        module.__dict__[name] = proxy
+    marker = "__openatelier_filter_user_lookup_compat__"
+    module.__dict__[marker] = True
+    # The existing loader returns a Filter instance, not its source module.
+    # A private marker on this plugin's class makes the dispatcher recognize
+    # that returned instance without changing any application-wide class.
+    setattr(module.Filter, marker, True)
+    return True
+
+
+def set_filter_async_user_lookup_mode(async_mode):
+    """Set per-call lookup mode and return its reset token."""
+    return _filter_async_user_lookups.set(async_mode)
+
+
+def reset_filter_async_user_lookup_mode(token):
+    _filter_async_user_lookups.reset(token)
 
 
 async def execute_pipe(pipe, params, module_lookup):

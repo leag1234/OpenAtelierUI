@@ -156,6 +156,12 @@ def load_function_module_by_id(function_id, content=None):
             adapt_pipe_module(module, Users)
             return module.Pipe(), "pipe", frontmatter
         elif hasattr(module, "Filter"):
+            from open_webui.models.users import Users
+            from open_webui.utils.plugin_user_compat import adapt_filter_module
+
+            # Adapt the direct import before construction. The filter lookup
+            # context defaults to synchronous, preserving constructor calls.
+            adapt_filter_module(module, Users)
             return module.Filter(), "filter", frontmatter
         elif hasattr(module, "Action"):
             return module.Action(), "action", frontmatter

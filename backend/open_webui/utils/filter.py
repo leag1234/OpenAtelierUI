@@ -2,6 +2,10 @@ import inspect
 import logging
 
 from open_webui.utils.plugin import load_function_module_by_id
+from open_webui.utils.plugin_user_compat import (
+    reset_filter_async_user_lookup_mode,
+    set_filter_async_user_lookup_mode,
+)
 from open_webui.models.functions import Functions
 from open_webui.env import SRC_LOG_LEVELS
 
@@ -134,11 +138,26 @@ async def process_filter_functions(
                     except Exception as e:
                         log.exception(f"Failed to get user values: {e}")
 
-            # Execute handler
-            if inspect.iscoroutinefunction(handler):
-                form_data = await handler(**params)
-            else:
-                form_data = handler(**params)
+            # Execute adapted Filters with a task-local lookup mode. The
+            # default remains synchronous for constructors and native callers.
+            adapted_filter = getattr(
+                function_module,
+                "__openatelier_filter_user_lookup_compat__",
+                False,
+            )
+            lookup_mode_token = None
+            if adapted_filter:
+                lookup_mode_token = set_filter_async_user_lookup_mode(
+                    inspect.iscoroutinefunction(handler)
+                )
+            try:
+                if inspect.iscoroutinefunction(handler):
+                    form_data = await handler(**params)
+                else:
+                    form_data = handler(**params)
+            finally:
+                if lookup_mode_token is not None:
+                    reset_filter_async_user_lookup_mode(lookup_mode_token)
 
         except Exception as e:
             log.debug(f"Error in {filter_type} handler {filter_id}: {e}")
