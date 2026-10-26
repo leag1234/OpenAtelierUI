@@ -93,6 +93,7 @@ MAX_IMPORTED_USER_BIO_BYTES = 8192
 MAX_IMPORTED_USER_GENDER_BYTES = 128
 MAX_IMPORTED_API_KEY_ROWS = 1000
 MAX_API_KEY_CONFIG_VALUE_BYTES = 16 * 1024
+MAX_USER_PERMISSIONS_CONFIG_BYTES = 16 * 1024
 API_KEY_COLUMNS = {
     "id", "user_id", "key", "data", "expires_at", "last_used_at", "created_at", "updated_at"
 }
@@ -489,6 +490,88 @@ def _parse_api_key_configuration(connection: sqlite3.Connection) -> dict[str, ob
         "endpoint_restrictions": restrictions,
         "allowed_endpoints": allowed_endpoints,
     }
+
+
+def _parse_user_permissions(connection: sqlite3.Connection) -> dict[str, dict[str, bool]]:
+    """Read one exact, bounded nested boolean user-permissions config row."""
+    if "config" not in _tables(connection):
+        raise MigrationError(
+            "user_permissions_source_schema_mismatch",
+            "selected user-permissions configuration table is unavailable",
+        )
+    if set(_columns(connection, "config")) != {"key", "value", "updated_at"}:
+        raise MigrationError(
+            "user_permissions_source_schema_mismatch",
+            "selected user-permissions configuration schema is unsupported",
+        )
+
+    selected = []
+    for row in connection.execute('SELECT "key","value" FROM "config"'):
+        key = row["key"]
+        if not isinstance(key, str):
+            continue
+        folded_key = key.casefold()
+        if (
+            (key != "user.permissions" and folded_key in {"user.permissions", "user_permissions"})
+            or folded_key == "user"
+            or folded_key.startswith("user.permissions.")
+        ):
+            raise MigrationError(
+                "user_permissions_ambiguous_override",
+                "configuration contains an unsupported user-permissions parent, alias, or dotted override",
+            )
+        if key == "user.permissions":
+            selected.append(row["value"])
+    if len(selected) != 1:
+        raise MigrationError(
+            "user_permissions_selection_invalid",
+            "exactly one selected user-permissions setting is required",
+        )
+    raw = selected[0]
+    if not isinstance(raw, str):
+        raise MigrationError(
+            "user_permissions_value_invalid",
+            "selected user-permissions setting must contain JSON text",
+        )
+    try:
+        if len(raw.encode("utf-8", errors="strict")) > MAX_USER_PERMISSIONS_CONFIG_BYTES:
+            raise MigrationError(
+                "user_permissions_value_invalid",
+                "selected user-permissions setting exceeds the supported size bound",
+            )
+        value = json.loads(raw, object_pairs_hook=_reject_duplicate_json_keys)
+    except MigrationError:
+        raise
+    except (UnicodeError, ValueError, TypeError, RecursionError):
+        raise MigrationError(
+            "user_permissions_value_invalid",
+            "selected user-permissions setting is not supported JSON",
+        ) from None
+
+    if not isinstance(value, dict) or not value:
+        raise MigrationError(
+            "user_permissions_value_invalid",
+            "selected user-permissions setting must be a nonempty nested boolean object",
+        )
+    for category, permissions in value.items():
+        if not isinstance(category, str) or not category or not isinstance(permissions, dict) or not permissions:
+            raise MigrationError(
+                "user_permissions_value_invalid",
+                "selected user-permissions setting must contain two-level boolean maps",
+            )
+        for name, enabled in permissions.items():
+            if not isinstance(name, str) or not name or type(enabled) is not bool:
+                raise MigrationError(
+                    "user_permissions_value_invalid",
+                    "selected user-permissions setting must contain only boolean leaves",
+                )
+    features = value.get("features")
+    if not isinstance(features, dict) or type(features.get("api_keys")) is not bool:
+        raise MigrationError(
+            "user_permissions_value_invalid",
+            "selected user-permissions setting must include a boolean features.api_keys value",
+        )
+    return value
 
 
 def _digest(path: Path) -> str:
@@ -1486,6 +1569,7 @@ def _inspect_source(
     include_user_profile_fields: bool = False,
     include_api_keys: bool = False,
     include_api_key_configuration: bool = False,
+    include_user_permissions: bool = False,
 ) -> dict:
     started = time.perf_counter()
     source = _db_path(source_db, label="source database")
@@ -1513,7 +1597,7 @@ def _inspect_source(
         template_info = _validate_template(
             template,
             require_named_tool_config=(
-                include_named_tool_configuration or include_api_key_configuration
+                include_named_tool_configuration or include_api_key_configuration or include_user_permissions
             ),
             prepare_user_profile_fields=include_user_profile_fields,
         )
@@ -1551,7 +1635,7 @@ def _inspect_source(
         for table in ("config", "function_history"):
             if table in tables and _count(connection, table) and not (
                 table == "config"
-                and (include_named_tool_configuration or include_api_key_configuration)
+                and (include_named_tool_configuration or include_api_key_configuration or include_user_permissions)
             ):
                 _block(report, "unsupported_nonempty_domain_" + table, _count(connection, table), detail="full bytes are retained in the source archive; old target behavior is not implemented")
         valid_required = {name: name in tables and required.issubset(_columns(connection, name)) for name, required in SOURCE_REQUIRED.items()}
@@ -1695,7 +1779,7 @@ def _inspect_source(
             known_users = {row[0] for row in connection.execute('SELECT id FROM "user"')}
             if any(row[0] not in known_users for row in connection.execute('SELECT user_id FROM "chat"')):
                 _block(report, "chat_owner_missing", 1, fatal=True)
-        if include_named_tool_configuration or include_api_key_configuration:
+        if include_named_tool_configuration or include_api_key_configuration or include_user_permissions:
             config_rows = report["table_counts"].get("config", 0)
             verified = False
             defaults_source_hash = None
@@ -1710,6 +1794,11 @@ def _inspect_source(
                     api_key_settings = (
                         _parse_api_key_configuration(connection)
                         if include_api_key_configuration
+                        else None
+                    )
+                    user_permissions = (
+                        _parse_user_permissions(connection)
+                        if include_user_permissions
                         else None
                     )
                     defaults, defaults_source_hash, defaults_hash = _load_pinned_old_defaults()
@@ -1734,6 +1823,14 @@ def _inspect_source(
                                 "pinned old configuration defaults have an unsupported API-key shape",
                             )
                         api_key_config.update(api_key_settings)
+                    if user_permissions is not None:
+                        user_config = target_config_data.setdefault("user", {})
+                        if not isinstance(user_config, dict):
+                            raise MigrationError(
+                                "user_permissions_old_defaults_invalid",
+                                "pinned old configuration defaults have an unsupported user shape",
+                            )
+                        user_config["permissions"] = user_permissions
                     named_tool_config_data = {
                         "data": target_config_data,
                         "version": target_config_data["version"],
@@ -1745,6 +1842,7 @@ def _inspect_source(
                 selected_config_rows = (
                     (1 if include_named_tool_configuration else 0)
                     + (3 if include_api_key_configuration else 0)
+                    + (1 if include_user_permissions else 0)
                 )
                 remaining_config_rows = max(config_rows - selected_config_rows, 0)
                 if remaining_config_rows:
@@ -1767,6 +1865,13 @@ def _inspect_source(
                         "api_key_configuration_prototype",
                         1,
                         detail="three selected API-key settings are mapped; remaining configuration is archived and cutover is disabled",
+                    )
+                if include_user_permissions:
+                    _block(
+                        report,
+                        "user_permissions_prototype",
+                        1,
+                        detail="the selected boolean permission map is copied; only the API-key feature check is scoped, other permission semantics remain unqualified and cutover is disabled",
                     )
             else:
                 remaining_config_rows = config_rows
@@ -1795,6 +1900,16 @@ def _inspect_source(
                     "defaults_literal_sha256": defaults_hash,
                     "remaining_config_rows": remaining_config_rows,
                 }
+            if include_user_permissions:
+                report["user_permissions"] = {
+                    "opt_in": True,
+                    "selected_key_count": 1 if verified else 0,
+                    "api_keys_permission_present": bool(
+                        verified and user_permissions is not None and "api_keys" in user_permissions["features"]
+                    ),
+                    "remaining_config_rows": remaining_config_rows,
+                    "semantics": "only explicit features.api_keys enforcement is in scope; other permission values are copied but unqualified",
+                }
         group_memberships = _validate_group_domains(connection, report, user_ids, template)
         object_access = _validate_object_domains(connection, report, user_ids, set(group_memberships))
         for table in COPYABLE_TABLES & set(tables):
@@ -1822,6 +1937,7 @@ def inspect_source(
     include_user_profile_fields: bool = False,
     include_api_keys: bool = False,
     include_api_key_configuration: bool = False,
+    include_user_permissions: bool = False,
 ) -> tuple[dict, list, dict, dict, dict]:
     """Inspect source inputs while preserving the original five-value API."""
     return _inspect_source(
@@ -1833,6 +1949,7 @@ def inspect_source(
         include_user_profile_fields=include_user_profile_fields,
         include_api_keys=include_api_keys,
         include_api_key_configuration=include_api_key_configuration,
+        include_user_permissions=include_user_permissions,
     )[:5]
 
 
@@ -1846,6 +1963,7 @@ def preview(
     include_user_profile_fields: bool = False,
     include_api_keys: bool = False,
     include_api_key_configuration: bool = False,
+    include_user_permissions: bool = False,
 ) -> dict:
     report, _, _, _, _ = inspect_source(
         source_db,
@@ -1856,6 +1974,7 @@ def preview(
         include_user_profile_fields=include_user_profile_fields,
         include_api_keys=include_api_keys,
         include_api_key_configuration=include_api_key_configuration,
+        include_user_permissions=include_user_permissions,
     )
     return report
 
@@ -1981,6 +2100,7 @@ def convert(
     include_user_profile_fields: bool = False,
     include_api_keys: bool = False,
     include_api_key_configuration: bool = False,
+    include_user_permissions: bool = False,
     failpoint: Callable[[str], None] | None = None,
 ) -> dict:
     started = time.perf_counter()
@@ -1993,6 +2113,7 @@ def convert(
         include_user_profile_fields=include_user_profile_fields,
         include_api_keys=include_api_keys,
         include_api_key_configuration=include_api_key_configuration,
+        include_user_permissions=include_user_permissions,
     )
     source = Path(source_db).resolve(strict=True)
     template = Path(old_template).resolve(strict=True)
@@ -2040,7 +2161,7 @@ def convert(
         marker_before = _validate_template(
             template,
             require_named_tool_config=(
-                include_named_tool_configuration or include_api_key_configuration
+                include_named_tool_configuration or include_api_key_configuration or include_user_permissions
             ),
             prepare_user_profile_fields=include_user_profile_fields,
         )["markers"]
@@ -2217,6 +2338,11 @@ def main(argv: list[str] | None = None) -> int:
             action="store_true",
             help="map only the three measured API-key policy settings into the old nested configuration",
         )
+        command.add_argument(
+            "--include-user-permissions",
+            action="store_true",
+            help="map the exact measured nested boolean user-permissions setting into old configuration",
+        )
     args = parser.parse_args(argv)
     try:
         if args.command == "preview":
@@ -2229,6 +2355,7 @@ def main(argv: list[str] | None = None) -> int:
                 include_user_profile_fields=args.include_user_profile_fields,
                 include_api_keys=args.include_api_keys,
                 include_api_key_configuration=args.include_api_key_configuration,
+                include_user_permissions=args.include_user_permissions,
             )
         else:
             report = convert(
@@ -2243,6 +2370,7 @@ def main(argv: list[str] | None = None) -> int:
                 include_user_profile_fields=args.include_user_profile_fields,
                 include_api_keys=args.include_api_keys,
                 include_api_key_configuration=args.include_api_key_configuration,
+                include_user_permissions=args.include_user_permissions,
             )
     except MigrationError as error:
         report = {"status": "refused", "error_code": error.code, **error.report}

@@ -48,7 +48,7 @@ from open_webui.utils.auth import (
     get_password_hash,
 )
 from open_webui.utils.webhook import post_webhook
-from open_webui.utils.access_control import get_permissions
+from open_webui.utils.access_control import get_permissions, has_permission
 from open_webui.utils.imported_profile import user_profile_fields_enabled
 
 from typing import Optional, List
@@ -955,6 +955,35 @@ async def update_ldap_config(
 @router.post("/api_key", response_model=ApiKey)
 async def generate_api_key(request: Request, user=Depends(get_current_user)):
     if not request.app.state.config.ENABLE_API_KEY:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail=ERROR_MESSAGES.API_KEY_CREATION_NOT_ALLOWED,
+        )
+
+    configured_permissions = getattr(
+        request.app.state.config, "USER_PERMISSIONS", None
+    )
+    feature_permissions = (
+        configured_permissions.get("features")
+        if isinstance(configured_permissions, dict)
+        else None
+    )
+    api_key_permission = (
+        feature_permissions.get("api_keys")
+        if isinstance(feature_permissions, dict)
+        else None
+    )
+    if (
+        user.role == "user"
+        and isinstance(feature_permissions, dict)
+        and "api_keys" in feature_permissions
+        and (
+            type(api_key_permission) is not bool
+            or not has_permission(
+                user.id, "features.api_keys", configured_permissions
+            )
+        )
+    ):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail=ERROR_MESSAGES.API_KEY_CREATION_NOT_ALLOWED,
