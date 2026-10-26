@@ -34,7 +34,7 @@ from open_webui.env import (
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse, Response
 from open_webui.config import OPENID_PROVIDER_URL, ENABLE_OAUTH_SIGNUP, ENABLE_LDAP
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 from open_webui.utils.misc import parse_duration, validate_email_format
 from open_webui.utils.auth import (
     create_api_key,
@@ -715,7 +715,7 @@ async def get_admin_details(request: Request, user=Depends(get_current_user)):
 
 @router.get("/admin/config")
 async def get_admin_config(request: Request, user=Depends(get_admin_user)):
-    return {
+    response = {
         "SHOW_ADMIN_DETAILS": request.app.state.config.SHOW_ADMIN_DETAILS,
         "WEBUI_URL": request.app.state.config.WEBUI_URL,
         "ENABLE_SIGNUP": request.app.state.config.ENABLE_SIGNUP,
@@ -730,21 +730,61 @@ async def get_admin_config(request: Request, user=Depends(get_admin_user)):
         "ENABLE_CHANNELS": request.app.state.config.ENABLE_CHANNELS,
         "ENABLE_USER_WEBHOOKS": request.app.state.config.ENABLE_USER_WEBHOOKS,
     }
+    response.update(
+        {
+            "ENABLE_API_KEYS": response["ENABLE_API_KEY"],
+            "ENABLE_API_KEYS_ENDPOINT_RESTRICTIONS": response[
+                "ENABLE_API_KEY_ENDPOINT_RESTRICTIONS"
+            ],
+            "API_KEYS_ALLOWED_ENDPOINTS": response["API_KEY_ALLOWED_ENDPOINTS"],
+        }
+    )
+    return response
 
 
 class AdminConfig(BaseModel):
     SHOW_ADMIN_DETAILS: bool
     WEBUI_URL: str
     ENABLE_SIGNUP: bool
-    ENABLE_API_KEY: bool
-    ENABLE_API_KEY_ENDPOINT_RESTRICTIONS: bool
-    API_KEY_ALLOWED_ENDPOINTS: str
+    ENABLE_API_KEY: bool = Field(
+        validation_alias=AliasChoices("ENABLE_API_KEY", "ENABLE_API_KEYS")
+    )
+    ENABLE_API_KEY_ENDPOINT_RESTRICTIONS: bool = Field(
+        validation_alias=AliasChoices(
+            "ENABLE_API_KEY_ENDPOINT_RESTRICTIONS",
+            "ENABLE_API_KEYS_ENDPOINT_RESTRICTIONS",
+        )
+    )
+    API_KEY_ALLOWED_ENDPOINTS: str = Field(
+        validation_alias=AliasChoices(
+            "API_KEY_ALLOWED_ENDPOINTS", "API_KEYS_ALLOWED_ENDPOINTS"
+        )
+    )
     DEFAULT_USER_ROLE: str
     JWT_EXPIRES_IN: str
     ENABLE_COMMUNITY_SHARING: bool
     ENABLE_MESSAGE_RATING: bool
     ENABLE_CHANNELS: bool
     ENABLE_USER_WEBHOOKS: bool
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_conflicting_api_key_aliases(cls, values):
+        if isinstance(values, dict):
+            aliases = (
+                ("ENABLE_API_KEY", "ENABLE_API_KEYS"),
+                (
+                    "ENABLE_API_KEY_ENDPOINT_RESTRICTIONS",
+                    "ENABLE_API_KEYS_ENDPOINT_RESTRICTIONS",
+                ),
+                ("API_KEY_ALLOWED_ENDPOINTS", "API_KEYS_ALLOWED_ENDPOINTS"),
+            )
+            if any(
+                old in values and new in values and values[old] != values[new]
+                for old, new in aliases
+            ):
+                raise ValueError("Conflicting API-key configuration aliases")
+        return values
 
 
 @router.post("/admin/config")
@@ -781,7 +821,7 @@ async def update_admin_config(
 
     request.app.state.config.ENABLE_USER_WEBHOOKS = form_data.ENABLE_USER_WEBHOOKS
 
-    return {
+    response = {
         "SHOW_ADMIN_DETAILS": request.app.state.config.SHOW_ADMIN_DETAILS,
         "WEBUI_URL": request.app.state.config.WEBUI_URL,
         "ENABLE_SIGNUP": request.app.state.config.ENABLE_SIGNUP,
@@ -795,6 +835,16 @@ async def update_admin_config(
         "ENABLE_MESSAGE_RATING": request.app.state.config.ENABLE_MESSAGE_RATING,
         "ENABLE_USER_WEBHOOKS": request.app.state.config.ENABLE_USER_WEBHOOKS,
     }
+    response.update(
+        {
+            "ENABLE_API_KEYS": response["ENABLE_API_KEY"],
+            "ENABLE_API_KEYS_ENDPOINT_RESTRICTIONS": response[
+                "ENABLE_API_KEY_ENDPOINT_RESTRICTIONS"
+            ],
+            "API_KEYS_ALLOWED_ENDPOINTS": response["API_KEY_ALLOWED_ENDPOINTS"],
+        }
+    )
+    return response
 
 
 class LdapServerConfig(BaseModel):
