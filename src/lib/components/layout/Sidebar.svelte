@@ -58,6 +58,7 @@
 	import ChannelItem from './Sidebar/ChannelItem.svelte';
 	import PencilSquare from '../icons/PencilSquare.svelte';
 	import Home from '../icons/Home.svelte';
+	import Document from '../icons/Document.svelte';
 
 	const BREAKPOINT = 768;
 
@@ -605,6 +606,14 @@
 					<div class="flex self-center translate-y-[0.5px]">
 						<div class=" self-center font-medium text-sm font-primary">{$i18n.t('Workspace')}</div>
 					</div>
+				</a>
+			</div>
+		{/if}
+		{#if $config?.features?.openatelier_private_notes}
+			<div class="px-1.5 flex justify-center text-gray-800 dark:text-gray-200">
+				<a class="grow flex items-center space-x-3 rounded-lg px-2 py-[7px] hover:bg-gray-100 dark:hover:bg-gray-900 transition" href="/notes" on:click={() => { selectedChatId = null; chatId.set(''); if ($mobile) showSidebar.set(false); }} draggable="false">
+					<Document className="size-[1.1rem]" />
+					<span class="self-center font-medium text-sm font-primary">Notes</span>
 				</a>
 			</div>
 		{/if}

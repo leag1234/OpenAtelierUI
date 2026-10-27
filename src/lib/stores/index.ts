@@ -214,6 +214,7 @@ type Config = {
 		enable_admin_chat_access: boolean;
 		enable_community_sharing: boolean;
 		enable_autocomplete_generation: boolean;
+		openatelier_private_notes?: boolean;
 	};
 	oauth: {
 		providers: {

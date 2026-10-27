@@ -1480,6 +1480,7 @@ async def get_app_config(request: Request):
                     "enable_admin_chat_access": ENABLE_ADMIN_CHAT_ACCESS,
                     "enable_google_drive_integration": app.state.config.ENABLE_GOOGLE_DRIVE_INTEGRATION,
                     "enable_onedrive_integration": app.state.config.ENABLE_ONEDRIVE_INTEGRATION,
+                    **({"openatelier_private_notes": True} if os.environ.get("OPENATELIER_PRIVATE_NOTES_COMPAT") == "1" else {}),
                 }
                 if user is not None
                 else {}
