@@ -1,0 +1,9 @@
+# Temporary chat UI adapter provenance
+
+This bounded source75 adapter connects the already measured owner-scoped `local:` task support to the temporary conversation path in `Chat.svelte`. On the first temporary prompt, an empty or legacy bare `local` value becomes a fresh `local:<uuid>` context; a valid current `local:` context is reused across continuation. `initNewChat` still clears the chat ID, so the next conversation receives a new context. The saved-chat creation and navigation branch is unchanged.
+
+For temporary `local:` work, Stop now uses the existing owner-scoped per-chat stop/list resolver. It does not fall back to the global task endpoint. A confirmed stop marks the unfinished response complete in the current in-memory history, while persisted stopped-history updates remain limited to saved chats. Existing error, uncertain-stop, navigation, and newer-task checks remain in place. No temporary chat is created, updated, or added to saved-chat listings by this change.
+
+`validation/test_temporary_chat_ui.py` source-extracts the actual initializer and stop function and checks ID creation/reuse, owner-route selection, stop failure behavior, temporary non-persistence, and saved-chat persistence. The local Node executable is v8, so the test replaces only optional-chaining/nullish syntax in extracted source with equivalent expressions for parsing; the exercised branch logic is the extracted component code. Primary owns the offline Svelte build and rendered desktop/mobile journey. These source checks do not establish rendered usability or human UX acceptance.
+
+No build or browser review was run by this worker. Closing a temporary page while work is active, reconnect/restart behavior, multiworker task ownership, browser storage/log cleanup, and durable task architecture remain unqualified. This is an experimental integration, not a default or architecture adoption.

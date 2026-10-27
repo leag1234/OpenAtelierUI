@@ -1808,7 +1808,9 @@
 		const currentIdAtStop = history.currentId;
 
 		const savedChat = !$temporaryChatEnabled && !isEphemeralChatId(stoppingChatId);
-		if (savedChat) {
+		const ownerScopedContext =
+			savedChat || (typeof stoppingChatId === 'string' && stoppingChatId.startsWith('local:'));
+		if (ownerScopedContext) {
 			const outcome = await requestSavedChatStop(
 				() => stopTasksByChatId(localStorage.token, stoppingChatId),
 				() => getTaskIdsByChatId(localStorage.token, stoppingChatId),
@@ -1830,7 +1832,7 @@
 			if (taskIdsUnchanged) taskIds = null;
 			const confirmedStopped = outcome.state === 'stopped';
 			const changed = markCurrentResponsesDone(confirmedStopped, stoppingResponseIds);
-			if (confirmedStopped && changed) {
+			if (confirmedStopped && changed && savedChat) {
 				if (history.currentId === currentIdAtStop) {
 					await persistStoppedChat(stoppingChatId, history);
 				} else {
@@ -2009,8 +2011,10 @@
 
 			window.history.replaceState(history.state, '', `/c/${_chatId}`);
 		} else {
-			_chatId = 'local';
-			await chatId.set('local');
+			_chatId = typeof _chatId === 'string' && _chatId.startsWith('local:') && _chatId.length > 6
+				? _chatId
+				: `local:${uuidv4()}`;
+			await chatId.set(_chatId);
 		}
 		await tick();
 
