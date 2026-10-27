@@ -73,9 +73,11 @@ test('existing updates send only changed fields while new notes retain create de
 });
 
 test('parsed note responses retain exact bounded JSON text for lossless download', () => {
-	const raw = '{"created_at":1792949159000000000,"meta":{"counter":90071992547409931234},"data":{}}';
+	const raw = '{"id":"note-1","title":"Workshop plan","created_at":1792949159000000123,"meta":{"counter":90071992547409931234},"data":{"content":{"md":"Keep"}},"access_grants":[]}';
 	const parsed = parseRetainedNoteResponse(raw);
 	assert.equal(originalNoteResponse(parsed), raw);
+	assert.notEqual(JSON.stringify(parsed), raw);
+	assert.deepEqual(notePayload('Renamed', 'Keep', parsed, false), { title: 'Renamed', access_grants: [] });
 	assert.equal(originalNoteResponse({ ...parsed }), null);
 	const large = `{"data":{"content":{"md":"${'x'.repeat(65536)}"}}}`;
 	assert.equal(originalNoteResponse(parseRetainedNoteResponse(large)), null);

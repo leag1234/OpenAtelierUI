@@ -3,6 +3,7 @@
 	import { beforeNavigate } from '$app/navigation';
 	import { config, showSidebar } from '$lib/stores';
 	import MenuLines from '$lib/components/icons/MenuLines.svelte';
+	import fileSaver from 'file-saver';
 	import { listNotes, searchNotes, getNote, createNote, updateNote, toggleNotePin } from '$lib/apis/notes';
 	import { actionsBlocked, editableNote, focusTrapTargetIndex, formatNoteDate, isDirty, notePayload, originalNoteResponse, resolveSave, safeNoteFilename, saveStatus } from '$lib/apis/notes/state.js';
 
@@ -209,12 +210,7 @@
 			return;
 		}
 		const blob = new Blob([raw], { type: 'application/json' });
-		const url = URL.createObjectURL(blob);
-		const anchor = document.createElement('a');
-		anchor.href = url;
-		anchor.download = safeNoteFilename();
-		anchor.click();
-		URL.revokeObjectURL(url);
+		fileSaver.saveAs(blob, safeNoteFilename());
 	};
 
 	const beforeUnload = (event) => {
