@@ -14,3 +14,5 @@ Focused checks:
 - `python3 validation/test_chat_session_compat.py`
 
 Both are source-extracted or helper-level checks. The mounted backend/API, native task scheduling, compiled frontend, and browser stop/reopen journeys require the primary worker's independent verification.
+
+Source71 repair: the primary's offline build05 stopped normally at `+layout.svelte` because three newly added variable declarations used TypeScript annotations inside the existing plain `<script>` block. Those annotations were removed while retaining the same initial values and behavior. The source-extracted metadata test also omitted the already-imported `StreamingResponse` symbol from its isolated namespace; the test now supplies a harmless binding, with its assertions unchanged. The failed build receipt is retained by the primary. This repair does not establish that the next frontend build or browser journey succeeds.

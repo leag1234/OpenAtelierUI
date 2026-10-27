@@ -117,6 +117,9 @@ class ChatMetadataOwnershipTests(unittest.TestCase):
         class ProviderErrorResponse:
             pass
 
+        class StreamingResponse:
+            pass
+
         namespace = {
             "app": FakeApp(),
             "Request": Request,
@@ -136,6 +139,7 @@ class ChatMetadataOwnershipTests(unittest.TestCase):
             # the pre-prototype immediate path.
             "_async_plugin_compat_requested": lambda *_args: False,
             "ProviderErrorResponse": ProviderErrorResponse,
+            "StreamingResponse": StreamingResponse,
             "log": LogStub(),
         }
         self.route = extract(MAIN_SOURCE, {"chat_completion"}, namespace)["chat_completion"]

@@ -57,11 +57,9 @@
 	let loaded = false;
 
 	const BREAKPOINT = 768;
-	let layoutChatEventBinding:
-		| (ReturnType<typeof bindChatEventChannel> & { active: boolean })
-		| null = null;
-	let layoutChatEventSubscriptions: Array<() => void> = [];
-	let layoutUserUnsubscriber: (() => void) | undefined;
+	let layoutChatEventBinding = null;
+	let layoutChatEventSubscriptions = [];
+	let layoutUserUnsubscriber;
 
 	const setupSocket = async (enableWebsocket) => {
 		const _socket = io(`${WEBUI_BASE_URL}` || undefined, {
