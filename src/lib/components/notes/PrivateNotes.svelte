@@ -1,10 +1,10 @@
 <script>
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, tick } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
 	import { config, showSidebar } from '$lib/stores';
 	import MenuLines from '$lib/components/icons/MenuLines.svelte';
 	import { listNotes, searchNotes, getNote, createNote, updateNote, toggleNotePin } from '$lib/apis/notes';
-	import { actionsBlocked, editableNote, isDirty, notePayload, resolveSave, safeNoteFilename, saveStatus } from '$lib/apis/notes/state.js';
+	import { actionsBlocked, editableNote, focusTrapTargetIndex, isDirty, notePayload, resolveSave, safeNoteFilename, saveStatus } from '$lib/apis/notes/state.js';
 
 	let notes = [];
 	let total = null;
@@ -23,6 +23,9 @@
 	let pinning = false;
 	let status = '';
 	let pendingAction = null;
+	let dialogElement;
+	let keepEditingButton;
+	let dialogReturnFocus;
 	let selectionVersion = 0;
 	let listVersion = 0;
 	let accountRefused = false;
@@ -97,8 +100,42 @@
 
 	const requestAction = (action) => {
 		if (actionsBlocked({ saving, opening, pinning })) return;
-		if (dirty) pendingAction = action;
+		if (dirty) {
+			dialogReturnFocus = typeof document !== 'undefined' ? document.activeElement : null;
+			pendingAction = action;
+			focusUnsavedDialog();
+		}
 		else action();
+	};
+
+	const focusUnsavedDialog = async () => {
+		await tick();
+		if (pendingAction) keepEditingButton?.focus();
+	};
+	const restoreDialogFocus = async () => {
+		const target = dialogReturnFocus;
+		dialogReturnFocus = null;
+		await tick();
+		if (target?.isConnected) target.focus();
+	};
+	const closeUnsavedDialog = () => {
+		pendingAction = null;
+		restoreDialogFocus();
+	};
+	const containDialogFocus = (event) => {
+		if (pendingAction && dialogElement && !dialogElement.contains(event.target)) keepEditingButton?.focus();
+	};
+	const trapDialogTab = (event) => {
+		if (!pendingAction || event.key !== 'Tab' || !dialogElement) return;
+		const focusable = [...dialogElement.querySelectorAll('button:not([disabled])')];
+		const targetIndex = focusTrapTargetIndex(focusable.indexOf(document.activeElement), focusable.length, event.shiftKey);
+		if (targetIndex === -1) {
+			event.preventDefault();
+			dialogElement.focus();
+		} else if (targetIndex !== null) {
+			event.preventDefault();
+			focusable[targetIndex].focus();
+		}
 	};
 
 	const discardAndContinue = () => {
@@ -106,6 +143,7 @@
 		const action = pendingAction;
 		pendingAction = null;
 		if (action) action();
+		restoreDialogFocus();
 	};
 
 	const save = async () => {
@@ -180,6 +218,12 @@
 		event.returnValue = '';
 	};
 	const onKeyDown = (event) => {
+		if (pendingAction && event.key === 'Escape') {
+			event.preventDefault();
+			if (!actionsBlocked({ saving, opening, pinning })) closeUnsavedDialog();
+			return;
+		}
+		trapDialogTab(event);
 		if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's' && editable) {
 			event.preventDefault();
 			save();
@@ -194,6 +238,7 @@
 		if (typeof window === 'undefined') return;
 		window.addEventListener('beforeunload', beforeUnload);
 		window.addEventListener('keydown', onKeyDown);
+		window.addEventListener('focusin', containDialogFocus);
 		if ($config?.features?.openatelier_private_notes) refreshList(1, '');
 	});
 	onDestroy(() => {
@@ -201,6 +246,7 @@
 		if (typeof window === 'undefined') return;
 		window.removeEventListener('beforeunload', beforeUnload);
 		window.removeEventListener('keydown', onKeyDown);
+		window.removeEventListener('focusin', containDialogFocus);
 	});
 </script>
 
@@ -244,5 +290,5 @@
 </main>
 
 {#if pendingAction}
-	<div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" role="presentation"><section class="w-full max-w-md rounded-xl bg-white p-5 shadow-xl dark:bg-gray-900" role="dialog" aria-modal="true" aria-labelledby="unsaved-title"><h2 id="unsaved-title" class="text-lg font-semibold">Unsaved note</h2><p class="mt-2 text-sm text-gray-600 dark:text-gray-300">Save your changes before switching notes?</p><div class="mt-5 flex flex-wrap justify-end gap-2"><button class="rounded-lg px-3 py-2 text-sm hover:bg-gray-100 disabled:opacity-50 dark:hover:bg-gray-800" on:click={() => pendingAction = null} disabled={saving || opening || pinning}>Keep editing</button><button class="rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-gray-700" on:click={discardAndContinue} disabled={saving || opening || pinning}>Discard</button><button class="rounded-lg bg-gray-900 px-3 py-2 text-sm text-white disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900" on:click={saveAndContinue} disabled={saving || opening || pinning}>Save and continue</button></div></section></div>
+	<div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" role="presentation"><section bind:this={dialogElement} class="w-full max-w-md rounded-xl bg-white p-5 shadow-xl dark:bg-gray-900" role="dialog" aria-modal="true" aria-labelledby="unsaved-title" tabindex="-1"><h2 id="unsaved-title" class="text-lg font-semibold">Unsaved note</h2><p class="mt-2 text-sm text-gray-600 dark:text-gray-300">Save your changes before switching notes?</p><div class="mt-5 flex flex-wrap justify-end gap-2"><button bind:this={keepEditingButton} class="rounded-lg px-3 py-2 text-sm hover:bg-gray-100 disabled:opacity-50 dark:hover:bg-gray-800" on:click={closeUnsavedDialog} disabled={saving || opening || pinning}>Keep editing</button><button class="rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-gray-700" on:click={discardAndContinue} disabled={saving || opening || pinning}>Discard</button><button class="rounded-lg bg-gray-900 px-3 py-2 text-sm text-white disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900" on:click={saveAndContinue} disabled={saving || opening || pinning}>Save and continue</button></div></section></div>
 {/if}

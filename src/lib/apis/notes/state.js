@@ -33,6 +33,14 @@ export const isDirty = (draft, baseline) =>
 export const actionsBlocked = ({ saving = false, opening = false, pinning = false } = {}) =>
 	saving || opening || pinning;
 
+export const focusTrapTargetIndex = (activeIndex, count, backward = false) => {
+	if (count < 1) return -1;
+	if (activeIndex < 0) return backward ? count - 1 : 0;
+	if (backward && activeIndex === 0) return count - 1;
+	if (!backward && activeIndex === count - 1) return 0;
+	return null;
+};
+
 export const saveStatus = (listRefreshed) =>
 	listRefreshed ? 'Saved' : 'Saved. The note list could not be refreshed.';
 

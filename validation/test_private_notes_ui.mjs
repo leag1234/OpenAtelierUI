@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { actionsBlocked, editableNote, editableText, isDirty, notePayload, resolveSave, safeNoteFilename, saveStatus } from '../src/lib/apis/notes/state.js';
+import { actionsBlocked, editableNote, editableText, focusTrapTargetIndex, isDirty, notePayload, resolveSave, safeNoteFilename, saveStatus } from '../src/lib/apis/notes/state.js';
 
 test('only the measured plain-text note shapes are editable', () => {
 	assert.deepEqual(editableText({}), { editable: true, text: '' });
@@ -27,6 +27,15 @@ test('opening and pinning block conflicting selections and writes', () => {
 	assert.equal(actionsBlocked({ pinning: true }), true);
 	assert.equal(actionsBlocked({ saving: true }), true);
 	assert.equal(actionsBlocked({}), false);
+});
+
+test('unsaved dialog focus stays inside and wraps at both Tab boundaries', () => {
+	assert.equal(focusTrapTargetIndex(-1, 3), 0);
+	assert.equal(focusTrapTargetIndex(-1, 3, true), 2);
+	assert.equal(focusTrapTargetIndex(0, 3, true), 2);
+	assert.equal(focusTrapTargetIndex(2, 3), 0);
+	assert.equal(focusTrapTargetIndex(1, 3), null);
+	assert.equal(focusTrapTargetIndex(-1, 0), -1);
 });
 
 test('a saved note stays distinguished from a failed list refresh', () => {
