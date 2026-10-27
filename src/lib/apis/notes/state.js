@@ -30,13 +30,19 @@ export const editableNote = (note) => {
 export const isDirty = (draft, baseline) =>
 	!baseline || draft.title !== baseline.title || draft.text !== baseline.text;
 
+export const actionsBlocked = ({ saving = false, opening = false, pinning = false } = {}) =>
+	saving || opening || pinning;
+
+export const saveStatus = (listRefreshed) =>
+	listRefreshed ? 'Saved' : 'Saved. The note list could not be refreshed.';
+
 export const notePayload = (title, text, note = null) => {
 	if (note && !editableNote(note).editable) throw new Error('This note cannot be safely edited');
 	return {
-	title,
-	data: { content: { md: text } },
-	meta: note ? note.meta : null,
-	access_grants: []
+		title,
+		data: { content: { md: text } },
+		meta: note ? note.meta : null,
+		access_grants: []
 	};
 };
 

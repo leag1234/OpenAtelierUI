@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { editableNote, editableText, isDirty, notePayload, resolveSave, safeNoteFilename } from '../src/lib/apis/notes/state.js';
+import { actionsBlocked, editableNote, editableText, isDirty, notePayload, resolveSave, safeNoteFilename, saveStatus } from '../src/lib/apis/notes/state.js';
 
 test('only the measured plain-text note shapes are editable', () => {
 	assert.deepEqual(editableText({}), { editable: true, text: '' });
@@ -20,6 +20,19 @@ test('draft state distinguishes unchanged, changed, and new notes', () => {
 	assert.equal(isDirty(baseline, baseline), false);
 	assert.equal(isDirty({ ...baseline, text: 'Ask about room access.' }, baseline), true);
 	assert.equal(isDirty({ title: '', text: '' }, null), true);
+});
+
+test('opening and pinning block conflicting selections and writes', () => {
+	assert.equal(actionsBlocked({ opening: true }), true);
+	assert.equal(actionsBlocked({ pinning: true }), true);
+	assert.equal(actionsBlocked({ saving: true }), true);
+	assert.equal(actionsBlocked({}), false);
+});
+
+test('a saved note stays distinguished from a failed list refresh', () => {
+	assert.equal(saveStatus(true), 'Saved');
+	assert.match(saveStatus(false), /^Saved\./);
+	assert.match(saveStatus(false), /list could not be refreshed/);
 });
 
 test('save payload preserves metadata including explicit null and keeps text plain', () => {
