@@ -10,6 +10,8 @@ import unittest
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Optional, Union
+from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt, StrictStr, TypeAdapter, ValidationError, model_validator
 
 BASE = Path(__file__).resolve().parents[1]
 MODEL = BASE / "backend/open_webui/models/chats.py"
@@ -29,6 +31,17 @@ def extract(path, names, namespace):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 node.decorator_list = []
     exec(compile(ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[])), str(path), "exec"), namespace)
+    return namespace
+
+
+def extract_forms():
+    tree = ast.parse(MODEL.read_text(encoding="utf-8"))
+    names = {"ChatForm", "ChatImportForm", "ChatImportItemForm", "ChatsImportForm"}
+    classes = [node for node in tree.body if isinstance(node, ast.ClassDef) and node.name in names]
+    namespace = {"BaseModel": BaseModel, "ConfigDict": ConfigDict, "Optional": Optional, "StrictBool": StrictBool,
+        "model_validator": model_validator,
+        "StrictInt": StrictInt, "StrictStr": StrictStr}
+    exec(compile(ast.fix_missing_locations(ast.Module(body=classes, type_ignores=[])), str(MODEL), "exec"), namespace)
     return namespace
 
 
@@ -83,7 +96,7 @@ class BulkChatImportTests(unittest.TestCase):
     @staticmethod
     def item(title, current="m2", **fields):
         return {"id": "source-id", "user_id": "untrusted-owner", "created_at": 123, "updated_at": 456,
-                "chat": {"title": title, "history": {"messages": {"m1": {"parentId": None}, "m2": {"parentId": "m1"}}, "currentId": "m1"}}, **fields,
+                "chat": {"title": title, "history": {"messages": {"m1": {"role": "user", "content": "question", "parentId": None}, "m2": {"role": "assistant", "content": "answer", "parentId": "m1"}}, "currentId": "m1"}}, **fields,
                 **({"current_message_id": current} if current is not None else {})}
 
     def rows(self):
@@ -100,6 +113,7 @@ class BulkChatImportTests(unittest.TestCase):
             graph = json.loads(row[3])
             self.assertEqual(graph["history"]["currentId"], "m2")
             self.assertEqual(graph["history"]["messages"]["m2"]["parentId"], "m1")
+            self.assertEqual(graph["history"]["messages"]["m1"]["content"], "question")
             self.assertIsNone(row[6])
             self.assertEqual(row[8], 0)
 
@@ -113,6 +127,9 @@ class BulkChatImportTests(unittest.TestCase):
     def test_unsupported_fields_and_invalid_selection_refuse_before_session(self):
         for item in (self.item("Folder", folder_id="folder"), self.item("Tags", meta={"tags": ["x"]}),
                      self.item("Files", chat={"title": "Files", "files": ["file"]}),
+                     self.item("Image content", chat={"title": "Image", "history": {"messages": {"m1": {"role": "user", "content": [{"type": "image_url", "image_url": {"url": "synthetic"}}]}}, "currentId": "m1"}}),
+                     self.item("Tool content", chat={"title": "Tool", "history": {"messages": {"m1": {"role": "tool", "content": "result"}}, "currentId": "m1"}}),
+                     self.item("Null metadata", meta=None), self.item("Null selection", current=None, current_message_id=None),
                      self.item("Missing selection", current="absent"),
                      self.item("Malformed graph", chat={"title": "Bad", "history": {"messages": None}})):
             with self.subTest(item=item["chat"]["title"]), self.assertRaises(ValueError):
@@ -130,8 +147,7 @@ class BulkChatImportTests(unittest.TestCase):
         self.assertEqual(self.opens, 0)
 
     def test_singleton_route_branch_remains_legacy_import(self):
-        class ChatImportForm:
-            def __init__(self, **values): self.values = values
+        form_types = extract_forms()
 
         class Response:
             def __init__(self, **values): self.values = values
@@ -143,20 +159,24 @@ class BulkChatImportTests(unittest.TestCase):
         class Chats:
             @staticmethod
             def import_chat(owner, form):
-                calls.append((owner, form.values))
+                calls.append((owner, form))
                 return existing
 
         existing.model_dump = lambda: {"id": "legacy", "user_id": "verified", "title": "Old", "chat": {}, "created_at": 1, "updated_at": 1, "archived": False, "meta": {}}
-        ns = extract(ROUTER, {"import_chat"}, {"ChatImportForm": ChatImportForm, "ChatResponse": Response,
+        ns = extract(ROUTER, {"import_chat"}, {"ChatImportForm": form_types["ChatImportForm"],
+            "ChatsImportForm": form_types["ChatsImportForm"], "ChatResponse": Response,
             "Chats": Chats, "HTTPException": type("HTTPException", (Exception,), {"__init__": lambda self, **kw: setattr(self, "detail", kw)}),
             "log": SimpleNamespace(exception=lambda _e: None), "status": SimpleNamespace(HTTP_422_UNPROCESSABLE_ENTITY=422, HTTP_400_BAD_REQUEST=400),
             "ERROR_MESSAGES": SimpleNamespace(DEFAULT=lambda: "failed"), "Tags": SimpleNamespace(), "Depends": lambda _value: None,
-            "get_verified_user": object()})
-        output = asyncio.run(ns["import_chat"]({"chat": {"title": "Old"}}, SimpleNamespace(id="verified")))
-        self.assertEqual(calls, [("verified", {"chat": {"title": "Old"}})])
+            "get_verified_user": object(), "Union": Union, "Optional": Optional})
+        form = form_types["ChatImportForm"](chat={"title": "Old"})
+        output = asyncio.run(ns["import_chat"](form, SimpleNamespace(id="verified")))
+        self.assertEqual(calls, [("verified", form)])
+        self.assertEqual(calls[0][1].chat, {"title": "Old"})
         self.assertEqual(output.values["id"], "legacy")
 
     def test_bulk_route_returns_array_for_verified_owner(self):
+        form_types = extract_forms()
         class Response:
             def __init__(self, **values): self.values = values
 
@@ -168,15 +188,27 @@ class BulkChatImportTests(unittest.TestCase):
                 return [Model(id="new-1", user_id=owner, title="One", chat={}, created_at=1, updated_at=1),
                         Model(id="new-2", user_id=owner, title="Two", chat={}, created_at=2, updated_at=2)]
 
-        ns = extract(ROUTER, {"import_chat"}, {"ChatResponse": Response, "Chats": Chats,
+        ns = extract(ROUTER, {"import_chat"}, {"ChatImportForm": form_types["ChatImportForm"],
+            "ChatsImportForm": form_types["ChatsImportForm"], "ChatResponse": Response, "Chats": Chats,
             "HTTPException": type("HTTPException", (Exception,), {"__init__": lambda self, **kw: setattr(self, "detail", kw)}),
             "log": SimpleNamespace(exception=lambda _e: None), "status": SimpleNamespace(HTTP_422_UNPROCESSABLE_ENTITY=422, HTTP_400_BAD_REQUEST=400),
             "ERROR_MESSAGES": SimpleNamespace(DEFAULT=lambda: "failed"), "Depends": lambda _value: None,
-            "get_verified_user": object()})
-        forms = [{"chat": {"title": "One"}}, {"chat": {"title": "Two"}}]
-        result = asyncio.run(ns["import_chat"]({"chats": forms}, SimpleNamespace(id="verified")))
-        self.assertEqual(calls, [("verified", forms)])
+            "get_verified_user": object(), "Union": Union, "Optional": Optional})
+        forms = [form_types["ChatImportItemForm"](chat={"title": "One"}), form_types["ChatImportItemForm"](chat={"title": "Two"})]
+        result = asyncio.run(ns["import_chat"](form_types["ChatsImportForm"](chats=forms), SimpleNamespace(id="verified")))
+        self.assertEqual(calls, [("verified", [{"chat": {"title": "One"}}, {"chat": {"title": "Two"}}])])
         self.assertEqual([item.values["id"] for item in result], ["new-1", "new-2"])
+
+    def test_bulk_dto_rejects_unknown_rights_and_singleton_requires_chat(self):
+        form_types = extract_forms()
+        with self.assertRaises(ValidationError):
+            TypeAdapter(Union[form_types["ChatImportForm"], form_types["ChatsImportForm"]]).validate_python({"title": "missing chat"})
+        with self.assertRaises(ValidationError):
+            form_types["ChatsImportForm"].model_validate({"chats": [{"chat": {}, "access_control": {"read": ["*-"]}}]})
+        adapter = TypeAdapter(Union[form_types["ChatImportForm"], form_types["ChatsImportForm"]])
+        self.assertIsInstance(adapter.validate_python({"chats": [{"chat": {}}]}), form_types["ChatsImportForm"])
+        with self.assertRaises(ValidationError):
+            adapter.validate_python({"chat": {}, "chats": [{"chat": {}}]})
 
 
 if __name__ == "__main__":

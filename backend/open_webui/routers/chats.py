@@ -1,13 +1,14 @@
 import copy
 import json
 import logging
-from typing import Optional
+from typing import Optional, Union
 
 
 from open_webui.socket.main import get_event_emitter
 from open_webui.models.chats import (
     ChatForm,
     ChatImportForm,
+    ChatsImportForm,
     PrivateChatForm,
     ChatResponse,
     PrivateChatResponse,
@@ -163,11 +164,11 @@ async def create_new_chat(form_data: PrivateChatForm, user=Depends(get_verified_
 ############################
 
 
-@router.post("/import", response_model=Optional[ChatResponse | list[ChatResponse]])
-async def import_chat(form_data: dict, user=Depends(get_verified_user)):
-    if "chats" in form_data:
+@router.post("/import", response_model=Optional[Union[ChatResponse, list[ChatResponse]]])
+async def import_chat(form_data: Union[ChatImportForm, ChatsImportForm], user=Depends(get_verified_user)):
+    if isinstance(form_data, ChatsImportForm):
         try:
-            chats = Chats.import_chats(user.id, form_data["chats"])
+            chats = Chats.import_chats(user.id, [chat.model_dump(exclude_unset=True) for chat in form_data.chats])
             return [ChatResponse(**chat.model_dump()) for chat in chats]
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e))
@@ -175,7 +176,6 @@ async def import_chat(form_data: dict, user=Depends(get_verified_user)):
             log.exception(e)
             raise HTTPException(status_code=400, detail=ERROR_MESSAGES.DEFAULT())
     try:
-        form_data = ChatImportForm(**form_data)
         chat = Chats.import_chat(user.id, form_data)
         if chat:
             tags = chat.meta.get("tags", [])

@@ -9,7 +9,7 @@ from open_webui.internal.db import Base, get_db
 from open_webui.models.tags import TagModel, Tag, Tags
 from open_webui.env import SRC_LOG_LEVELS
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, model_validator
 from sqlalchemy import BigInteger, Boolean, Column, String, Text, JSON, cast, update
 from sqlalchemy import or_, func, select, and_, text
 from sqlalchemy.sql import exists
@@ -230,6 +230,33 @@ class ChatImportForm(ChatForm):
     pinned: Optional[bool] = False
     folder_id: Optional[str] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_bulk_envelope(cls, value):
+        if isinstance(value, dict) and "chats" in value:
+            raise ValueError("Use the bulk import form for chat arrays.")
+        return value
+
+
+class ChatImportItemForm(ChatImportForm):
+    model_config = ConfigDict(extra="forbid")
+
+    id: Optional[StrictStr] = None
+    user_id: Optional[StrictStr] = None
+    title: Optional[StrictStr] = None
+    created_at: Optional[StrictInt] = None
+    updated_at: Optional[StrictInt] = None
+    current_message_id: Optional[StrictStr] = None
+    archived: Optional[StrictBool] = None
+    share_id: Optional[StrictStr] = None
+    pinned: Optional[StrictBool] = False
+
+
+class ChatsImportForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    chats: list[ChatImportItemForm]
+
 
 class ChatTitleMessagesForm(BaseModel):
     title: str
@@ -292,8 +319,10 @@ def _prepare_bulk_chat_import(chats):
             raise ValueError("Bulk import contains an unsupported chat shape.")
         if item.get("folder_id") is not None or item.get("share_id") is not None or item.get("archived", False) is not False:
             raise ValueError("Folders, shared chats, and archived imports are unsupported.")
-        if item.get("meta") not in (None, {}):
-            raise ValueError("Non-empty chat metadata is unsupported.")
+        if ("meta" in item and item["meta"] is None) or item.get("meta", {}) != {}:
+            raise ValueError("Unsupported chat metadata.")
+        if "current_message_id" in item and not isinstance(item["current_message_id"], str):
+            raise ValueError("Invalid selected message.")
         if type(item.get("pinned", False)) is not bool:
             raise ValueError("Invalid pinned value.")
         if "title" in item and not isinstance(item["title"], str):
@@ -327,8 +356,12 @@ def _prepare_bulk_chat_import(chats):
         while stack:
             current = stack.pop()
             if isinstance(current, dict):
-                if any(key in current and current[key] not in (None, [], {}) for key in ("file", "files", "attachments", "attachment", "file_ids")):
-                    raise ValueError("File attachments are unsupported.")
+                if current.get("role") == "tool" or current.get("type") in ("image", "input_image"):
+                    raise ValueError("Only text conversations are supported.")
+                if any(key in current and current[key] not in (None, [], {}) for key in ("file", "files", "attachments", "attachment", "file_ids", "images", "tool_calls", "tool_call", "tool_call_id", "function_call", "image_url")):
+                    raise ValueError("Media and tool content are unsupported.")
+                if "content" in current and current["content"] not in (None, "") and not isinstance(current["content"], str):
+                    raise ValueError("Only text conversations are supported.")
                 stack.extend(current.values())
             elif isinstance(current, list):
                 stack.extend(current)
