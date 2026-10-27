@@ -1293,6 +1293,17 @@ async def chat_completion(
         )
 
 
+def _validate_private_chat_context(form_data, user):
+    chat_id = form_data.get("chat_id")
+    if chat_id is None or (isinstance(chat_id, str) and chat_id.startswith("local:")):
+        return
+    if not isinstance(chat_id, str) or not chat_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found")
+    chat = Chats.get_chat_by_id(chat_id)
+    if chat is None or chat.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found")
+
+
 # Alias for chat_completion (Legacy)
 generate_chat_completions = chat_completion
 generate_chat_completion = chat_completion
@@ -1302,6 +1313,7 @@ generate_chat_completion = chat_completion
 async def chat_completed(
     request: Request, form_data: dict, user=Depends(get_verified_user)
 ):
+    _validate_private_chat_context(form_data, user)
     try:
         model_item = form_data.pop("model_item", {})
 
@@ -1321,6 +1333,7 @@ async def chat_completed(
 async def chat_action(
     request: Request, action_id: str, form_data: dict, user=Depends(get_verified_user)
 ):
+    _validate_private_chat_context(form_data, user)
     try:
         model_item = form_data.pop("model_item", {})
 
