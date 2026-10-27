@@ -163,9 +163,19 @@ async def create_new_chat(form_data: PrivateChatForm, user=Depends(get_verified_
 ############################
 
 
-@router.post("/import", response_model=Optional[ChatResponse])
-async def import_chat(form_data: ChatImportForm, user=Depends(get_verified_user)):
+@router.post("/import", response_model=Optional[ChatResponse | list[ChatResponse]])
+async def import_chat(form_data: dict, user=Depends(get_verified_user)):
+    if "chats" in form_data:
+        try:
+            chats = Chats.import_chats(user.id, form_data["chats"])
+            return [ChatResponse(**chat.model_dump()) for chat in chats]
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        except Exception as e:
+            log.exception(e)
+            raise HTTPException(status_code=400, detail=ERROR_MESSAGES.DEFAULT())
     try:
+        form_data = ChatImportForm(**form_data)
         chat = Chats.import_chat(user.id, form_data)
         if chat:
             tags = chat.meta.get("tags", [])

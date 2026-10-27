@@ -276,6 +276,68 @@ class PrivateChatTitleIdResponse(ChatTitleIdResponse):
     archived: bool = False
 
 
+def _prepare_bulk_chat_import(chats):
+    if not isinstance(chats, list) or not 1 <= len(chats) <= 16:
+        raise ValueError("Bulk import requires 1 to 16 chats.")
+    try:
+        payload_size = len(json.dumps({"chats": chats}, ensure_ascii=False, allow_nan=False).encode("utf-8"))
+    except (TypeError, ValueError, UnicodeError, RecursionError):
+        raise ValueError("Bulk import contains unsupported data.") from None
+    if payload_size > 4 * 1024 * 1024:
+        raise ValueError("Bulk import exceeds the 4 MiB limit.")
+    prepared, node_count = [], 0
+    allowed = {"id", "user_id", "title", "chat", "meta", "pinned", "folder_id", "created_at", "updated_at", "archived", "share_id", "current_message_id"}
+    for item in chats:
+        if not isinstance(item, dict) or set(item) - allowed or not isinstance(item.get("chat"), dict):
+            raise ValueError("Bulk import contains an unsupported chat shape.")
+        if item.get("folder_id") is not None or item.get("share_id") is not None or item.get("archived", False) is not False:
+            raise ValueError("Folders, shared chats, and archived imports are unsupported.")
+        if item.get("meta") not in (None, {}):
+            raise ValueError("Non-empty chat metadata is unsupported.")
+        if type(item.get("pinned", False)) is not bool:
+            raise ValueError("Invalid pinned value.")
+        if "title" in item and not isinstance(item["title"], str):
+            raise ValueError("Invalid chat title.")
+        for field in ("created_at", "updated_at"):
+            if field in item and (type(item[field]) is not int or item[field] < 0):
+                raise ValueError("Invalid chat timestamp.")
+        graph = item["chat"]
+        if not isinstance(graph.get("title", item.get("title", "New Chat")), str):
+            raise ValueError("Invalid chat title.")
+        history = graph.get("history")
+        if "history" in graph and not isinstance(history, dict):
+            raise ValueError("Invalid chat message graph.")
+        messages = history.get("messages", {}) if isinstance(history, dict) else {}
+        if isinstance(messages, dict):
+            node_count += len(messages)
+        elif isinstance(messages, list):
+            node_count += len(messages)
+        else:
+            raise ValueError("Invalid chat message graph.")
+        selected = item.get("current_message_id", history.get("currentId") if isinstance(history, dict) else None)
+        if selected is not None and (not isinstance(selected, str) or not isinstance(messages, dict) or selected not in messages):
+            raise ValueError("Selected message is missing from the chat graph.")
+        if "current_message_id" in item:
+            if not isinstance(graph.get("history", {}), dict):
+                raise ValueError("Invalid chat message graph.")
+            graph = copy.deepcopy(graph)
+            graph.setdefault("history", {})["currentId"] = selected
+            item = {**item, "chat": graph}
+        stack = [graph]
+        while stack:
+            current = stack.pop()
+            if isinstance(current, dict):
+                if any(key in current and current[key] not in (None, [], {}) for key in ("file", "files", "attachments", "attachment", "file_ids")):
+                    raise ValueError("File attachments are unsupported.")
+                stack.extend(current.values())
+            elif isinstance(current, list):
+                stack.extend(current)
+        prepared.append(item)
+    if node_count > 4096:
+        raise ValueError("Bulk import exceeds the 4096-message limit.")
+    return prepared
+
+
 class ChatTable:
     def insert_new_chat(
         self,
@@ -339,6 +401,24 @@ class ChatTable:
             db.commit()
             db.refresh(result)
             return ChatModel.model_validate(result) if result else None
+
+    def import_chats(self, user_id: str, chats: list[dict]) -> list[ChatModel]:
+        prepared = _prepare_bulk_chat_import(chats)
+        models, rows = [], []
+        for item in prepared:
+            now = int(time.time())
+            chat = item["chat"]
+            model = ChatModel(id=str(uuid.uuid4()), user_id=user_id, title=chat.get("title", item.get("title", "New Chat")), chat=chat, created_at=item.get("created_at", now), updated_at=item.get("updated_at", now), share_id=None, archived=False, pinned=item.get("pinned", False), meta={}, folder_id=None)
+            models.append(model)
+            rows.append(Chat(**model.model_dump()))
+        with get_db() as db:
+            try:
+                db.add_all(rows)
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise RuntimeError("Bulk chat import failed.") from None
+        return models
 
     def update_chat_by_id(
         self, id: str, chat: dict, update_timestamp: bool = True
