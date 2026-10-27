@@ -62,6 +62,23 @@ class ExportPrivateTextTests(unittest.TestCase):
         db.commit()
         db.close()
 
+    def _create_without_id_pk(self, index_sql=None, *, duplicate=False, other_primary=False):
+        if self.source.exists():
+            self.source.unlink()
+        db = sqlite3.connect(self.source)
+        primary = ", user_id TEXT PRIMARY KEY" if other_primary else ", user_id TEXT"
+        db.execute("CREATE TABLE chat (id TEXT" + primary + ", title TEXT, created_at BIGINT, updated_at BIGINT, share_id TEXT, archived BOOLEAN, chat JSON, pinned BOOLEAN, meta JSON, folder_id TEXT)")
+        row = ["source-chat-id", "owner-1", "Synthetic branched chat", 1730000000, 1730000200,
+               None, 0, json.dumps(graph(), ensure_ascii=False), None, "{}", None]
+        marks = ",".join("?" for _ in row)
+        db.execute("INSERT INTO chat VALUES (" + marks + ")", row)
+        if duplicate:
+            second = list(row); second[2] = "Second identity row"
+            db.execute("INSERT INTO chat VALUES (" + marks + ")", second)
+        if index_sql:
+            db.execute(index_sql)
+        db.commit(); db.close()
+
     def _args(self, command="preview", output=None, owner="owner-1", chat="source-chat-id"):
         args = [command, "--source", str(self.source), "--owner-id", owner, "--chat-id", chat]
         if output is not None:
@@ -189,6 +206,30 @@ class ExportPrivateTextTests(unittest.TestCase):
         db.execute("CREATE TABLE chat (id TEXT, user_id TEXT, title TEXT, created_at BIGINT, updated_at BIGINT, share_id TEXT, archived BOOLEAN, chat JSON, pinned BOOLEAN, meta JSON, folder_id TEXT, PRIMARY KEY(id,user_id))")
         db.commit(); db.close()
         self._reason("ambiguous_chat_identity", *self._args())
+
+    def test_unique_single_column_id_index_is_valid_identity(self):
+        self._create_without_id_pk('CREATE UNIQUE INDEX "id""unique" ON chat(id)')
+        code, result = self._run(*self._args())
+        self.assertEqual(code, 0)
+        self.assertEqual(result["result"]["chat_count"], 1)
+        code, result = self._run(*self._args("export", self.output))
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(self.output.read_text(encoding="utf-8"))["chats"][0]["chat"], graph())
+
+    def test_ambiguous_identity_index_forms_and_duplicate_rows_refuse(self):
+        invalid = (
+            (None, False, False),
+            ('CREATE UNIQUE INDEX composite_identity ON chat(id,user_id)', False, False),
+            ('CREATE UNIQUE INDEX partial_identity ON chat(id) WHERE id IS NOT NULL', False, False),
+            ('CREATE UNIQUE INDEX expression_identity ON chat(lower(id))', False, False),
+            (None, True, False),
+            ('CREATE UNIQUE INDEX id_identity ON chat(id)', False, True),
+        )
+        for index_sql, duplicate, other_primary in invalid:
+            with self.subTest(index=index_sql, duplicate=duplicate, other_primary=other_primary):
+                self._create_without_id_pk(index_sql, duplicate=duplicate, other_primary=other_primary)
+                self._reason("ambiguous_chat_identity", *self._args())
+                self.assertFalse(self.output.exists())
 
     def test_sidecars_symlinks_and_output_collisions_are_refused(self):
         sidecar = Path(str(self.source) + "-wal")

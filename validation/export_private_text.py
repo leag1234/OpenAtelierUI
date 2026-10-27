@@ -204,14 +204,24 @@ def _read(source, owner, chat_id, started):
         info = db.execute("PRAGMA table_info('chat')").fetchall()
         columns = {x["name"]: x for x in info}
         require(REQUIRED <= columns.keys() and not (columns.keys() - REQUIRED - OPTIONAL), "unsupported_chat_schema")
-        require(columns["id"]["pk"] == 1 and sum(bool(x["pk"]) for x in info) == 1, "ambiguous_chat_identity")
+        primary = [x["name"] for x in info if x["pk"]]
+        identity_index = False
+        if not primary:
+            for index in db.execute('PRAGMA index_list("chat")'):
+                if index["unique"] and not index["partial"]:
+                    quoted = '"' + index["name"].replace('"', '""') + '"'
+                    indexed = [x["name"] for x in db.execute("PRAGMA index_info(" + quoted + ")")]
+                    identity_index |= indexed == ["id"]
+        require(primary == ["id"] or not primary and identity_index, "ambiguous_chat_identity")
         types = {"id": {"TEXT", "VARCHAR", "CHAR", "CLOB", ""}, "user_id": {"TEXT", "VARCHAR", "CHAR", "CLOB", ""}, "title": {"TEXT", "VARCHAR", "CHAR", "CLOB", ""}, "created_at": {"INTEGER", "INT", "BIGINT", "SMALLINT"}, "updated_at": {"INTEGER", "INT", "BIGINT", "SMALLINT"}, "share_id": {"TEXT", "VARCHAR", "CHAR", "CLOB", ""}, "archived": {"BOOLEAN", "INTEGER", "INT"}, "chat": {"JSON", "TEXT", ""}, "pinned": {"BOOLEAN", "INTEGER", "INT"}, "meta": {"JSON", "TEXT", ""}, "folder_id": {"TEXT", "VARCHAR", "CHAR", "CLOB", ""}}
         require(all((columns[key]["type"] or "").upper() in allowed for key, allowed in types.items()), "unsupported_chat_schema")
         optional_types = {"current_message_id": {"TEXT", "VARCHAR", "CHAR", "CLOB", ""}, "variables": {"JSON", "TEXT", ""}, "last_read_at": {"INTEGER", "INT", "BIGINT", "SMALLINT"}}
         require(all((columns[key]["type"] or "").upper() in optional_types[key] for key in columns.keys() & OPTIONAL), "unsupported_chat_schema")
         names = ["id", "user_id", "title", "created_at", "updated_at", "share_id", "archived", "chat", "pinned", "meta", "folder_id"] + sorted(columns.keys() & OPTIONAL)
         query = "SELECT " + ",".join('"' + name + '"' for name in names) + ' FROM "chat" WHERE "id"=?'
-        row = db.execute(query, (chat_id,)).fetchone()
+        matches = db.execute(query, (chat_id,)).fetchmany(2)
+        require(len(matches) <= 1, "ambiguous_chat_identity")
+        row = matches[0] if matches else None
         require(row is not None, "chat_not_found")
         require(isinstance(row["id"], str) and isinstance(row["user_id"], str) and row["user_id"] == owner, "chat_not_owned")
         require(row["share_id"] is None and row["folder_id"] is None, "shared_or_foldered_chat")
