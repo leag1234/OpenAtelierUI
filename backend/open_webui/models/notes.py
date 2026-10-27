@@ -109,9 +109,10 @@ class PrivateNotes:
     def _row(row):
         if row is None:
             return None
+        data = json.loads(row[3]) if row[3] is not None else None
         return {
             "id": row[0], "user_id": row[1], "title": row[2],
-            "data": json.loads(row[3]) if row[3] is not None else {},
+            "data": {} if data is None else data,
             "meta": json.loads(row[4]) if row[4] is not None else None,
             "created_at": row[5], "updated_at": row[6], "is_pinned": bool(row[7]),
             "access_grants": [],

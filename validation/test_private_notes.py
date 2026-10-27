@@ -79,6 +79,31 @@ class PrivateNotesStoreTests(unittest.TestCase):
             self.add_note("n1", "other", "collision")
         self.assertEqual(reopened.get_owned("n1", "owner"), updated)
 
+    def test_json_null_and_sql_null_data_share_public_projection(self):
+        self.store.create({"id": "json-null", "user_id": "owner", "title": "JSON null",
+                           "data": "null", "meta": "null", "created_at": 21, "updated_at": 22})
+        self.store.create({"id": "sql-null", "user_id": "owner", "title": "SQL null",
+                           "data": None, "meta": None, "created_at": 23, "updated_at": 24})
+        with sqlite3.connect(self.path) as db:
+            db.execute("UPDATE openatelier_private_note SET is_pinned=1 WHERE id='json-null'")
+            stored = db.execute(
+                "SELECT id,data,meta,created_at,updated_at,is_pinned FROM openatelier_private_note "
+                "WHERE id IN ('json-null','sql-null') ORDER BY id"
+            ).fetchall()
+        self.assertEqual(stored, [("json-null", "null", "null", 21, 22, 1),
+                                  ("sql-null", None, None, 23, 24, 0)])
+        for note_id, created, updated, pinned in (("json-null", 21, 22, True), ("sql-null", 23, 24, False)):
+            note = self.store.get_owned(note_id, "owner")
+            self.assertEqual(note["data"], {})
+            self.assertIsNone(note["meta"])
+            self.assertEqual((note["created_at"], note["updated_at"], note["is_pinned"]),
+                             (created, updated, pinned))
+        listed = {row["id"]: row for row in self.store.list_owned("owner", 32, 0)[0]}
+        self.assertEqual(listed["json-null"]["data"], {})
+        self.assertEqual(listed["sql-null"]["data"], {})
+        self.assertEqual(sqlite3.connect(self.path).execute(
+            "SELECT data FROM openatelier_private_note WHERE id='json-null'").fetchone(), ("null",))
+
     def test_private_notes_permission_and_grants_route_checks(self):
         env = types.ModuleType("open_webui.env")
         env.DATABASE_URL = "sqlite:///" + str(self.path)
