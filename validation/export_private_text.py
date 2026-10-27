@@ -189,7 +189,7 @@ def _graph(raw, owner, title):
     return graph, len(nodes), len(chain), selected
 
 
-def _read(source, owner, chat_id, started):
+def _read(source, owner, chat_id, started, graph_reader=None):
     path = Path(source)
     before, digest = _source(path, started)
     require(time.monotonic() - started <= DEADLINE, "deadline_exceeded")
@@ -241,7 +241,8 @@ def _read(source, owner, chat_id, started):
             require(marker["last_read_at"] is None or type(marker["last_read_at"]) is int and marker["last_read_at"] >= 0, "unsupported_saved_work_marker")
         require("variables" not in columns or row["variables"] is None, "unsupported_chat_variables")
         require("last_read_at" not in columns or row["last_read_at"] is None, "unsupported_chat_read_state")
-        graph, node_count, chain_count, selected = _graph(row["chat"], owner, row["title"])
+        reader = graph_reader or _graph
+        graph, node_count, chain_count, selected = reader(row["chat"], owner, row["title"], db) if graph_reader else reader(row["chat"], owner, row["title"])
         require("current_message_id" not in columns or row["current_message_id"] in (None, "", selected), "selected_message_mismatch")
         require(time.monotonic() - started <= DEADLINE, "deadline_exceeded")
         form = {"chat": graph, "meta": {}, "pinned": bool(pinned), "folder_id": None, "current_message_id": selected, "created_at": row["created_at"], "updated_at": row["updated_at"]}
@@ -265,7 +266,7 @@ def _read(source, owner, chat_id, started):
             db.close()
 
 
-def _publish(output_path, source_path, expected_hash, data, started):
+def _publish(output_path, source_path, expected_hash, data, started, prepublish=None):
     output, source = Path(output_path), Path(source_path)
     try:
         require(output.resolve(strict=False) != source.resolve(strict=True), "output_is_source")
@@ -280,6 +281,8 @@ def _publish(output_path, source_path, expected_hash, data, started):
                 stream.write(data); stream.flush(); os.fsync(stream.fileno())
             require(time.monotonic() - started <= DEADLINE, "deadline_exceeded")
             require(_source(source, started)[1] == expected_hash, "source_changed")
+            if prepublish is not None:
+                prepublish()
             info = os.stat(temp, follow_symlinks=False); identity = (info.st_dev, info.st_ino)
             os.link(temp, output)
             published = True
