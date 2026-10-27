@@ -390,6 +390,7 @@ from open_webui.utils.security_headers import SecurityHeadersMiddleware
 from open_webui.tasks import (
     create_task,
     list_task_ids_by_chat_id,
+    list_task_ids_by_chat_id_for_user,
     stop_task,
     list_tasks,
     get_task,
@@ -1238,6 +1239,7 @@ async def chat_completion(
                     tasks,
                 ),
                 id=metadata["chat_id"],
+                owner_user_id=user.id,
             )
             return {
                 "status": True,
@@ -1365,6 +1367,9 @@ async def list_tasks_endpoint(user=Depends(get_admin_user)):
 
 @app.get("/api/tasks/chat/{chat_id}")
 async def list_tasks_by_chat_id_endpoint(chat_id: str, user=Depends(get_verified_user)):
+    if chat_id.startswith("local:"):
+        return {"task_ids": list(list_task_ids_by_chat_id_for_user(chat_id, user.id))}
+
     chat = Chats.get_chat_by_id(chat_id)
     if chat is None or chat.user_id != user.id:
         return {"task_ids": []}
@@ -1376,13 +1381,15 @@ async def list_tasks_by_chat_id_endpoint(chat_id: str, user=Depends(get_verified
 async def stop_tasks_by_chat_id_endpoint(
     chat_id: str, user=Depends(get_verified_user)
 ):
-    chat = Chats.get_chat_by_id(chat_id)
-    if chat is None or chat.user_id != user.id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found"
-        )
-
-    task_ids = list(list_task_ids_by_chat_id(chat_id))
+    if chat_id.startswith("local:"):
+        task_ids = list(list_task_ids_by_chat_id_for_user(chat_id, user.id))
+    else:
+        chat = Chats.get_chat_by_id(chat_id)
+        if chat is None or chat.user_id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found"
+            )
+        task_ids = list(list_task_ids_by_chat_id(chat_id))
     stopped = False
     for task_id in task_ids:
         if get_task(task_id) is None:

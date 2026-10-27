@@ -7,6 +7,7 @@ from uuid import uuid4
 # A dictionary to keep track of active tasks
 tasks: Dict[str, asyncio.Task] = {}
 chat_tasks = {}
+task_owners: Dict[str, str] = {}
 
 
 class TaskNotFoundError(ValueError):
@@ -18,6 +19,9 @@ def cleanup_task(task_id: str, id=None):
     Remove a completed or canceled task from the global `tasks` dictionary.
     """
     tasks.pop(task_id, None)  # Remove the task if it exists
+    task_owners.pop(task_id, None)
+    if not task_owners:
+        task_owners.clear()
 
     # If an ID is provided, remove the task from the chat_tasks dictionary
     if id and task_id in chat_tasks.get(id, []):
@@ -38,7 +42,7 @@ def _task_done(task, task_id: str, id=None):
         cleanup_task(task_id, id)
 
 
-def create_task(coroutine, id=None):
+def create_task(coroutine, id=None, *, owner_user_id=None):
     """
     Create a new asyncio task and add it to the global task dictionary.
     """
@@ -54,6 +58,14 @@ def create_task(coroutine, id=None):
         chat_tasks[id].append(task_id)
     else:
         chat_tasks[id] = [task_id]
+
+    if (
+        isinstance(id, str)
+        and id.startswith("local:")
+        and isinstance(owner_user_id, str)
+        and owner_user_id.strip()
+    ):
+        task_owners[task_id] = owner_user_id
 
     return task_id, task
 
@@ -77,6 +89,21 @@ def list_task_ids_by_chat_id(id):
     List all tasks associated with a specific ID.
     """
     return chat_tasks.get(id, [])
+
+
+def list_task_ids_by_chat_id_for_user(id, user_id):
+    if (
+        not isinstance(id, str)
+        or not id.startswith("local:")
+        or not isinstance(user_id, str)
+        or not user_id.strip()
+    ):
+        return []
+    return [
+        task_id
+        for task_id in chat_tasks.get(id, [])
+        if task_owners.get(task_id) == user_id
+    ]
 
 
 async def stop_task(task_id: str):
