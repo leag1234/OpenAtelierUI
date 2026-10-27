@@ -2,6 +2,7 @@
 """Isolated tests for explicit model bootstrap and plugin lookup adapters."""
 
 import asyncio
+import ast
 import builtins
 import hashlib
 import importlib.util
@@ -19,6 +20,7 @@ from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 COMPAT_PATH = ROOT / "backend/open_webui/utils/plugin_user_compat.py"
+PLUGIN_PATH = ROOT / "backend/open_webui/utils/plugin.py"
 BOOTSTRAP_PATH = ROOT / "backend/open_webui/utils/async_model_bootstrap.py"
 
 
@@ -94,7 +96,7 @@ class FilterImportCompatibilityTests(unittest.TestCase):
         self.module.Filter = type("Filter", (), {})
         self.original_builtins = self.module.__builtins__
         self.assertTrue(self.compat.adapt_filter_module(
-            self.module, self.users, self.files, self.chats))
+            self.module, self.users, self.files, self.chats, adapt_models=True))
 
     def tearDown(self):
         for name, module in self.old_modules.items():
@@ -165,7 +167,7 @@ class FilterImportCompatibilityTests(unittest.TestCase):
     def test_repeated_adaptation_is_idempotent(self):
         first = self.module.Files
         self.assertTrue(self.compat.adapt_filter_module(
-            self.module, self.users, self.files, self.chats))
+            self.module, self.users, self.files, self.chats, adapt_models=True))
         self.assertIs(self.module.Files, first)
 
         async def run():
@@ -221,6 +223,122 @@ class FilterImportCompatibilityTests(unittest.TestCase):
                 self.compat.reset_filter_async_user_lookup_mode(token)
 
         asyncio.run(none_result())
+
+
+class FilterModelAllowlistTests(unittest.TestCase):
+    def setUp(self):
+        self.compat = load_module("test_plugin_user_compat_allowlist", COMPAT_PATH)
+        self.functions = RecordingStore(("update_function_by_id",))
+        self.files = RecordingStore(("get_file_by_id",))
+        self.old_modules = {}
+        root = types.ModuleType("open_webui")
+        root.__path__ = []
+        utils = types.ModuleType("open_webui.utils")
+        utils.__path__ = []
+        models = types.ModuleType("open_webui.models")
+        models.__path__ = []
+        files_module = types.ModuleType("open_webui.models.files")
+        files_module.Files = self.files
+        for name, value in {
+            "open_webui": root,
+            "open_webui.utils": utils,
+            "open_webui.utils.plugin_user_compat": self.compat,
+            "open_webui.models": models,
+            "open_webui.models.files": files_module,
+        }.items():
+            self.old_modules[name] = sys.modules.get(name)
+            sys.modules[name] = value
+        root.utils = utils
+        root.models = models
+        models.files = files_module
+        tree = ast.parse(PLUGIN_PATH.read_text(encoding="utf-8"))
+        function = next(node for node in tree.body
+                        if isinstance(node, ast.FunctionDef)
+                        and node.name == "load_function_module_by_id")
+        namespace = {
+            "os": os, "sys": sys, "types": types, "tempfile": tempfile,
+            "Functions": self.functions, "replace_imports": lambda content: content,
+            "extract_frontmatter": lambda _content: {},
+            "install_frontmatter_requirements": lambda _requirements: None,
+            "log": types.SimpleNamespace(info=lambda *args, **kwargs: None,
+                                          error=lambda *args, **kwargs: None),
+        }
+        exec(compile(ast.Module(body=[function], type_ignores=[]),
+                     str(PLUGIN_PATH), "exec"), namespace)
+        self.load = namespace["load_function_module_by_id"]
+
+    def tearDown(self):
+        for name, value in self.old_modules.items():
+            if value is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = value
+
+    def _load_filter(self, function_id):
+        source = (
+            "from open_webui.models.files import Files\\n"
+            "class Filter:\\n"
+            "    async def lookup(self):\\n"
+            "        return await Files.get_file_by_id('missing')\\n"
+        ).replace("\\n", "\n")
+        return self.load(function_id, source)[0]
+
+    def test_default_and_unselected_filters_keep_native_none(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("OPENATELIER_ASYNC_FILTER_MODEL_IDS", None)
+            instance = self._load_filter("legacy-filter")
+        module = sys.modules["function_legacy-filter"]
+        self.assertIs(module.Files, self.files)
+        self.assertFalse(getattr(module, "__openatelier_filter_model_lookup_compat__", False))
+        with self.assertRaises(TypeError):
+            asyncio.run(instance.lookup())
+
+    def test_only_exact_selected_loader_id_gets_awaitable_lookup(self):
+        with patch.dict(os.environ, {"OPENATELIER_ASYNC_FILTER_MODEL_IDS": '["selected-filter"]'}):
+            selected = self._load_filter("selected-filter")
+            other = self._load_filter("other-filter")
+        selected_module = sys.modules["function_selected-filter"]
+        other_module = sys.modules["function_other-filter"]
+        self.assertTrue(selected_module.__openatelier_filter_model_lookup_compat__)
+        self.assertIs(other_module.Files, self.files)
+        self.files.return_none = True
+        self.assertIsNone(other_module.Files.get_file_by_id("native-none"))
+
+        async def invoke(instance):
+            token = self.compat.set_filter_async_user_lookup_mode(True)
+            try:
+                return await instance.lookup()
+            finally:
+                self.compat.reset_filter_async_user_lookup_mode(token)
+
+        self.assertIsNone(asyncio.run(invoke(selected)))
+        with self.assertRaises(TypeError):
+            asyncio.run(invoke(other))
+
+    def test_allowlist_bounds_invalid_values_without_disclosing_them(self):
+        invalid = (
+            "not-json", "{}", '"one-id"', '["a", "a"]', '["*"]',
+            '["has space"]', '["é"]', '["x/y"]',
+            "[\"" + "x" * 129 + "\"]",
+            "[\"a\"]" * 800,
+            "[" + ",".join('"id-%s"' % index for index in range(33)) + "]",
+        )
+        for raw in invalid:
+            with self.subTest(raw=raw[:24]):
+                with patch.dict(os.environ, {"OPENATELIER_ASYNC_FILTER_MODEL_IDS": raw}):
+                    with self.assertRaises(self.compat.FilterModelCompatConfigError) as raised:
+                        self.compat.read_async_filter_model_ids()
+                self.assertEqual(str(raised.exception), "Invalid async Filter model allowlist")
+        with patch.dict(os.environ, {"OPENATELIER_ASYNC_FILTER_MODEL_IDS": '["a","B-2","x.y_3"]'}):
+            self.assertEqual(self.compat.read_async_filter_model_ids(), frozenset(("a", "B-2", "x.y_3")))
+        with patch.dict(os.environ, {"OPENATELIER_ASYNC_FILTER_MODEL_IDS": ""}):
+            self.assertEqual(self.compat.read_async_filter_model_ids(), frozenset())
+
+    def test_invalid_loader_configuration_does_not_deactivate_function(self):
+        with patch.dict(os.environ, {"OPENATELIER_ASYNC_FILTER_MODEL_IDS": '["x", "x"]'}):
+            with self.assertRaises(self.compat.FilterModelCompatConfigError):
+                self._load_filter("legacy-filter")
+        self.assertEqual(self.functions.calls, [])
 
 
 class AsyncModelBootstrapTests(unittest.TestCase):

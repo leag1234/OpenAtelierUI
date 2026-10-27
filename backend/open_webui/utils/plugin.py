@@ -138,6 +138,7 @@ def load_function_module_by_id(function_id, content=None):
     # that it works as expected from the module's perspective.
     temp_file = tempfile.NamedTemporaryFile(delete=False)
     temp_file.close()
+    filter_model_config_error = None
     try:
         with open(temp_file.name, "w", encoding="utf-8") as f:
             f.write(content)
@@ -156,6 +157,15 @@ def load_function_module_by_id(function_id, content=None):
             adapt_pipe_module(module, Users)
             return module.Pipe(), "pipe", frontmatter
         elif hasattr(module, "Filter"):
+            model_ids = frozenset()
+            if "OPENATELIER_ASYNC_FILTER_MODEL_IDS" in os.environ:
+                from open_webui.utils.plugin_user_compat import (
+                    FilterModelCompatConfigError,
+                    read_async_filter_model_ids,
+                )
+
+                filter_model_config_error = FilterModelCompatConfigError
+                model_ids = read_async_filter_model_ids()
             importlib_module = sys.modules.get("importlib")
             users_module = sys.modules.get("open_webui.models.users")
             users = getattr(users_module, "Users", None) if users_module else None
@@ -180,7 +190,11 @@ def load_function_module_by_id(function_id, content=None):
                 from open_webui.utils.plugin_user_compat import adapt_filter_module
                 # Adapt before construction; sync constructors keep the
                 # default synchronous lookup mode.
-                adapt_filter_module(module, users)
+                adapt_filter_module(
+                    module,
+                    users,
+                    adapt_models=function_id in model_ids,
+                )
             return module.Filter(), "filter", frontmatter
         elif hasattr(module, "Action"):
             return module.Action(), "action", frontmatter
@@ -190,7 +204,8 @@ def load_function_module_by_id(function_id, content=None):
         log.error(f"Error loading module: {function_id}: {e}")
         del sys.modules[module_name]  # Cleanup by removing the module in case of error
 
-        Functions.update_function_by_id(function_id, {"is_active": False})
+        if filter_model_config_error is None or not isinstance(e, filter_model_config_error):
+            Functions.update_function_by_id(function_id, {"is_active": False})
         raise e
     finally:
         os.unlink(temp_file.name)

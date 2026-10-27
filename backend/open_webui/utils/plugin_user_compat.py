@@ -9,6 +9,9 @@ original behavior.
 
 import asyncio
 import importlib
+import json
+import os
+import re
 import sys
 import types
 from contextvars import ContextVar
@@ -17,6 +20,47 @@ from contextvars import ContextVar
 _filter_async_user_lookups = ContextVar(
     "openatelier_filter_async_user_lookups", default=False
 )
+_FILTER_MODEL_ID_PATTERN = re.compile(r"[A-Za-z0-9_.-]{1,128}", re.ASCII)
+MAX_FILTER_MODEL_IDS_JSON_BYTES = 4096
+MAX_FILTER_MODEL_IDS = 32
+
+
+class FilterModelCompatConfigError(ValueError):
+    """The explicit Filter model-lookup allowlist is invalid."""
+
+
+def read_async_filter_model_ids():
+    """Read the bounded exact-ID allowlist; unset means no new adaptation."""
+    raw = os.environ.get("OPENATELIER_ASYNC_FILTER_MODEL_IDS")
+    if raw is None or raw == "":
+        return frozenset()
+    try:
+        if len(raw.encode("utf-8")) > MAX_FILTER_MODEL_IDS_JSON_BYTES:
+            raise FilterModelCompatConfigError("Invalid async Filter model allowlist")
+
+        def unique_object(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise FilterModelCompatConfigError("Invalid async Filter model allowlist")
+                result[key] = value
+            return result
+
+        values = json.loads(raw, object_pairs_hook=unique_object)
+    except FilterModelCompatConfigError:
+        raise
+    except (UnicodeError, ValueError, TypeError, RecursionError):
+        raise FilterModelCompatConfigError("Invalid async Filter model allowlist") from None
+    if type(values) is not list or len(values) > MAX_FILTER_MODEL_IDS:
+        raise FilterModelCompatConfigError("Invalid async Filter model allowlist")
+    selected = set()
+    for value in values:
+        if (type(value) is not str or not value.isascii()
+                or _FILTER_MODEL_ID_PATTERN.fullmatch(value) is None
+                or value in selected):
+            raise FilterModelCompatConfigError("Invalid async Filter model allowlist")
+        selected.add(value)
+    return frozenset(selected)
 
 
 class _UsersLookupProxy:
@@ -136,12 +180,14 @@ class _FilterImportlibView(_FilterModuleView):
         return result
 
 
-def adapt_filter_module(module, users, files=None, chats=None):
+def adapt_filter_module(module, users, files=None, chats=None, *, adapt_models=False):
     """Adapt exact module-level SDK bindings in one loaded Filter."""
     if getattr(module, "Filter", None) is None:
         return False
     marker = "__openatelier_filter_user_lookup_compat__"
-    if module.__dict__.get(marker) is True:
+    model_marker = "__openatelier_filter_model_lookup_compat__"
+    if (module.__dict__.get(marker) is True
+            and (not adapt_models or module.__dict__.get(model_marker) is True)):
         return True
     targets = {
         "open_webui.models.files": ("Files", files, ("get_file_by_id",)),
@@ -171,17 +217,18 @@ def adapt_filter_module(module, users, files=None, chats=None):
         views[module_name] = view
         return view
 
-    for module_name, (attribute, supplied, methods) in targets.items():
-        real_module = sys.modules.get(module_name)
-        singleton = getattr(real_module, attribute, None) if real_module else None
-        if supplied is not None and singleton is supplied:
-            proxy_for(supplied, methods)
-        if real_module is not None:
-            for name, value in list(module.__dict__.items()):
-                if value is real_module:
-                    module.__dict__[name] = target_view(module_name, real_module)
-                elif singleton is not None and value is singleton:
-                    module.__dict__[name] = proxy_for(singleton, methods)
+    if adapt_models:
+        for module_name, (attribute, supplied, methods) in targets.items():
+            real_module = sys.modules.get(module_name)
+            singleton = getattr(real_module, attribute, None) if real_module else None
+            if supplied is not None and singleton is supplied:
+                proxy_for(supplied, methods)
+            if real_module is not None:
+                for name, value in list(module.__dict__.items()):
+                    if value is real_module:
+                        module.__dict__[name] = target_view(module_name, real_module)
+                    elif singleton is not None and value is singleton:
+                        module.__dict__[name] = proxy_for(singleton, methods)
 
     users_adapted = False
     if users is not None:
@@ -193,7 +240,7 @@ def adapt_filter_module(module, users, files=None, chats=None):
 
     importlib_module = sys.modules.get("importlib")
     has_importlib_binding = False
-    if importlib_module is not None:
+    if adapt_models and importlib_module is not None:
         for value in module.__dict__.values():
             if value is importlib_module or value is importlib_module.import_module:
                 has_importlib_binding = True
@@ -213,8 +260,11 @@ def adapt_filter_module(module, users, files=None, chats=None):
             elif value is importlib_module.import_module:
                 module.__dict__[name] = importlib_view.import_module
 
-    adapted = bool(replacements or views or has_importlib_binding or users_adapted)
+    model_adapted = bool(adapt_models and (replacements or views or has_importlib_binding))
+    adapted = bool(users_adapted or module.__dict__.get(marker) is True or model_adapted)
     module.__dict__[marker] = adapted
+    if model_adapted:
+        module.__dict__[model_marker] = True
     # The existing loader returns a Filter instance, not its source module.
     # A private marker on this plugin's class makes the dispatcher recognize
     # that returned instance without changing any application-wide class.
