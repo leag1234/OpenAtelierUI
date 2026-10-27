@@ -105,6 +105,42 @@ class PrivateNotesStoreTests(unittest.TestCase):
         self.assertEqual(sqlite3.connect(self.path).execute(
             "SELECT data FROM openatelier_private_note WHERE id='json-null'").fetchone(), ("null",))
 
+    def test_partial_updates_preserve_raw_fields_and_enforce_merged_limit_atomically(self):
+        self.store.create({"id": "partial", "user_id": "owner", "title": "Original",
+                           "data": '{"content":{"md":"Keep"},"counter":90071992547409931234}',
+                           "meta": '{"source":"retained","counter":90071992547409931234}',
+                           "created_at": 1792949159000000000, "updated_at": 1792949160000000000})
+        with sqlite3.connect(self.path) as db:
+            db.execute("UPDATE openatelier_private_note SET is_pinned=1 WHERE id='partial'")
+        before = sqlite3.connect(self.path).execute(
+            "SELECT data,meta,created_at,updated_at,is_pinned FROM openatelier_private_note WHERE id='partial'"
+        ).fetchone()
+        title_only = self.store.update_owned("partial", "owner", "Renamed", None, None, 1792949170000000000,
+                                             update_data=False, update_meta=False)
+        after_title = sqlite3.connect(self.path).execute(
+            "SELECT data,meta,created_at,updated_at,is_pinned FROM openatelier_private_note WHERE id='partial'"
+        ).fetchone()
+        self.assertEqual(after_title, (before[0], before[1], before[2], 1792949170000000000, 1))
+        self.assertEqual(title_only["data"]["counter"], 90071992547409931234)
+        data_only = self.store.update_owned("partial", "owner", "Renamed", '{"content":{"md":"Changed"}}',
+                                            None, 1792949180000000000, update_data=True, update_meta=False)
+        raw = sqlite3.connect(self.path).execute(
+            "SELECT data,meta,created_at,is_pinned FROM openatelier_private_note WHERE id='partial'"
+        ).fetchone()
+        self.assertEqual(raw, ('{"content":{"md":"Changed"}}', before[1], before[2], 1))
+        self.assertEqual(data_only["meta"]["counter"], 90071992547409931234)
+        self.assertIsNone(self.store.update_owned("partial", "other", "No access", None, None, 9,
+                                                  update_data=False, update_meta=False))
+        with self.assertRaises(ValueError):
+            self.store.update_owned("partial", "owner", "Too large", '{"content":{"md":"x"}}',
+                                    '{"extra":"' + ('z' * 32768) + '"}', 1792949190000000000,
+                                    update_data=True, update_meta=True)
+        final = sqlite3.connect(self.path).execute(
+            "SELECT title,data,meta,created_at,updated_at,is_pinned FROM openatelier_private_note WHERE id='partial'"
+        ).fetchone()
+        self.assertEqual(final, ("Renamed", '{"content":{"md":"Changed"}}', before[1], before[2],
+                                 1792949180000000000, 1))
+
     def test_private_notes_permission_and_grants_route_checks(self):
         env = types.ModuleType("open_webui.env")
         env.DATABASE_URL = "sqlite:///" + str(self.path)
@@ -161,6 +197,42 @@ class PrivateNotesStoreTests(unittest.TestCase):
             self.assertEqual(created["data"], {})
             self.assertIsNone(created["meta"])
             self.assertEqual(created["access_grants"], [])
+            original_data, original_meta = created["data"], created["meta"]
+            title_only = router.NoteForm(title="Private title", data=None, meta=None)
+            changed_title = router.update_note(request, created["id"], title_only, owner)
+            self.assertEqual((changed_title["data"], changed_title["meta"]), (original_data, original_meta))
+            meta_only = router.NoteForm(title="Private metadata", meta={"source": "kept"})
+            changed_meta = router.update_note(request, created["id"], meta_only, owner)
+            self.assertEqual(changed_meta["data"], original_data)
+            self.assertEqual(changed_meta["meta"], {"source": "kept"})
+            old_state = sqlite3.connect(self.path).execute(
+                "SELECT title,data,meta,created_at,updated_at,is_pinned FROM openatelier_private_note WHERE id=?",
+                (created["id"],),
+            ).fetchone()
+            too_large = router.NoteForm(title="Rejected", meta={"large": "x" * 32768})
+            with self.assertRaises(router.HTTPException) as oversized:
+                router.update_note(request, created["id"], too_large, owner)
+            self.assertEqual(oversized.exception.status_code, 422)
+            new_state = sqlite3.connect(self.path).execute(
+                "SELECT title,data,meta,created_at,updated_at,is_pinned FROM openatelier_private_note WHERE id=?",
+                (created["id"],),
+            ).fetchone()
+            self.assertEqual(new_state, old_state)
+            large_meta = '{"x":"' + ('m' * 32600) + '"}'
+            router.notes_store.create({"id": "near-limit", "user_id": "owner", "title": "x",
+                                       "data": None, "meta": large_meta,
+                                       "created_at": created_ns, "updated_at": created_ns})
+            near_limit_before = sqlite3.connect(self.path).execute(
+                "SELECT title,data,meta,created_at,updated_at,is_pinned FROM openatelier_private_note "
+                "WHERE id='near-limit'"
+            ).fetchone()
+            with self.assertRaises(router.HTTPException) as merged_oversized:
+                router.update_note(request, "near-limit", router.NoteForm(title="T" * 500), owner)
+            self.assertEqual(merged_oversized.exception.status_code, 422)
+            self.assertEqual(sqlite3.connect(self.path).execute(
+                "SELECT title,data,meta,created_at,updated_at,is_pinned FROM openatelier_private_note "
+                "WHERE id='near-limit'"
+            ).fetchone(), near_limit_before)
             denied = SimpleNamespace(id="other", role="user")
             with self.assertRaises(router.HTTPException) as caught:
                 router.get_note(request, created["id"], denied)
@@ -201,7 +273,7 @@ class PrivateNotesStoreTests(unittest.TestCase):
             with self.assertRaises(router.HTTPException) as excessive_depth:
                 router._form_values(router.NoteForm(title="Private", data=deep))
             self.assertEqual(excessive_depth.exception.status_code, 422)
-            self.assertEqual(router.notes_store.list_owned("owner", 32, 0)[1], 1)
+            self.assertEqual(router.notes_store.list_owned("owner", 32, 0)[1], 2)
             self.assertIsNone(router._load_notes_store("postgresql://example/db"))
             stored_notes = router.notes_store
             router.notes_store = None

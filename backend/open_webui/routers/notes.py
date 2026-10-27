@@ -248,7 +248,10 @@ def update_note(request: Request, id: str, form_data: NoteForm, user=Depends(get
     _allow_notes(request, user)
     data, meta = _form_values(form_data)
     try:
-        note = notes_store.update_owned(id, user.id, form_data.title, data, meta, time.time_ns())
+        note = notes_store.update_owned(id, user.id, form_data.title, data, meta, time.time_ns(),
+                                        update_data=bool(form_data.data), update_meta=bool(form_data.meta))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Note exceeds the supported size or format") from None
     except Exception as error:
         raise _unavailable(error) from None
     if note is None:

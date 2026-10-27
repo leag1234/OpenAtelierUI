@@ -1,3 +1,18 @@
+const originalResponses = new WeakMap();
+const MAX_RETAINED_RESPONSE_BYTES = 65536;
+
+export const parseRetainedNoteResponse = (raw) => {
+	const value = JSON.parse(raw);
+	if (value && typeof value === 'object' && !Array.isArray(value) && raw.length <= MAX_RETAINED_RESPONSE_BYTES &&
+		new TextEncoder().encode(raw).byteLength <= MAX_RETAINED_RESPONSE_BYTES) {
+		originalResponses.set(value, raw);
+	}
+	return value;
+};
+
+export const originalNoteResponse = (note) =>
+	note && typeof note === 'object' ? originalResponses.get(note) ?? null : null;
+
 export const editableText = (data) => {
 	if (data && typeof data === 'object' && !Array.isArray(data)) {
 		const keys = Object.keys(data);
@@ -44,14 +59,11 @@ export const focusTrapTargetIndex = (activeIndex, count, backward = false) => {
 export const saveStatus = (listRefreshed) =>
 	listRefreshed ? 'Saved' : 'Saved. The note list could not be refreshed.';
 
-export const notePayload = (title, text, note = null) => {
+export const notePayload = (title, text, note = null, textChanged = true) => {
 	if (note && !editableNote(note).editable) throw new Error('This note cannot be safely edited');
-	return {
-		title,
-		data: { content: { md: text } },
-		meta: note ? note.meta : null,
-		access_grants: []
-	};
+	return note
+		? { title, ...(textChanged ? { data: { content: { md: text } } } : {}), access_grants: [] }
+		: { title, data: { content: { md: text } }, meta: null, access_grants: [] };
 };
 
 export const resolveSave = (draft, saved, failed = false) =>

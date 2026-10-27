@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { actionsBlocked, editableNote, editableText, focusTrapTargetIndex, formatNoteDate, isDirty, notePayload, resolveSave, safeNoteFilename, saveStatus } from '../src/lib/apis/notes/state.js';
+import { actionsBlocked, editableNote, editableText, focusTrapTargetIndex, formatNoteDate, isDirty, notePayload, originalNoteResponse, parseRetainedNoteResponse, resolveSave, safeNoteFilename, saveStatus } from '../src/lib/apis/notes/state.js';
 
 test('note dates support measured nanoseconds and historical seconds only', () => {
 	const seconds = 1792949159;
@@ -53,16 +53,16 @@ test('a saved note stays distinguished from a failed list refresh', () => {
 	assert.match(saveStatus(false), /list could not be refreshed/);
 });
 
-test('save payload preserves metadata including explicit null and keeps text plain', () => {
+test('existing updates send only changed fields while new notes retain create defaults', () => {
 	assert.deepEqual(notePayload('Workshop plan', 'Bring printed maps.', {
 		data: {}, meta: { source: 'member' }, access_grants: []
-	}), {
-		title: 'Workshop plan',
-		data: { content: { md: 'Bring printed maps.' } },
-		meta: { source: 'member' },
-		access_grants: []
+	}, false), { title: 'Workshop plan', access_grants: [] });
+	assert.deepEqual(notePayload('Workshop plan', '', { data: {}, meta: null, access_grants: [] }, true), {
+		title: 'Workshop plan', data: { content: { md: '' } }, access_grants: []
 	});
-	assert.deepEqual(notePayload('Workshop plan', 'Revised.', { data: {}, meta: null, access_grants: [] }).meta, null);
+	assert.deepEqual(notePayload('Workshop plan', 'Bring printed maps.'), {
+		title: 'Workshop plan', data: { content: { md: 'Bring printed maps.' } }, meta: null, access_grants: []
+	});
 	assert.throws(() => notePayload('Keep unchanged', 'No overwrite', {
 		data: { other: 'opaque' }, meta: { keep: true }, access_grants: []
 	}));
@@ -70,6 +70,15 @@ test('save payload preserves metadata including explicit null and keeps text pla
 		data: {}, meta: null, access_grants: [{ permission: 'read' }]
 	}));
 	assert.equal(safeNoteFilename(), 'private-note.json');
+});
+
+test('parsed note responses retain exact bounded JSON text for lossless download', () => {
+	const raw = '{"created_at":1792949159000000000,"meta":{"counter":90071992547409931234},"data":{}}';
+	const parsed = parseRetainedNoteResponse(raw);
+	assert.equal(originalNoteResponse(parsed), raw);
+	assert.equal(originalNoteResponse({ ...parsed }), null);
+	const large = `{"data":{"content":{"md":"${'x'.repeat(65536)}"}}}`;
+	assert.equal(originalNoteResponse(parseRetainedNoteResponse(large)), null);
 });
 
 test('failed save retains the entire draft while success advances its baseline', () => {

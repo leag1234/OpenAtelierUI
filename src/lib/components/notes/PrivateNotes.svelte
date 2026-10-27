@@ -4,7 +4,7 @@
 	import { config, showSidebar } from '$lib/stores';
 	import MenuLines from '$lib/components/icons/MenuLines.svelte';
 	import { listNotes, searchNotes, getNote, createNote, updateNote, toggleNotePin } from '$lib/apis/notes';
-	import { actionsBlocked, editableNote, focusTrapTargetIndex, formatNoteDate, isDirty, notePayload, resolveSave, safeNoteFilename, saveStatus } from '$lib/apis/notes/state.js';
+	import { actionsBlocked, editableNote, focusTrapTargetIndex, formatNoteDate, isDirty, notePayload, originalNoteResponse, resolveSave, safeNoteFilename, saveStatus } from '$lib/apis/notes/state.js';
 
 	let notes = [];
 	let total = null;
@@ -153,7 +153,7 @@
 		const version = selectionVersion;
 		const draft = { selected, title, text, baseline, editable };
 		try {
-			const payload = notePayload(title, text, selected);
+			const payload = notePayload(title, text, selected, !selected || text !== baseline.text);
 			const saved = selected
 				? await updateNote(token(), selected.id, payload)
 				: await createNote(token(), payload);
@@ -203,7 +203,12 @@
 
 	const downloadOriginal = () => {
 		if (!selected) return;
-		const blob = new Blob([JSON.stringify(selected, null, 2)], { type: 'application/json' });
+		const raw = originalNoteResponse(selected);
+		if (raw === null) {
+			status = 'Reopen this note before downloading its original JSON.';
+			return;
+		}
+		const blob = new Blob([raw], { type: 'application/json' });
 		const url = URL.createObjectURL(blob);
 		const anchor = document.createElement('a');
 		anchor.href = url;

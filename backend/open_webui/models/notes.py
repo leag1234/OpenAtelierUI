@@ -154,14 +154,39 @@ class PrivateNotes:
             )
             return self._one(db, note["id"], note["user_id"])
 
-    def update_owned(self, note_id, user_id, title, data, meta, updated_at):
+    def update_owned(self, note_id, user_id, title, data, meta, updated_at, update_data=True, update_meta=True):
         with self._connection() as db:
             db.execute("BEGIN IMMEDIATE")
-            cursor = db.execute(
-                "UPDATE openatelier_private_note SET title=?,data=?,meta=?,updated_at=? "
-                "WHERE id=? AND user_id=?",
-                (title, data, meta, updated_at, note_id, user_id),
-            )
+            row = db.execute(
+                "SELECT data,meta FROM openatelier_private_note WHERE id=? AND user_id=?",
+                (note_id, user_id),
+            ).fetchone()
+            if row is None:
+                return None
+            if type(update_data) is not bool or type(update_meta) is not bool:
+                raise ValueError("Unsupported note update")
+            raw_data = data if update_data else row[0]
+            raw_meta = meta if update_meta else row[1]
+            try:
+                parsed_data = json.loads(raw_data) if raw_data is not None else None
+                parsed_meta = json.loads(raw_meta) if raw_meta is not None else None
+                if parsed_data is not None and type(parsed_data) is not dict or parsed_meta is not None and type(parsed_meta) is not dict:
+                    raise ValueError("Unsupported note data")
+                merged = json.dumps({"title": title, "data": parsed_data, "meta": parsed_meta},
+                                    ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+                if len(merged.encode("utf-8")) > 32768:
+                    raise ValueError("Note exceeds the supported size")
+            except (TypeError, UnicodeError, RecursionError, json.JSONDecodeError) as error:
+                raise ValueError("Unsupported note data") from error
+            fields, values = ["title=?", "updated_at=?"], [title, updated_at]
+            if update_data:
+                fields.append("data=?")
+                values.append(data)
+            if update_meta:
+                fields.append("meta=?")
+                values.append(meta)
+            values.extend((note_id, user_id))
+            cursor = db.execute("UPDATE openatelier_private_note SET " + ",".join(fields) + " WHERE id=? AND user_id=?", values)
             return self._one(db, note_id, user_id) if cursor.rowcount else None
 
     def toggle_pin(self, note_id, user_id):
