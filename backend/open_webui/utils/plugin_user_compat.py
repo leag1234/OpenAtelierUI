@@ -8,6 +8,9 @@ original behavior.
 """
 
 import asyncio
+import builtins
+import importlib
+import types
 from contextvars import ContextVar
 
 
@@ -80,23 +83,182 @@ class _FilterUsersLookupProxy(_UsersLookupProxy):
         return lookup(email)
 
 
-def adapt_filter_module(module, users):
-    """Adapt exact module-level Users bindings in a dynamically loaded Filter."""
+class _FilterModelLookupProxy:
+    """Expose selected blocking file/chat lookups as task-local awaitables."""
+
+    def __init__(self, target, async_methods):
+        self._target = target
+        self._async_methods = frozenset(async_methods)
+
+    def __getattr__(self, name):
+        method = getattr(self._target, name)
+        if name not in self._async_methods:
+            return method
+
+        def invoke(*args, **kwargs):
+            if _filter_async_user_lookups.get():
+                return asyncio.to_thread(method, *args, **kwargs)
+            return method(*args, **kwargs)
+
+        return invoke
+
+
+class _FilterModuleView(types.ModuleType):
+    """A module-local view which overrides only selected singleton exports."""
+
+    def __init__(self, wrapped, overrides=None, lazy_modules=None):
+        super().__init__(wrapped.__name__)
+        self.__dict__["_wrapped"] = wrapped
+        self.__dict__["_overrides"] = dict(overrides or {})
+        self.__dict__["_lazy_modules"] = lazy_modules or {}
+
+    def __getattr__(self, name):
+        overrides = self.__dict__["_overrides"]
+        if name in overrides:
+            return overrides[name]
+        lazy_path = self.__dict__["_lazy_modules"].get(name)
+        if lazy_path is not None:
+            value = self.__dict__["_view_factory"](lazy_path)
+            overrides[name] = value
+            return value
+        return getattr(self.__dict__["_wrapped"], name)
+
+
+class _FilterImportlibView(_FilterModuleView):
+    def __init__(self, wrapped, get_module_view):
+        super().__init__(wrapped)
+        self.__dict__["_get_module_view"] = get_module_view
+
+    def import_module(self, name, package=None):
+        result = importlib.import_module(name, package)
+        if name in ("open_webui.models.files", "open_webui.models.chats"):
+            return self.__dict__["_get_module_view"](name, result)
+        return result
+
+
+def adapt_filter_module(module, users, files=None, chats=None):
+    """Adapt only selected direct/dynamic model imports in a loaded Filter."""
     if getattr(module, "Filter", None) is None:
         return False
-    bindings = [name for name, value in module.__dict__.items() if value is users]
-    if not bindings:
-        return False
-    proxy = _FilterUsersLookupProxy(users)
-    for name in bindings:
-        module.__dict__[name] = proxy
+    replacements = {}
+    targets = {
+        "open_webui.models.files": ("Files", files, ("get_file_by_id",)),
+        "open_webui.models.chats": ("Chats", chats, ("get_chat_by_id_and_user_id",)),
+    }
+    module_views, real_module_views = {}, {}
+    proxy_by_id = {}
+    has_target_binding = files is not None or chats is not None
+
+    def proxy_for(singleton, methods):
+        proxy = proxy_by_id.get(id(singleton))
+        if proxy is None:
+            proxy = _FilterModelLookupProxy(singleton, methods)
+            proxy_by_id[id(singleton)] = proxy
+            replacements[id(singleton)] = proxy
+        return proxy
+
+    if users is not None:
+        replacements[id(users)] = _FilterUsersLookupProxy(users)
+
+    def target_view(module_name, real_module=None):
+        if module_name in module_views:
+            return module_views[module_name]
+        attribute, singleton, methods = targets[module_name]
+        if real_module is None:
+            real_module = importlib.import_module(module_name)
+        if singleton is None:
+            singleton = getattr(real_module, attribute)
+        proxy = proxy_for(singleton, methods)
+        view = _FilterModuleView(real_module, {attribute: proxy})
+        module_views[module_name] = view
+        real_module_views[id(real_module)] = view
+        return view
+
+    # Detect direct singleton/module imports without forcing unrelated model
+    # modules to import for filters which never use Files or Chats.
+    for module_name, (attribute, singleton, methods) in targets.items():
+        if singleton is not None:
+            proxy_for(singleton, methods)
+        for value in module.__dict__.values():
+            if isinstance(value, types.ModuleType) and value.__name__ == module_name:
+                has_target_binding = True
+                target_view(module_name, value)
+            elif value is not None and not isinstance(value, type) and \
+                    type(value).__module__ == module_name:
+                has_target_binding = True
+                proxy_for(value, methods)
+
+    # Direct Users aliases retain the previously qualified bridge.
+    if users is not None:
+        replacements[id(users)] = _FilterUsersLookupProxy(users)
+
+    # Replace values already imported at module scope, including aliases and
+    # module objects, without changing the process-wide import cache.
+    for name, value in list(module.__dict__.items()):
+        if id(value) in replacements:
+            module.__dict__[name] = replacements[id(value)]
+        elif id(value) in real_module_views:
+            module.__dict__[name] = real_module_views[id(value)]
+
+    has_importlib_binding = any(
+        value is importlib or value is importlib.import_module
+        for value in module.__dict__.values()
+    )
+    target_paths = {name: name.rsplit(".", 1)[1] for name in targets}
+    if has_target_binding or has_importlib_binding:
+        def get_module_view(module_name, real_module=None):
+            return target_view(module_name, real_module)
+
+        importlib_view = _FilterImportlibView(importlib, get_module_view)
+
+        def package_view(name):
+            models_view = _FilterModuleView(
+                importlib.import_module("open_webui.models"),
+                lazy_modules={alias: path for path, alias in target_paths.items()},
+            )
+            models_view.__dict__["_view_factory"] = get_module_view
+            if name == "open_webui.models":
+                return models_view
+            return _FilterModuleView(
+                importlib.import_module("open_webui"), {"models": models_view}
+            )
+
+        real_import = module.__dict__.get("__builtins__", builtins)
+        real_import = real_import.get("__import__", builtins.__import__) if isinstance(real_import, dict) else real_import.__import__
+
+        def local_import(name, globals=None, locals=None, fromlist=(), level=0):
+            result = real_import(name, globals, locals, fromlist, level)
+            fromlist = fromlist or ()
+            if level == 0 and "*" in fromlist:
+                return result
+            if level == 0 and name in targets:
+                return target_view(name, result) if fromlist else package_view("open_webui")
+            if level == 0 and name == "open_webui.models":
+                return package_view("open_webui.models")
+            if level == 0 and name == "open_webui":
+                return package_view("open_webui")
+            if level == 0 and name == "importlib":
+                return importlib_view
+            return result
+
+        original_builtins = module.__dict__.get("__builtins__", builtins.__dict__)
+        builtin_map = dict(original_builtins if isinstance(original_builtins, dict) else vars(original_builtins))
+        builtin_map["__import__"] = local_import
+        module.__dict__["__builtins__"] = builtin_map
+        for name, value in list(module.__dict__.items()):
+            if value is importlib:
+                module.__dict__[name] = importlib_view
+            elif value is importlib.import_module:
+                module.__dict__[name] = importlib_view.import_module
+
     marker = "__openatelier_filter_user_lookup_compat__"
-    module.__dict__[marker] = True
+    adapted = bool(replacements or module_views or has_importlib_binding)
+    module.__dict__[marker] = adapted
     # The existing loader returns a Filter instance, not its source module.
     # A private marker on this plugin's class makes the dispatcher recognize
     # that returned instance without changing any application-wide class.
-    setattr(module.Filter, marker, True)
-    return True
+    setattr(module.Filter, marker, adapted)
+    return adapted
 
 
 def set_filter_async_user_lookup_mode(async_mode):
