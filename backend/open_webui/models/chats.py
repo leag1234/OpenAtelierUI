@@ -247,6 +247,7 @@ class ChatImportItemForm(ChatImportForm):
     created_at: Optional[StrictInt] = None
     updated_at: Optional[StrictInt] = None
     current_message_id: Optional[StrictStr] = None
+    variables: Optional[dict] = None
     archived: Optional[StrictBool] = None
     share_id: Optional[StrictStr] = None
     pinned: Optional[StrictBool] = False
@@ -313,7 +314,7 @@ def _prepare_bulk_chat_import(chats):
     if payload_size > 4 * 1024 * 1024:
         raise ValueError("Bulk import exceeds the 4 MiB limit.")
     prepared, node_count = [], 0
-    allowed = {"id", "user_id", "title", "chat", "meta", "pinned", "folder_id", "created_at", "updated_at", "archived", "share_id", "current_message_id"}
+    allowed = {"id", "user_id", "title", "chat", "meta", "pinned", "folder_id", "created_at", "updated_at", "archived", "share_id", "current_message_id", "variables"}
     for item in chats:
         if not isinstance(item, dict) or set(item) - allowed or not isinstance(item.get("chat"), dict):
             raise ValueError("Bulk import contains an unsupported chat shape.")
@@ -321,14 +322,20 @@ def _prepare_bulk_chat_import(chats):
             raise ValueError("Folders, shared chats, and archived imports are unsupported.")
         if ("meta" in item and item["meta"] is None) or item.get("meta", {}) != {}:
             raise ValueError("Unsupported chat metadata.")
-        if "current_message_id" in item and not isinstance(item["current_message_id"], str):
+        if item.get("variables") is not None:
+            raise ValueError("Non-empty chat variables are unsupported.")
+        if item.get("current_message_id") is not None and not isinstance(item["current_message_id"], str):
             raise ValueError("Invalid selected message.")
+        if item.get("pinned", False) is None:
+            item = {**item, "pinned": False}
         if type(item.get("pinned", False)) is not bool:
             raise ValueError("Invalid pinned value.")
         if "title" in item and not isinstance(item["title"], str):
             raise ValueError("Invalid chat title.")
         for field in ("created_at", "updated_at"):
-            if field in item and (type(item[field]) is not int or item[field] < 0):
+            if field in item and item[field] is None:
+                item = {key: value for key, value in item.items() if key != field}
+            elif field in item and (type(item[field]) is not int or item[field] < 0):
                 raise ValueError("Invalid chat timestamp.")
         graph = item["chat"]
         if not isinstance(graph.get("title", item.get("title", "New Chat")), str):
@@ -343,10 +350,10 @@ def _prepare_bulk_chat_import(chats):
             node_count += len(messages)
         else:
             raise ValueError("Invalid chat message graph.")
-        selected = item.get("current_message_id", history.get("currentId") if isinstance(history, dict) else None)
+        selected = item.get("current_message_id") if item.get("current_message_id") is not None else (history.get("currentId") if isinstance(history, dict) else None)
         if selected is not None and (not isinstance(selected, str) or not isinstance(messages, dict) or selected not in messages):
             raise ValueError("Selected message is missing from the chat graph.")
-        if "current_message_id" in item:
+        if item.get("current_message_id") is not None:
             if not isinstance(graph.get("history", {}), dict):
                 raise ValueError("Invalid chat message graph.")
             graph = copy.deepcopy(graph)

@@ -117,6 +117,36 @@ class BulkChatImportTests(unittest.TestCase):
             self.assertIsNone(row[6])
             self.assertEqual(row[8], 0)
 
+    def test_measured_nullable_defaults_individually(self):
+        cases = (("pinned", {"pinned": None}), ("variables", {"variables": None}),
+                 ("current_message_id", {"current_message_id": None}), ("created_at", {"created_at": None}),
+                 ("updated_at", {"updated_at": None}))
+        item_form = extract_forms()["ChatImportItemForm"]
+        for index, (field, values) in enumerate(cases):
+            item = self.item(field, current=None, **values)
+            dto = item_form.model_validate(item)
+            self.namespace["_prepare_bulk_chat_import"]([dto.model_dump(exclude_unset=True)])
+            self.table.import_chats("verified-user", [item])
+            row = self.rows()[index]
+            graph = json.loads(row[3])
+            with self.subTest(field=field):
+                if field == "pinned":
+                    self.assertEqual(row[8], 0)
+                if field == "current_message_id":
+                    self.assertEqual(graph["history"]["currentId"], "m1")
+                if field == "created_at":
+                    self.assertIsInstance(row[4], int)
+                    self.assertEqual(row[5], 456)
+                if field == "updated_at":
+                    self.assertEqual(row[4], 123)
+                    self.assertIsInstance(row[5], int)
+
+    def test_nonempty_variables_and_unmeasured_nulls_remain_refused(self):
+        for form in (self.item("Variables", variables={"x": 1}), self.item("Meta", meta=None), self.item("Archive", archived=None)):
+            with self.subTest(title=form["chat"]["title"]), self.assertRaises(ValueError):
+                self.namespace["_prepare_bulk_chat_import"]([form])
+        self.assertEqual(self.opens, 0)
+
     def test_injected_second_insert_failure_rolls_back_batch(self):
         self.connection.execute("CREATE TRIGGER reject_second BEFORE INSERT ON chat WHEN NEW.title='Fail' BEGIN SELECT RAISE(ABORT, 'synthetic rejection'); END")
         self.connection.commit()
@@ -129,7 +159,7 @@ class BulkChatImportTests(unittest.TestCase):
                      self.item("Files", chat={"title": "Files", "files": ["file"]}),
                      self.item("Image content", chat={"title": "Image", "history": {"messages": {"m1": {"role": "user", "content": [{"type": "image_url", "image_url": {"url": "synthetic"}}]}}, "currentId": "m1"}}),
                      self.item("Tool content", chat={"title": "Tool", "history": {"messages": {"m1": {"role": "tool", "content": "result"}}, "currentId": "m1"}}),
-                     self.item("Null metadata", meta=None), self.item("Null selection", current=None, current_message_id=None),
+                     self.item("Null metadata", meta=None),
                      self.item("Missing selection", current="absent"),
                      self.item("Malformed graph", chat={"title": "Bad", "history": {"messages": None}})):
             with self.subTest(item=item["chat"]["title"]), self.assertRaises(ValueError):
