@@ -79,6 +79,18 @@ class ExportPrivateTextTests(unittest.TestCase):
             db.execute(index_sql)
         db.commit(); db.close()
 
+    def _create_actual_schema(self, *, created_at=1730000000, updated_at=1730000200, id_type="VARCHAR(255)"):
+        if self.source.exists():
+            self.source.unlink()
+        db = sqlite3.connect(self.source)
+        db.execute("CREATE TABLE chat (id " + id_type + ", user_id VARCHAR(255), title TEXT, created_at DATETIME, updated_at DATETIME, share_id VARCHAR(255), archived INTEGER, chat JSON, pinned BOOLEAN, meta JSON, folder_id TEXT)")
+        db.execute('CREATE UNIQUE INDEX "actual id index" ON chat(id)')
+        db.execute("INSERT INTO chat VALUES (?,?,?,?,?,?,?,?,?,?,?)", (
+            "source-chat-id", "owner-1", "Synthetic branched chat", created_at,
+            updated_at, None, 0, json.dumps(graph(), ensure_ascii=False), None, "{}", None,
+        ))
+        db.commit(); db.close()
+
     def _args(self, command="preview", output=None, owner="owner-1", chat="source-chat-id"):
         args = [command, "--source", str(self.source), "--owner-id", owner, "--chat-id", chat]
         if output is not None:
@@ -215,6 +227,23 @@ class ExportPrivateTextTests(unittest.TestCase):
         code, result = self._run(*self._args("export", self.output))
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(self.output.read_text(encoding="utf-8"))["chats"][0]["chat"], graph())
+
+    def test_measured_actual_declared_schema_previews_and_exports(self):
+        self._create_actual_schema()
+        code, result = self._run(*self._args())
+        self.assertEqual(code, 0)
+        self.assertEqual((result["result"]["chat_count"], result["result"]["node_count"]), (1, 4))
+        code, result = self._run(*self._args("export", self.output))
+        self.assertEqual(code, 0)
+        form = json.loads(self.output.read_text(encoding="utf-8"))["chats"][0]
+        self.assertEqual((form["created_at"], form["updated_at"]), (1730000000, 1730000200))
+
+    def test_datetime_declaration_does_not_coerce_text_and_unknown_types_refuse(self):
+        self._create_actual_schema(created_at="2025-01-02 03:04:05")
+        self._reason("invalid_chat_timestamp", *self._args())
+        self.assertFalse(self.output.exists())
+        self._create_actual_schema(id_type="UUID")
+        self._reason("unsupported_chat_schema", *self._args())
 
     def test_ambiguous_identity_index_forms_and_duplicate_rows_refuse(self):
         invalid = (
