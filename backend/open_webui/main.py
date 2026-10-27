@@ -79,6 +79,9 @@ from open_webui.routers import (
     utils,
 )
 
+if os.environ.get("OPENATELIER_PRIVATE_NOTES_COMPAT") == "1":
+    from open_webui.routers import notes
+
 from open_webui.routers.retrieval import (
     get_embedding_function,
     get_ef,
@@ -1013,6 +1016,8 @@ app.include_router(
     evaluations.router, prefix="/api/v1/evaluations", tags=["evaluations"]
 )
 app.include_router(utils.router, prefix="/api/v1/utils", tags=["utils"])
+if os.environ.get("OPENATELIER_PRIVATE_NOTES_COMPAT") == "1":
+    app.include_router(notes.router, prefix="/api/v1/notes", tags=["notes"])
 
 
 try:
