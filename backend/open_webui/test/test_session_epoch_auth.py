@@ -156,6 +156,8 @@ def _make_namespace(database_url: str, *, users=None, events=None):
         "MAX_EPOCH_CHARS": session_epochs.MAX_EPOCH_CHARS,
         "_VALIDATED_SESSION_STATE_MARKER": object(),
         "_VALIDATED_SESSION_STATE_ATTRIBUTE": "_openatelier_validated_session_epoch",
+        "_VALIDATED_API_KEY_STATE_MARKER": object(),
+        "_VALIDATED_API_KEY_STATE_ATTRIBUTE": "_openatelier_validated_api_key_user",
         "_MAX_SESSION_EXPIRATION": 253402300799,
         "SessionEpochError": session_epochs.SessionEpochError,
         "issue_epoch": session_epochs.issue_epoch,
@@ -170,6 +172,7 @@ def _make_namespace(database_url: str, *, users=None, events=None):
         "_session_state_unavailable",
         "_valid_session_stamp_claim",
         "get_validated_session_context",
+        "is_validated_api_key_request",
         "get_validated_session_epoch",
         "revoke_user_session_epoch",
         "create_token",
@@ -261,9 +264,11 @@ def _install_password_signin_route(namespace, *, user, authenticated_user=None):
         {
             "WEBUI_AUTH_TRUSTED_EMAIL_HEADER": "",
             "WEBUI_AUTH_TRUSTED_NAME_HEADER": "",
+            "WEBUI_AUTH_TRUSTED_ROLE_HEADER": "",
             "WEBUI_AUTH": True,
             "Users": users,
             "Auths": auths,
+            "validate_email_format": lambda value: "@" in value and "." in value.split("@", 1)[-1],
             "parse_duration": lambda value: timedelta(weeks=4) if value == "4w" else None,
             "get_permissions": lambda *_args: {"workspace": {"tools": False}},
             "WEBUI_AUTH_COOKIE_SAME_SITE": "lax",
@@ -277,7 +282,7 @@ def _install_password_signin_route(namespace, *, user, authenticated_user=None):
             "datetime": __import__("datetime"),
         }
     )
-    selected = _function_nodes(route_path, {"signin"})
+    selected = _function_nodes(route_path, {"signin", "_trusted_header_user"})
     exec(
         compile(ast.Module(body=selected, type_ignores=[]), str(route_path), "exec"),
         route_namespace,
@@ -287,8 +292,12 @@ def _install_password_signin_route(namespace, *, user, authenticated_user=None):
 
 
 def _signin_request(*, headers=None, expiry="4w"):
+    class HeaderMap(dict):
+        def getlist(self, name):
+            return [value for key, value in self.items() if key.lower() == name.lower()]
+
     return types.SimpleNamespace(
-        headers={} if headers is None else headers,
+        headers=HeaderMap({} if headers is None else headers),
         app=types.SimpleNamespace(
             state=types.SimpleNamespace(
                 config=types.SimpleNamespace(

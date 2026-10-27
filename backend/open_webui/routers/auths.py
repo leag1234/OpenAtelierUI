@@ -27,6 +27,7 @@ from open_webui.env import (
     WEBUI_AUTH,
     WEBUI_AUTH_TRUSTED_EMAIL_HEADER,
     WEBUI_AUTH_TRUSTED_NAME_HEADER,
+    WEBUI_AUTH_TRUSTED_ROLE_HEADER,
     WEBUI_AUTH_COOKIE_SAME_SITE,
     WEBUI_AUTH_COOKIE_SECURE,
     SRC_LOG_LEVELS,
@@ -379,28 +380,73 @@ async def ldap_auth(request: Request, response: Response, form_data: LdapForm):
 ############################
 
 
+def _trusted_header_user(request):
+    values = request.headers.getlist(WEBUI_AUTH_TRUSTED_EMAIL_HEADER)
+    if len(values) != 1:
+        raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_TRUSTED_HEADER)
+    if type(values[0]) is not str:
+        raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_TRUSTED_HEADER)
+    email = values[0].lower()
+    try:
+        valid_email = len(email.encode("utf-8")) <= 320 and validate_email_format(email)
+    except UnicodeError:
+        valid_email = False
+    if not valid_email:
+        raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_TRUSTED_HEADER)
+
+    name = email
+    if WEBUI_AUTH_TRUSTED_NAME_HEADER:
+        names = request.headers.getlist(WEBUI_AUTH_TRUSTED_NAME_HEADER)
+        if len(names) > 1:
+            raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_TRUSTED_HEADER)
+        if names:
+            name = names[0]
+        try:
+            valid_name = (type(name) is str and 0 < len(name.encode("utf-8")) <= 256
+                          and not any(ord(char) < 32 or ord(char) == 127 for char in name))
+        except UnicodeError:
+            valid_name = False
+        if not valid_name:
+            raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_TRUSTED_HEADER)
+
+    existing = Users.get_user_by_email(email)
+    if existing:
+        return Auths.authenticate_user_by_trusted_header(email)
+
+    roles = request.headers.getlist(WEBUI_AUTH_TRUSTED_ROLE_HEADER)
+    if len(roles) != 1 or roles[0] not in ("user", "admin"):
+        raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_TRUSTED_HEADER)
+    role = roles[0]
+
+    created = Auths.insert_new_auth(
+        email=email,
+        password=get_password_hash(str(uuid.uuid4())),
+        name=name,
+        role=role,
+    )
+    if not created:
+        raise HTTPException(500, detail=ERROR_MESSAGES.CREATE_USER_ERROR)
+    return Auths.authenticate_user_by_trusted_header(email)
+
+
 @router.post("/signin", response_model=SessionUserResponse)
 async def signin(request: Request, response: Response, form_data: SigninForm):
     password_authenticated = False
     if WEBUI_AUTH_TRUSTED_EMAIL_HEADER:
-        if WEBUI_AUTH_TRUSTED_EMAIL_HEADER not in request.headers:
-            raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_TRUSTED_HEADER)
-
-        trusted_email = request.headers[WEBUI_AUTH_TRUSTED_EMAIL_HEADER].lower()
-        trusted_name = trusted_email
-        if WEBUI_AUTH_TRUSTED_NAME_HEADER:
-            trusted_name = request.headers.get(
-                WEBUI_AUTH_TRUSTED_NAME_HEADER, trusted_email
-            )
-        if not Users.get_user_by_email(trusted_email.lower()):
-            await signup(
-                request,
-                response,
-                SignupForm(
+        if WEBUI_AUTH_TRUSTED_ROLE_HEADER:
+            user = _trusted_header_user(request)
+        else:
+            if WEBUI_AUTH_TRUSTED_EMAIL_HEADER not in request.headers:
+                raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_TRUSTED_HEADER)
+            trusted_email = request.headers[WEBUI_AUTH_TRUSTED_EMAIL_HEADER].lower()
+            trusted_name = trusted_email
+            if WEBUI_AUTH_TRUSTED_NAME_HEADER:
+                trusted_name = request.headers.get(WEBUI_AUTH_TRUSTED_NAME_HEADER, trusted_email)
+            if not Users.get_user_by_email(trusted_email.lower()):
+                await signup(request, response, SignupForm(
                     email=trusted_email, password=str(uuid.uuid4()), name=trusted_name
-                ),
-            )
-        user = Auths.authenticate_user_by_trusted_header(trusted_email)
+                ))
+            user = Auths.authenticate_user_by_trusted_header(trusted_email)
     elif WEBUI_AUTH == False:
         admin_email = "admin@localhost"
         admin_password = "admin"
