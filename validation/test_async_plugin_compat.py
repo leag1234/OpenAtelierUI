@@ -110,7 +110,14 @@ def load_async_plugin(chats, emissions, response_calls):
     )
 
 
-def load_main(chats, tasks_api, run_async):
+def load_main(
+    chats,
+    tasks_api,
+    run_async,
+    generated_response=None,
+    processed_response=None,
+    streaming_response_class=None,
+):
     counters = {"discovery": 0, "payload": 0, "generation": 0, "processing": 0}
     model = {"pipe": {"type": "pipe"}}
 
@@ -128,10 +135,14 @@ def load_main(chats, tasks_api, run_async):
 
     async def generation(_request, _form_data, _user):
         counters["generation"] += 1
+        if generated_response is not None:
+            return generated_response
         return {"choices": [{"message": {"content": "synthetic useful answer"}}]}
 
     async def process_response(*_args):
         counters["processing"] += 1
+        if processed_response is not None:
+            return processed_response
         return {"processed": True}
 
     middleware_namespace = {
@@ -170,6 +181,7 @@ def load_main(chats, tasks_api, run_async):
         "run_async_plugin_completion": run_async,
         "create_task": tasks_api["create_task"],
         "ProviderErrorResponse": type("ProviderErrorResponse", (), {}),
+        "StreamingResponse": streaming_response_class or type("StreamingResponse", (), {}),
         "log": type("Log", (), {"debug": staticmethod(lambda *_args: None)})(),
     }
     route = extract_functions(
@@ -203,9 +215,9 @@ class AsyncPluginCompatTests(unittest.TestCase):
         self.assertFalse(select(form, model_item, model, metadata))
         os.environ["OPENATELIER_ASYNC_PLUGIN_COMPAT"] = "1"
         self.assertTrue(select(form, model_item, model, metadata))
+        self.assertTrue(select({"stream": True}, model_item, model, metadata))
         for bad_form, bad_item, bad_model, bad_metadata in (
             ({}, model_item, model, metadata),
-            ({"stream": True}, model_item, model, metadata),
             ({"stream": 0}, model_item, model, metadata),
             (form, {"direct": True}, model, metadata),
             (form, model_item, {}, metadata),
@@ -214,6 +226,94 @@ class AsyncPluginCompatTests(unittest.TestCase):
         ):
             with self.subTest(candidate=bad_form):
                 self.assertFalse(select(bad_form, bad_item, bad_model, bad_metadata))
+
+    def test_streaming_pipe_normalizes_existing_ack_without_creating_an_outer_task(self):
+        class StreamResponse:
+            pass
+
+        stream = StreamResponse()
+        route, counters, _model = load_main(
+            self.chats,
+            self.tasks,
+            None,
+            generated_response=stream,
+            processed_response={"status": True, "task_id": "existing-stream-task"},
+            streaming_response_class=StreamResponse,
+        )
+        os.environ["OPENATELIER_ASYNC_PLUGIN_COMPAT"] = "1"
+        result = asyncio.run(
+            route["chat_completion"](
+                FakeRequest({"synthetic-pipe": {"pipe": {"type": "pipe"}}}),
+                {
+                    "model": "synthetic-pipe",
+                    "stream": True,
+                    "chat_id": "saved-chat",
+                    "id": "message",
+                    "session_id": "session",
+                },
+                User(),
+            )
+        )
+        self.assertEqual(
+            result,
+            {"status": True, "task_ids": ["existing-stream-task"], "chat_id": "saved-chat"},
+        )
+        self.assertEqual(counters["generation"], 1)
+        self.assertEqual(counters["processing"], 1)
+        self.assertEqual(self.tasks["list_tasks"](), [])
+
+    def test_streaming_ack_stays_legacy_when_opt_in_is_off_or_shape_is_invalid(self):
+        class StreamResponse:
+            pass
+
+        for flag, processed, expected in (
+            (None, {"status": True, "task_id": "legacy"}, {"status": True, "task_id": "legacy"}),
+            ("1", {"status": False, "task_id": "not-stopped"}, {"status": False, "task_id": "not-stopped"}),
+            ("1", {"status": True}, {"status": True}),
+        ):
+            with self.subTest(flag=flag, processed=processed):
+                os.environ.pop("OPENATELIER_ASYNC_PLUGIN_COMPAT", None)
+                if flag is not None:
+                    os.environ["OPENATELIER_ASYNC_PLUGIN_COMPAT"] = flag
+                route, _counters, _model = load_main(
+                    self.chats,
+                    load_tasks(),
+                    None,
+                    generated_response=StreamResponse(),
+                    processed_response=processed,
+                    streaming_response_class=StreamResponse,
+                )
+                result = asyncio.run(
+                    route["chat_completion"](
+                        FakeRequest({"synthetic-pipe": {"pipe": {"type": "pipe"}}}),
+                        {
+                            "model": "synthetic-pipe",
+                            "stream": True,
+                            "chat_id": "saved-chat",
+                            "id": "message",
+                            "session_id": "session",
+                        },
+                        User(),
+                    )
+                )
+                self.assertEqual(result, expected)
+
+    def test_event_call_channel_is_an_exact_response_only_selector(self):
+        namespace = extract_functions(MAIN_SOURCE, {"_event_call_channel"}, {"os": os})
+        channel = namespace["_event_call_channel"]
+        for value, expected in (
+            (None, "chat-events"),
+            ("0", "chat-events"),
+            ("true", "chat-events"),
+            ("1", "events"),
+        ):
+            with self.subTest(value=value):
+                if value is None:
+                    os.environ.pop("OPENATELIER_EVENT_CHANNEL_COMPAT", None)
+                else:
+                    os.environ["OPENATELIER_EVENT_CHANNEL_COMPAT"] = value
+                self.assertEqual(channel(), expected)
+        os.environ.pop("OPENATELIER_EVENT_CHANNEL_COMPAT", None)
 
     def test_route_returns_ack_before_generation_then_processes_once(self):
         async def exercise():

@@ -13,6 +13,15 @@
 	import { get, type Unsubscriber, type Writable } from 'svelte/store';
 	import type { i18n as i18nType } from 'i18next';
 	import { WEBUI_BASE_URL } from '$lib/constants';
+	import {
+		bindChatEventChannel,
+		chatResultMatchesCurrent,
+		isEphemeralChatId,
+		mergeTaskIds,
+		normalizeTaskIds,
+		requestSavedChatStop,
+		selectChatEventChannel
+	} from '$lib/utils/chat-session';
 
 	import {
 		chatId,
@@ -75,6 +84,7 @@
 		chatAction,
 		generateMoACompletion,
 		stopTask,
+		stopTasksByChatId,
 		getTaskIdsByChatId
 	} from '$lib/apis';
 	import { getTools } from '$lib/apis/tools';
@@ -112,6 +122,8 @@
 	let eventCallback = null;
 
 	let chatIdUnsubscriber: Unsubscriber | undefined;
+	let chatEventBinding: ReturnType<typeof bindChatEventChannel> | undefined;
+	let chatEventBindingUnsubscribers: Unsubscriber[] = [];
 
 	let selectedModels = [''];
 	let atSelectedModel: Model | undefined;
@@ -396,10 +408,28 @@
 		}
 	};
 
+	const updateChatEventSubscription = () => {
+		const currentSocket = get(socket);
+		const currentConfig = get(config);
+		const channel = selectChatEventChannel(currentConfig);
+		if (
+			chatEventBinding?.socket === currentSocket &&
+			chatEventBinding?.channel === channel
+		) {
+			return;
+		}
+
+		chatEventBinding?.cleanup();
+		chatEventBinding = bindChatEventChannel(currentSocket, chatEventHandler, currentConfig);
+	};
+
 	onMount(async () => {
 		console.log('mounted');
 		window.addEventListener('message', onMessageHandler);
-		$socket?.on('chat-events', chatEventHandler);
+		chatEventBindingUnsubscribers = [
+			config.subscribe(updateChatEventSubscription),
+			socket.subscribe(updateChatEventSubscription)
+		];
 
 		if (!$chatId) {
 			chatIdUnsubscriber = chatId.subscribe(async (value) => {
@@ -459,8 +489,9 @@
 
 	onDestroy(() => {
 		chatIdUnsubscriber?.();
+		chatEventBindingUnsubscribers.forEach((unsubscribe) => unsubscribe());
+		chatEventBinding?.cleanup();
 		window.removeEventListener('message', onMessageHandler);
-		$socket?.off('chat-events', chatEventHandler);
 	});
 
 	// File upload functions
@@ -779,16 +810,25 @@
 	};
 
 	const loadChat = async () => {
-		chatId.set(chatIdProp);
-		chat = await getChatById(localStorage.token, $chatId).catch(async (error) => {
-			await goto('/');
+		const requestedChatId = chatIdProp;
+		chatId.set(requestedChatId);
+		taskIds = null;
+		let fetchedChat;
+		try {
+			fetchedChat = await getChatById(localStorage.token, requestedChatId);
+		} catch (error) {
+			if (chatResultMatchesCurrent(requestedChatId, $chatId)) await goto('/');
 			return null;
-		});
+		}
+		if (!chatResultMatchesCurrent(requestedChatId, $chatId)) return null;
+		chat = fetchedChat;
 
 		if (chat) {
-			tags = await getTagsById(localStorage.token, $chatId).catch(async (error) => {
+			const loadedTags = await getTagsById(localStorage.token, requestedChatId).catch(async (error) => {
 				return [];
 			});
+			if (!chatResultMatchesCurrent(requestedChatId, $chatId)) return null;
+			tags = loadedTags;
 
 			const chatContent = chat.chat;
 
@@ -807,18 +847,21 @@
 				chatTitle.set(chatContent.title);
 
 				const userSettings = await getUserSettings(localStorage.token);
+				if (!chatResultMatchesCurrent(requestedChatId, $chatId)) return null;
 
 				if (userSettings) {
 					await settings.set(userSettings.ui);
 				} else {
 					await settings.set(JSON.parse(localStorage.getItem('settings') ?? '{}'));
 				}
+				if (!chatResultMatchesCurrent(requestedChatId, $chatId)) return null;
 
 				params = chatContent?.params ?? {};
 				chatFiles = chatContent?.files ?? [];
 
 				autoScroll = true;
 				await tick();
+				if (!chatResultMatchesCurrent(requestedChatId, $chatId)) return null;
 
 				if (history.currentId) {
 					for (const message of Object.values(history.messages)) {
@@ -828,12 +871,12 @@
 					}
 				}
 
-				const taskRes = await getTaskIdsByChatId(localStorage.token, $chatId).catch((error) => {
+				const taskRes = await getTaskIdsByChatId(localStorage.token, requestedChatId).catch((error) => {
 					return null;
 				});
 
-				if (taskRes) {
-					taskIds = taskRes.task_ids;
+				if (taskRes && chatResultMatchesCurrent(requestedChatId, $chatId)) {
+					taskIds = normalizeTaskIds(taskRes);
 				}
 
 				await tick();
@@ -1649,6 +1692,7 @@
 			},
 			`${WEBUI_BASE_URL}/api`
 		).catch(async (error) => {
+			if (!chatResultMatchesCurrent(_chatId, $chatId)) return null;
 			toast.error(`${error}`);
 
 			responseMessage.error = {
@@ -1662,13 +1706,13 @@
 		});
 
 		if (res) {
+			if (!chatResultMatchesCurrent(_chatId, $chatId)) return;
 			if (res.error) {
 				await handleOpenAIError(res.error, responseMessage);
-			} else {
-				if (taskIds) {
-					taskIds.push(res.task_id);
-				} else {
-					taskIds = [res.task_id];
+			} else if (!responseMessage.done) {
+				const updatedTaskIds = mergeTaskIds(taskIds, res);
+				if (updatedTaskIds.length > 0) {
+					taskIds = updatedTaskIds;
 				}
 			}
 		}
@@ -1719,29 +1763,63 @@
 		history.messages[responseMessage.id] = responseMessage;
 	};
 
+	const markCurrentResponsesDone = () => {
+		const responseMessage = history.messages[history.currentId];
+		const parent = responseMessage?.parentId ? history.messages[responseMessage.parentId] : null;
+		for (const messageId of parent?.childrenIds ?? []) {
+			if (history.messages[messageId]) history.messages[messageId].done = true;
+		}
+		if (responseMessage) history.messages[history.currentId] = responseMessage;
+		history = history;
+		if (autoScroll) scrollToBottom();
+	};
+
 	const stopResponse = async () => {
-		if (taskIds) {
-			for (const taskId of taskIds) {
-				const res = await stopTask(localStorage.token, taskId).catch((error) => {
-					toast.error(`${error}`);
-					return null;
-				});
-			}
+		const stoppingChatId = $chatId;
+		const ids = normalizeTaskIds({ task_ids: taskIds });
+		if (!stoppingChatId) return;
 
+		const savedChat = !$temporaryChatEnabled && !isEphemeralChatId(stoppingChatId);
+		if (savedChat) {
+			const outcome = await requestSavedChatStop(
+				() => stopTasksByChatId(localStorage.token, stoppingChatId),
+				() => getTaskIdsByChatId(localStorage.token, stoppingChatId),
+				() => chatResultMatchesCurrent(stoppingChatId, $chatId)
+			);
+			if (outcome.state === 'navigated') return;
+			if (outcome.state === 'error') {
+				toast.error(`${outcome.error}`);
+				return;
+			}
+			if (outcome.state === 'uncertain') {
+				const remainingIds = normalizeTaskIds(outcome.taskListResponse);
+				if (remainingIds.length) taskIds = remainingIds;
+				toast.error('The response may still be running. Try stopping it again.');
+				return;
+			}
 			taskIds = null;
+			markCurrentResponsesDone();
+			return;
+		}
 
-			const responseMessage = history.messages[history.currentId];
-			// Set all response messages to done
-			for (const messageId of history.messages[responseMessage.parentId].childrenIds) {
-				history.messages[messageId].done = true;
+		if (ids.length === 0) return;
+		for (const taskId of ids) {
+			let result;
+			try {
+				result = await stopTask(localStorage.token, taskId);
+			} catch (error) {
+				if (chatResultMatchesCurrent(stoppingChatId, $chatId)) toast.error(`${error}`);
+				return;
 			}
-
-			history.messages[history.currentId] = responseMessage;
-
-			if (autoScroll) {
-				scrollToBottom();
+			if (!chatResultMatchesCurrent(stoppingChatId, $chatId)) return;
+			if (result?.status !== true) {
+				toast.error('The response may still be running. Try stopping it again.');
+				return;
 			}
 		}
+		if (!chatResultMatchesCurrent(stoppingChatId, $chatId)) return;
+		taskIds = null;
+		markCurrentResponsesDone();
 	};
 
 	const submitMessage = async (parentId, prompt) => {

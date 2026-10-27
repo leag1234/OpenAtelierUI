@@ -194,6 +194,7 @@ type Document = {
 
 type Config = {
 	status: boolean;
+	event_call_channel?: 'events' | 'chat-events';
 	name: string;
 	version: string;
 	default_locale: string;

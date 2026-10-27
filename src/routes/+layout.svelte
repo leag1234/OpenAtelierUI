@@ -7,7 +7,8 @@
 		stiffness: 0.05
 	});
 
-	import { onMount, tick, setContext } from 'svelte';
+	import { onDestroy, onMount, tick, setContext } from 'svelte';
+	import { get } from 'svelte/store';
 	import {
 		config,
 		user,
@@ -47,6 +48,7 @@
 	import NotificationToast from '$lib/components/NotificationToast.svelte';
 	import AppSidebar from '$lib/components/app/AppSidebar.svelte';
 	import { chatCompletion } from '$lib/apis/openai';
+	import { bindChatEventChannel, selectChatEventChannel } from '$lib/utils/chat-session';
 
 	setContext('i18n', i18n);
 
@@ -55,6 +57,11 @@
 	let loaded = false;
 
 	const BREAKPOINT = 768;
+	let layoutChatEventBinding:
+		| (ReturnType<typeof bindChatEventChannel> & { active: boolean })
+		| null = null;
+	let layoutChatEventSubscriptions: Array<() => void> = [];
+	let layoutUserUnsubscriber: (() => void) | undefined;
 
 	const setupSocket = async (enableWebsocket) => {
 		const _socket = io(`${WEBUI_BASE_URL}` || undefined, {
@@ -432,6 +439,33 @@
 		}
 	};
 
+	const updateLayoutChatEventSubscription = () => {
+		const currentSocket = get(socket);
+		const channel = selectChatEventChannel(get(config));
+		const active = Boolean(get(user));
+		if (
+			layoutChatEventBinding?.socket === currentSocket &&
+			layoutChatEventBinding?.channel === channel &&
+			layoutChatEventBinding?.active === active
+		) {
+			return;
+		}
+
+		layoutChatEventBinding?.cleanup();
+		const binding = active
+			? bindChatEventChannel(currentSocket, chatEventHandler, {
+					event_call_channel: channel
+				})
+			: { socket: currentSocket, channel, cleanup: () => {} };
+		layoutChatEventBinding = { ...binding, active };
+	};
+
+	onDestroy(() => {
+		layoutChatEventSubscriptions.forEach((unsubscribe) => unsubscribe());
+		layoutUserUnsubscriber?.();
+		layoutChatEventBinding?.cleanup();
+	});
+
 	onMount(async () => {
 		if (typeof window !== 'undefined' && window.applyTheme) {
 			window.applyTheme();
@@ -490,18 +524,20 @@
 		};
 		window.addEventListener('resize', onResize);
 
-		user.subscribe((value) => {
+		layoutUserUnsubscriber = user.subscribe((value) => {
 			if (value) {
-				$socket?.off('chat-events', chatEventHandler);
 				$socket?.off('channel-events', channelEventHandler);
 
-				$socket?.on('chat-events', chatEventHandler);
 				$socket?.on('channel-events', channelEventHandler);
 			} else {
-				$socket?.off('chat-events', chatEventHandler);
 				$socket?.off('channel-events', channelEventHandler);
 			}
 		});
+		layoutChatEventSubscriptions = [
+			user.subscribe(updateLayoutChatEventSubscription),
+			config.subscribe(updateLayoutChatEventSubscription),
+			socket.subscribe(updateLayoutChatEventSubscription)
+		];
 
 		let backendConfig = null;
 		try {

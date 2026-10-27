@@ -1122,13 +1122,23 @@ async def get_base_models(request: Request, user=Depends(get_admin_user)):
 def _async_plugin_compat_requested(form_data, model_item, model, metadata):
     if os.environ.get("OPENATELIER_ASYNC_PLUGIN_COMPAT") != "1":
         return False
-    if form_data.get("stream") is not False or model_item.get("direct", False):
+    if form_data.get("stream") is not False and form_data.get("stream") is not True:
+        return False
+    if model_item.get("direct", False):
         return False
     if not model.get("pipe"):
         return False
     return all(
         isinstance(metadata.get(field), str) and metadata[field]
         for field in ("chat_id", "message_id", "session_id")
+    )
+
+
+def _event_call_channel():
+    return (
+        "events"
+        if os.environ.get("OPENATELIER_EVENT_CHANNEL_COMPAT") == "1"
+        else "chat-events"
     )
 
 
@@ -1212,7 +1222,10 @@ async def chat_completion(
             request, form_data, user, metadata, model
         )
 
-        if _async_plugin_compat_requested(form_data, model_item, model, metadata):
+        if (
+            form_data.get("stream") is False
+            and _async_plugin_compat_requested(form_data, model_item, model, metadata)
+        ):
             task_id, _ = create_task(
                 run_async_plugin_completion(
                     request,
@@ -1255,9 +1268,24 @@ async def chat_completion(
         if isinstance(response, ProviderErrorResponse):
             return response
 
-        return await process_chat_response(
+        processed_response = await process_chat_response(
             request, response, form_data, user, metadata, model, events, tasks
         )
+        if (
+            isinstance(response, StreamingResponse)
+            and form_data.get("stream") is True
+            and _async_plugin_compat_requested(form_data, model_item, model, metadata)
+            and isinstance(processed_response, dict)
+            and processed_response.get("status") is True
+            and isinstance(processed_response.get("task_id"), str)
+            and processed_response["task_id"]
+        ):
+            return {
+                "status": True,
+                "task_ids": [processed_response["task_id"]],
+                "chat_id": metadata["chat_id"],
+            }
+        return processed_response
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1391,6 +1419,7 @@ async def get_app_config(request: Request):
         onboarding = user_count == 0
 
     return {
+        "event_call_channel": _event_call_channel(),
         **({"onboarding": True} if onboarding else {}),
         "status": True,
         "name": app.state.WEBUI_NAME,
