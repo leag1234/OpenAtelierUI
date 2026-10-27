@@ -206,10 +206,10 @@
 
 <svelte:head><title>Private Notes · {$config?.name ?? 'OpenAtelierUI'}</title></svelte:head>
 
-<main class="min-h-screen bg-white text-gray-900 dark:bg-gray-950 dark:text-gray-100">
-	<div class="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
+<main class="relative flex h-screen max-h-[100dvh] min-w-0 w-full max-w-full flex-col overflow-x-hidden overflow-y-auto bg-white text-gray-900 transition-width duration-200 ease-in-out {$showSidebar ? 'md:max-w-[calc(100%-260px)]' : ''} dark:bg-gray-950 dark:text-gray-100">
+	<div class="w-full min-w-0 max-w-full px-4 py-6 sm:px-6 lg:px-8">
 		<header class="mb-6 flex flex-wrap items-end justify-between gap-3 border-b border-gray-200 pb-4 dark:border-gray-800">
-			<div class="flex items-start gap-2"><button class="mt-1 rounded-lg p-2 text-gray-600 hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 dark:text-gray-300 dark:hover:bg-gray-900 md:hidden" on:click={() => showSidebar.set(!$showSidebar)} aria-label="Toggle sidebar"><MenuLines /></button><div><p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Private workspace</p><h1 class="mt-1 text-2xl font-semibold">Notes</h1><p class="mt-1 text-sm text-gray-600 dark:text-gray-300">Only you can read these notes.</p></div></div>
+			<div class="flex items-start gap-2"><button class="mt-1 rounded-lg p-2 text-gray-600 hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 dark:text-gray-300 dark:hover:bg-gray-900 {$showSidebar ? 'md:hidden' : ''}" on:click={() => showSidebar.set(!$showSidebar)} aria-label="Toggle sidebar"><MenuLines /></button><div><p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Private workspace</p><h1 class="mt-1 text-2xl font-semibold">Notes</h1><p class="mt-1 text-sm text-gray-600 dark:text-gray-300">Only you can read these notes.</p></div></div>
 			{#if $config?.features?.openatelier_private_notes}<button class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900" on:click={() => requestAction(startNew)} disabled={actionsBlocked({ saving, opening, pinning })}>New note</button>{/if}
 		</header>
 		{#if !$config?.features?.openatelier_private_notes}

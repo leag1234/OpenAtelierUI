@@ -10,4 +10,6 @@ Before primary staging, review identified a possible stale GET overwriting a dra
 
 A newly opened blank note now says “Not saved yet”; the “Saved” label is reserved for persisted notes.
 
+Primary's rendered desktop review found that the prior centered maximum-width container left a large blank region and compressed the editor. The page now follows the existing responsive app-layout width pattern, fills its available width without a centering cap, constrains the main region to the viewport with vertical scrolling, and exposes the existing sidebar toggle on desktop when the sidebar is closed (and on mobile). This source correction has not yet received a new compiled or rendered review.
+
 The primary owns compiled-build, HTTP integration, actual desktop/mobile rendering, keyboard, and saved-work review. No claim of usability is made before those checks. Rich editing, sharing, deletion, history, collaboration, offline local persistence, and general notes SDK behavior remain outside this prototype. Existing playground scratch notes, other routes, theme/icon assets, dependencies, and storage/auth models are unchanged. The implementation adds no polling or client persistence and uses the existing Notes icon, theme, and authenticated API conventions.
