@@ -8,8 +8,8 @@ original behavior.
 """
 
 import asyncio
-import builtins
 import importlib
+import sys
 import types
 from contextvars import ContextVar
 
@@ -104,30 +104,30 @@ class _FilterModelLookupProxy:
 
 
 class _FilterModuleView(types.ModuleType):
-    """A module-local view which overrides only selected singleton exports."""
+    """A module-local view which overrides one selected singleton export."""
 
-    def __init__(self, wrapped, overrides=None, lazy_modules=None):
+    def __init__(self, wrapped, attribute, proxy):
         super().__init__(wrapped.__name__)
         self.__dict__["_wrapped"] = wrapped
-        self.__dict__["_overrides"] = dict(overrides or {})
-        self.__dict__["_lazy_modules"] = lazy_modules or {}
+        self.__dict__["_attribute"] = attribute
+        self.__dict__["_proxy"] = proxy
 
     def __getattr__(self, name):
-        overrides = self.__dict__["_overrides"]
-        if name in overrides:
-            return overrides[name]
-        lazy_path = self.__dict__["_lazy_modules"].get(name)
-        if lazy_path is not None:
-            value = self.__dict__["_view_factory"](lazy_path)
-            overrides[name] = value
-            return value
+        if name == self.__dict__["_attribute"]:
+            return self.__dict__["_proxy"]
         return getattr(self.__dict__["_wrapped"], name)
 
 
 class _FilterImportlibView(_FilterModuleView):
     def __init__(self, wrapped, get_module_view):
-        super().__init__(wrapped)
+        types.ModuleType.__init__(self, wrapped.__name__)
+        self.__dict__["_wrapped"] = wrapped
         self.__dict__["_get_module_view"] = get_module_view
+
+    def __getattr__(self, name):
+        if name == "import_module":
+            return self.import_module
+        return getattr(self.__dict__["_wrapped"], name)
 
     def import_module(self, name, package=None):
         result = importlib.import_module(name, package)
@@ -137,122 +137,83 @@ class _FilterImportlibView(_FilterModuleView):
 
 
 def adapt_filter_module(module, users, files=None, chats=None):
-    """Adapt only selected direct/dynamic model imports in a loaded Filter."""
+    """Adapt exact module-level SDK bindings in one loaded Filter."""
     if getattr(module, "Filter", None) is None:
         return False
-    replacements = {}
+    marker = "__openatelier_filter_user_lookup_compat__"
+    if module.__dict__.get(marker) is True:
+        return True
     targets = {
         "open_webui.models.files": ("Files", files, ("get_file_by_id",)),
         "open_webui.models.chats": ("Chats", chats, ("get_chat_by_id_and_user_id",)),
     }
-    module_views, real_module_views = {}, {}
-    proxy_by_id = {}
-    has_target_binding = files is not None or chats is not None
+    views = {}
+    replacements = {}
+    proxies = {}
 
     def proxy_for(singleton, methods):
-        proxy = proxy_by_id.get(id(singleton))
+        proxy = proxies.get(id(singleton))
         if proxy is None:
             proxy = _FilterModelLookupProxy(singleton, methods)
-            proxy_by_id[id(singleton)] = proxy
+            proxies[id(singleton)] = proxy
             replacements[id(singleton)] = proxy
         return proxy
 
-    if users is not None:
-        replacements[id(users)] = _FilterUsersLookupProxy(users)
-
-    def target_view(module_name, real_module=None):
-        if module_name in module_views:
-            return module_views[module_name]
-        attribute, singleton, methods = targets[module_name]
-        if real_module is None:
-            real_module = importlib.import_module(module_name)
+    def target_view(module_name, real_module):
+        if module_name in views:
+            return views[module_name]
+        attribute, _, methods = targets[module_name]
+        singleton = getattr(real_module, attribute, None)
         if singleton is None:
-            singleton = getattr(real_module, attribute)
+            return real_module
         proxy = proxy_for(singleton, methods)
-        view = _FilterModuleView(real_module, {attribute: proxy})
-        module_views[module_name] = view
-        real_module_views[id(real_module)] = view
+        view = _FilterModuleView(real_module, attribute, proxy)
+        views[module_name] = view
         return view
 
-    # Detect direct singleton/module imports without forcing unrelated model
-    # modules to import for filters which never use Files or Chats.
-    for module_name, (attribute, singleton, methods) in targets.items():
-        if singleton is not None:
-            proxy_for(singleton, methods)
-        for value in module.__dict__.values():
-            if isinstance(value, types.ModuleType) and value.__name__ == module_name:
-                has_target_binding = True
-                target_view(module_name, value)
-            elif value is not None and not isinstance(value, type) and \
-                    type(value).__module__ == module_name:
-                has_target_binding = True
-                proxy_for(value, methods)
+    for module_name, (attribute, supplied, methods) in targets.items():
+        real_module = sys.modules.get(module_name)
+        singleton = getattr(real_module, attribute, None) if real_module else None
+        if supplied is not None and singleton is supplied:
+            proxy_for(supplied, methods)
+        if real_module is not None:
+            for name, value in list(module.__dict__.items()):
+                if value is real_module:
+                    module.__dict__[name] = target_view(module_name, real_module)
+                elif singleton is not None and value is singleton:
+                    module.__dict__[name] = proxy_for(singleton, methods)
 
-    # Direct Users aliases retain the previously qualified bridge.
+    users_adapted = False
     if users is not None:
-        replacements[id(users)] = _FilterUsersLookupProxy(users)
+        users_proxy = _FilterUsersLookupProxy(users)
+        for name, value in list(module.__dict__.items()):
+            if value is users:
+                module.__dict__[name] = users_proxy
+                users_adapted = True
 
-    # Replace values already imported at module scope, including aliases and
-    # module objects, without changing the process-wide import cache.
-    for name, value in list(module.__dict__.items()):
-        if id(value) in replacements:
-            module.__dict__[name] = replacements[id(value)]
-        elif id(value) in real_module_views:
-            module.__dict__[name] = real_module_views[id(value)]
-
-    has_importlib_binding = any(
-        value is importlib or value is importlib.import_module
-        for value in module.__dict__.values()
-    )
-    target_paths = {name: name.rsplit(".", 1)[1] for name in targets}
-    if has_target_binding or has_importlib_binding:
+    importlib_module = sys.modules.get("importlib")
+    has_importlib_binding = False
+    if importlib_module is not None:
+        for value in module.__dict__.values():
+            if value is importlib_module or value is importlib_module.import_module:
+                has_importlib_binding = True
+                break
+    if has_importlib_binding:
         def get_module_view(module_name, real_module=None):
+            if module_name not in targets:
+                return real_module
+            if real_module is None:
+                real_module = importlib.import_module(module_name)
             return target_view(module_name, real_module)
 
-        importlib_view = _FilterImportlibView(importlib, get_module_view)
-
-        def package_view(name):
-            models_view = _FilterModuleView(
-                importlib.import_module("open_webui.models"),
-                lazy_modules={alias: path for path, alias in target_paths.items()},
-            )
-            models_view.__dict__["_view_factory"] = get_module_view
-            if name == "open_webui.models":
-                return models_view
-            return _FilterModuleView(
-                importlib.import_module("open_webui"), {"models": models_view}
-            )
-
-        real_import = module.__dict__.get("__builtins__", builtins)
-        real_import = real_import.get("__import__", builtins.__import__) if isinstance(real_import, dict) else real_import.__import__
-
-        def local_import(name, globals=None, locals=None, fromlist=(), level=0):
-            result = real_import(name, globals, locals, fromlist, level)
-            fromlist = fromlist or ()
-            if level == 0 and "*" in fromlist:
-                return result
-            if level == 0 and name in targets:
-                return target_view(name, result) if fromlist else package_view("open_webui")
-            if level == 0 and name == "open_webui.models":
-                return package_view("open_webui.models")
-            if level == 0 and name == "open_webui":
-                return package_view("open_webui")
-            if level == 0 and name == "importlib":
-                return importlib_view
-            return result
-
-        original_builtins = module.__dict__.get("__builtins__", builtins.__dict__)
-        builtin_map = dict(original_builtins if isinstance(original_builtins, dict) else vars(original_builtins))
-        builtin_map["__import__"] = local_import
-        module.__dict__["__builtins__"] = builtin_map
+        importlib_view = _FilterImportlibView(importlib_module, get_module_view)
         for name, value in list(module.__dict__.items()):
-            if value is importlib:
+            if value is importlib_module:
                 module.__dict__[name] = importlib_view
-            elif value is importlib.import_module:
+            elif value is importlib_module.import_module:
                 module.__dict__[name] = importlib_view.import_module
 
-    marker = "__openatelier_filter_user_lookup_compat__"
-    adapted = bool(replacements or module_views or has_importlib_binding)
+    adapted = bool(replacements or views or has_importlib_binding or users_adapted)
     module.__dict__[marker] = adapted
     # The existing loader returns a Filter instance, not its source module.
     # A private marker on this plugin's class makes the dispatcher recognize

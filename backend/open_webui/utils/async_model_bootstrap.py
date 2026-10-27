@@ -73,7 +73,7 @@ def _read_verified_script(script_path, expected_sha256):
         raise BootstrapRefused("An explicit SHA-256 digest is required")
     try:
         path = os.fspath(script_path)
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
         descriptor = os.open(path, flags)
         try:
             info = os.fstat(descriptor)
@@ -135,6 +135,20 @@ def run_verified_bootstrap(script_path, expected_sha256, args=()):
     return result.returncode
 
 
+def main(argv=None):
+    """CLI: ``python -m ...async_model_bootstrap SCRIPT SHA256 [ARGS...]``."""
+    values = list(sys.argv[1:] if argv is None else argv)
+    if len(values) < 2:
+        return 2
+    script_path, digest, *args = values
+    try:
+        return run_verified_bootstrap(script_path, digest, args)
+    except BootstrapRefused:
+        return 2
+    except BootstrapUnavailable:
+        return 1
+
+
 def _child_main():
     if len(sys.argv) < 3:
         return 2
@@ -158,8 +172,14 @@ def _child_main():
         return 0
     except SystemExit as error:
         code = error.code
+        if code is None:
+            return 0
         return code if type(code) is int and 0 <= code <= 255 else 1
     except BaseException:
         return 1
     finally:
         sys.argv = previous_argv
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

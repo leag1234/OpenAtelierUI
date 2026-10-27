@@ -156,34 +156,28 @@ def load_function_module_by_id(function_id, content=None):
             adapt_pipe_module(module, Users)
             return module.Pipe(), "pipe", frontmatter
         elif hasattr(module, "Filter"):
-            direct_users_binding = any(
-                value is not None
-                and (getattr(value, "__module__", None) == "open_webui.models.users"
-                     or type(value).__module__ == "open_webui.models.users")
-                for value in module.__dict__.values()
+            importlib_module = sys.modules.get("importlib")
+            users_module = sys.modules.get("open_webui.models.users")
+            users = getattr(users_module, "Users", None) if users_module else None
+            targets = (
+                ("open_webui.models.files", "Files"),
+                ("open_webui.models.chats", "Chats"),
             )
-            has_plugin_sdk_binding = direct_users_binding or any(
-                getattr(value, "__name__", None) in (
-                    "open_webui.models.files", "open_webui.models.chats", "importlib"
+            has_sdk_binding = any(
+                importlib_module is not None and value is importlib_module
+                or importlib_module is not None
+                and value is importlib_module.import_module
+                or any(
+                    (target_module := sys.modules.get(target)) is not None
+                    and (value is target_module
+                         or value is getattr(target_module, attribute, None))
+                    for target, attribute in targets
                 )
-                or getattr(value, "__module__", None) == "importlib"
-                and getattr(value, "__name__", None) == "import_module"
-                or value is not None
-                and (getattr(value, "__module__", None) in (
-                    "open_webui.models.files", "open_webui.models.chats"
-                ) or value.__class__.__module__ in (
-                    "open_webui.models.files", "open_webui.models.chats"
-                ))
+                or users is not None and value is users
                 for value in module.__dict__.values()
             )
-            if has_plugin_sdk_binding:
+            if has_sdk_binding:
                 from open_webui.utils.plugin_user_compat import adapt_filter_module
-
-                users = None
-                if direct_users_binding:
-                    from open_webui.models.users import Users
-
-                    users = Users
                 # Adapt before construction; sync constructors keep the
                 # default synchronous lookup mode.
                 adapt_filter_module(module, users)

@@ -6,6 +6,7 @@ import builtins
 import hashlib
 import importlib.util
 import io
+import os
 import pathlib
 import sys
 import tempfile
@@ -60,13 +61,16 @@ class FilterImportCompatibilityTests(unittest.TestCase):
         self.files = RecordingStore(("get_file_by_id",))
         self.chats = RecordingStore(("get_chat_by_id_and_user_id",))
         self.old_modules = {name: sys.modules.get(name) for name in (
-            "open_webui", "open_webui.models", "open_webui.models.files", "open_webui.models.chats")}
+            "open_webui", "open_webui.models", "open_webui.models.files",
+            "open_webui.models.chats", "open_webui.models.users")}
         root = types.ModuleType("open_webui")
         models = types.ModuleType("open_webui.models")
         files_module = types.ModuleType("open_webui.models.files")
         chats_module = types.ModuleType("open_webui.models.chats")
+        users_module = types.ModuleType("open_webui.models.users")
         files_module.Files = self.files
         chats_module.Chats = self.chats
+        users_module.Users = self.users
         root.models = models
         models.files = files_module
         models.chats = chats_module
@@ -75,6 +79,7 @@ class FilterImportCompatibilityTests(unittest.TestCase):
             "open_webui.models": models,
             "open_webui.models.files": files_module,
             "open_webui.models.chats": chats_module,
+            "open_webui.models.users": users_module,
         })
         self.module = types.ModuleType("synthetic_filter")
         self.module.__builtins__ = builtins
@@ -85,7 +90,9 @@ class FilterImportCompatibilityTests(unittest.TestCase):
         self.module.importlib = __import__("importlib")
         self.module.import_module = importlib.import_module
         self.module.FileModule = sys.modules["open_webui.models.files"]
+        self.module.ChatsModule = sys.modules["open_webui.models.chats"]
         self.module.Filter = type("Filter", (), {})
+        self.original_builtins = self.module.__builtins__
         self.assertTrue(self.compat.adapt_filter_module(
             self.module, self.users, self.files, self.chats))
 
@@ -142,27 +149,37 @@ class FilterImportCompatibilityTests(unittest.TestCase):
     def test_direct_alias_dynamic_imports_and_non_target_imports_are_local(self):
         self.assertIs(self.module.Files, self.module.LocalFiles)
         self.assertIs(self.module.Files._target, self.files)
-        direct = self.module.__builtins__["__import__"](
-            "open_webui.models.files", globals(), {}, ("Files",), 0)
-        self.assertIs(direct.Files._target, self.files)
-        parent = self.module.__builtins__["__import__"](
-            "open_webui.models", globals(), {}, ("files",), 0)
-        self.assertIs(parent.files.Files._target, self.files)
-        self.assertIs(self.module.__builtins__["__import__"](
-            "open_webui.models.files", globals(), {}, ("*",), 0),
-            self.module.FileModule._wrapped)
+        self.assertIs(self.module.FileModule.Files._target, self.files)
+        self.assertIs(self.module.ChatsModule.Chats._target, self.chats)
         dynamic = self.module.importlib.import_module("open_webui.models.chats")
         self.assertIs(dynamic.Chats._target, self.chats)
-        imported_alias = self.module.__builtins__["__import__"](
-            "importlib", globals(), {}, ("import_module",), 0).import_module
-        self.assertIs(imported_alias("open_webui.models.files").Files._target, self.files)
         self.assertIs(self.module.import_module("open_webui.models.chats").Chats._target, self.chats)
-        self.assertIs(self.module.FileModule.Files._target, self.files)
         self.assertIs(sys.modules["open_webui.models.files"], self.module.FileModule._wrapped)
+        self.assertIs(self.module.__builtins__, self.original_builtins)
         self.assertEqual(self.files.get_file_by_id("native")[0], "get_file_by_id")
         import math
         self.assertIs(self.module.importlib.import_module("math"), math)
+        self.assertIs(self.module.importlib.__dict__["_wrapped"], importlib)
         self.assertFalse(self.compat.adapt_filter_module(types.SimpleNamespace(), self.users))
+
+    def test_repeated_adaptation_is_idempotent(self):
+        first = self.module.Files
+        self.assertTrue(self.compat.adapt_filter_module(
+            self.module, self.users, self.files, self.chats))
+        self.assertIs(self.module.Files, first)
+
+        async def run():
+            token = self.compat.set_filter_async_user_lookup_mode(True)
+            try:
+                self.assertEqual(
+                    await self.module.Files.get_file_by_id("once"),
+                    ("get_file_by_id", ("once",), {}),
+                )
+            finally:
+                self.compat.reset_filter_async_user_lookup_mode(token)
+
+        asyncio.run(run())
+        self.assertEqual(sum(call[0] == "get_file_by_id" for call in self.files.calls), 1)
 
     def test_sync_filter_context_remains_native_and_aliases_preserve_other_methods(self):
         token = self.compat.set_filter_async_user_lookup_mode(False)
@@ -298,6 +315,12 @@ class AsyncModelBootstrapTests(unittest.TestCase):
             with self.assertRaises(self.bootstrap.BootstrapRefused):
                 self.bootstrap._read_verified_script(path, hashlib.sha256(path.read_bytes()).hexdigest())
             path.write_bytes(original)
+            fifo = pathlib.Path(directory) / "bootstrap.fifo"
+            os.mkfifo(fifo)
+            started = time.monotonic()
+            with self.assertRaises(self.bootstrap.BootstrapRefused):
+                self.bootstrap._read_verified_script(fifo, digest)
+            self.assertLess(time.monotonic() - started, 1.0)
             captured = {}
 
             def fake_run(argv, **kwargs):
@@ -313,6 +336,24 @@ class AsyncModelBootstrapTests(unittest.TestCase):
             self.assertEqual(captured["stdout"], self.bootstrap.subprocess.DEVNULL)
             with self.assertRaises(self.bootstrap.BootstrapRefused):
                 self.bootstrap.run_verified_bootstrap(path, digest, ["bad\x00arg"])
+
+    def test_module_cli_uses_explicit_arguments_and_fixed_failures(self):
+        calls = []
+
+        def run(path, digest, args):
+            calls.append((path, digest, args))
+            return 7
+
+        with patch.object(self.bootstrap, "run_verified_bootstrap", side_effect=run):
+            self.assertEqual(self.bootstrap.main([]), 2)
+            self.assertEqual(self.bootstrap.main(["script.py", "a" * 64, "--mode", "one"]), 7)
+        self.assertEqual(calls, [("script.py", "a" * 64, ["--mode", "one"])])
+        with patch.object(self.bootstrap, "run_verified_bootstrap",
+                          side_effect=self.bootstrap.BootstrapRefused("private detail")):
+            self.assertEqual(self.bootstrap.main(["script.py", "x"]), 2)
+        with patch.object(self.bootstrap, "run_verified_bootstrap",
+                          side_effect=self.bootstrap.BootstrapUnavailable("private detail")):
+            self.assertEqual(self.bootstrap.main(["script.py", "x"]), 1)
 
     def test_child_imports_config_before_running_verified_script_and_restores_bindings(self):
         events = []
@@ -387,6 +428,15 @@ class AsyncModelBootstrapTests(unittest.TestCase):
             sys.stdin, sys.argv = old_stdin, old_argv
         self.assertIs(functions.Functions, native_functions)
         self.assertIs(models.Models, native_models)
+
+        no_code_script = b"raise SystemExit()\n"
+        sys.stdin = types.SimpleNamespace(buffer=io.BytesIO(no_code_script))
+        sys.argv = ["child", "synthetic.py", hashlib.sha256(no_code_script).hexdigest()]
+        try:
+            with patch.object(self.bootstrap.importlib, "import_module", side_effect=imported):
+                self.assertEqual(self.bootstrap._child_main(), 0)
+        finally:
+            sys.stdin, sys.argv = old_stdin, old_argv
 
 
 if __name__ == "__main__":
