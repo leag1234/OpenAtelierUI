@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { actionsBlocked, editableNote, editableText, focusTrapTargetIndex, isDirty, notePayload, resolveSave, safeNoteFilename, saveStatus } from '../src/lib/apis/notes/state.js';
+import { actionsBlocked, editableNote, editableText, focusTrapTargetIndex, formatNoteDate, isDirty, notePayload, resolveSave, safeNoteFilename, saveStatus } from '../src/lib/apis/notes/state.js';
+
+test('note dates support measured nanoseconds and historical seconds only', () => {
+	const seconds = 1792949159;
+	assert.equal(formatNoteDate(seconds), new Date(seconds * 1000).toLocaleDateString());
+	assert.equal(formatNoteDate(seconds * 1e9), new Date((seconds * 1e9) / 1e6).toLocaleDateString());
+	for (const value of [null, '1792949159', -1, 0, 1792949159000, NaN, Infinity, 9000000000000000000]) {
+		assert.equal(formatNoteDate(value), 'Unknown date');
+	}
+});
 
 test('only the measured plain-text note shapes are editable', () => {
 	assert.deepEqual(editableText({}), { editable: true, text: '' });

@@ -7,6 +7,7 @@ import types
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -143,8 +144,20 @@ class PrivateNotesStoreTests(unittest.TestCase):
             request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
                 config=SimpleNamespace(USER_PERMISSIONS={"workspace": {"notes": True}}))))
             owner = SimpleNamespace(id="owner", name="Workshop member", role="user", email="member@example.invalid")
-            created = router.create_note(request, router.NoteForm(title="Private", data=None, meta=None), owner)
+            created_ns, updated_ns = 1792949159000000000, 1792949160000000000
+            with patch.object(router.time, "time_ns", side_effect=[created_ns, updated_ns]):
+                created = router.create_note(request, router.NoteForm(title="Private", data=None, meta=None), owner)
+                pinned_note = router.pin_note(request, created["id"], owner)
+                updated_note = router.update_note(
+                    request, created["id"], router.NoteForm(title="Private", data=None, meta=None), owner
+                )
             self.assertEqual(created["user_id"], "owner")
+            self.assertEqual(created["created_at"], created_ns)
+            self.assertEqual(created["updated_at"], created_ns)
+            self.assertTrue(pinned_note["is_pinned"])
+            self.assertEqual(updated_note["created_at"], created_ns)
+            self.assertEqual(updated_note["updated_at"], updated_ns)
+            self.assertTrue(updated_note["is_pinned"])
             self.assertEqual(created["data"], {})
             self.assertIsNone(created["meta"])
             self.assertEqual(created["access_grants"], [])
@@ -173,7 +186,7 @@ class PrivateNotesStoreTests(unittest.TestCase):
                 "id": "owner", "name": "Workshop member", "role": "user",
                 "email": "member@example.invalid",
             })
-            self.assertEqual(router.list_pinned_notes(request, owner), [])
+            self.assertEqual([row["id"] for row in router.list_pinned_notes(request, owner)], [created["id"]])
             with self.assertRaises(router.HTTPException) as sharing:
                 router._form_values(router.NoteForm(title="Private", access_grants=[{"permission": "read"}]))
             self.assertEqual(sharing.exception.status_code, 422)

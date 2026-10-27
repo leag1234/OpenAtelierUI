@@ -221,7 +221,7 @@ def search_notes(
 def create_note(request: Request, form_data: NoteForm, user=Depends(get_verified_user)):
     _allow_notes(request, user)
     data, meta = _form_values(form_data)
-    now = int(time.time())
+    now = time.time_ns()
     note = {"id": str(uuid.uuid4()), "user_id": user.id, "title": form_data.title,
             "data": data, "meta": meta, "created_at": now, "updated_at": now}
     try:
@@ -248,7 +248,7 @@ def update_note(request: Request, id: str, form_data: NoteForm, user=Depends(get
     _allow_notes(request, user)
     data, meta = _form_values(form_data)
     try:
-        note = notes_store.update_owned(id, user.id, form_data.title, data, meta, int(time.time()))
+        note = notes_store.update_owned(id, user.id, form_data.title, data, meta, time.time_ns())
     except Exception as error:
         raise _unavailable(error) from None
     if note is None:

@@ -65,3 +65,12 @@ export const resolveSave = (draft, saved, failed = false) =>
 			};
 
 export const safeNoteFilename = () => 'private-note.json';
+
+export const formatNoteDate = (value) => {
+	if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value)) return 'Unknown date';
+	const seconds = value >= 946684800 && value <= 4102444800;
+	const nanoseconds = value >= 946684800000000000 && value <= 4102444800000000000;
+	if (!seconds && !nanoseconds) return 'Unknown date';
+	const date = new Date(seconds ? value * 1000 : value / 1e6);
+	return Number.isNaN(date.getTime()) ? 'Unknown date' : date.toLocaleDateString();
+};
