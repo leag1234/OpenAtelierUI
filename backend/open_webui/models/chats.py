@@ -304,6 +304,124 @@ class PrivateChatTitleIdResponse(ChatTitleIdResponse):
     archived: bool = False
 
 
+def _chat_text_file_reference(chat):
+    unsupported = "Attached file import is unsupported."
+
+    def refs(value):
+        if value in (None, "", [], {}):
+            return []
+        if not isinstance(value, list) or len(value) != 1 or not isinstance(value[0], dict):
+            raise ValueError(unsupported)
+        return value
+
+    history = chat.get("history")
+    nodes = history.get("messages") if isinstance(history, dict) else None
+    flat = chat.get("messages")
+    if not isinstance(nodes, dict) or not isinstance(flat, list):
+        if refs(chat.get("files")):
+            raise ValueError(unsupported)
+        return None, set()
+    top = refs(chat.get("files"))
+    history_found = [(key, node, refs(node.get("files"))) for key, node in nodes.items() if isinstance(node, dict) and refs(node.get("files"))]
+    flat_found = [(node, refs(node.get("files"))) for node in flat if isinstance(node, dict) and refs(node.get("files"))]
+    if not top and not history_found and not flat_found:
+        return None, set()
+    if len(top) != 1 or len(history_found) != 1 or len(flat_found) != 1:
+        raise ValueError(unsupported)
+    history_id, history_node, history_ref = history_found[0]
+    flat_node, flat_ref = flat_found[0]
+    reference = top[0]
+    if history_node.get("role") != "user" or flat_node.get("role") != "user" or history_node.get("id") != history_id or flat_node.get("id") != history_id:
+        raise ValueError(unsupported)
+    selected = history.get("currentId")
+    if not isinstance(selected, str) or selected not in nodes:
+        raise ValueError(unsupported)
+    ancestry, visited, cursor = [], set(), selected
+    while cursor is not None:
+        if not isinstance(cursor, str) or cursor in visited or cursor not in nodes or not isinstance(nodes[cursor], dict):
+            raise ValueError(unsupported)
+        visited.add(cursor); ancestry.append(cursor)
+        cursor = nodes[cursor].get("parentId")
+    if history_id not in ancestry or [node.get("id") if isinstance(node, dict) else None for node in flat] != list(reversed(ancestry)):
+        raise ValueError(unsupported)
+    if history_ref[0] != reference or flat_ref[0] != reference:
+        raise ValueError(unsupported)
+    allowed = {(id(chat), "files"), (id(history_node), "files"), (id(flat_node), "files")}
+    allowed.update((id(ref), "file") for ref in (reference, history_ref[0], flat_ref[0]))
+    if not _valid_text_file_reference_shape(reference):
+        raise ValueError(unsupported)
+    return reference, allowed
+
+
+def _valid_text_file_reference_shape(reference):
+    item_keys = {"error", "file", "id", "itemId", "name", "size", "status", "type", "url"}
+    file_keys = {"created_at", "data", "filename", "hash", "id", "meta", "updated_at", "user_id"}
+    if set(reference) != item_keys:
+        return False
+    identifier = reference.get("id")
+    if not isinstance(identifier, str) or not 1 <= len(identifier) <= 128 or not all(c.isascii() and (c.isalnum() or c in "_-") for c in identifier):
+        return False
+    if reference.get("type") != "file" or reference.get("status") != "uploaded" or reference.get("error") != "":
+        return False
+    if reference.get("url") != "/api/v1/files/" + identifier:
+        return False
+    if not isinstance(reference.get("itemId"), str) or not 1 <= len(reference["itemId"]) <= 128:
+        return False
+    if any(ord(c) < 32 or ord(c) == 127 for c in reference["itemId"]):
+        return False
+    size = reference.get("size")
+    file = reference.get("file")
+    if type(size) is not int or not 0 < size <= 256 * 1024 or not isinstance(file, dict) or set(file) != file_keys:
+        return False
+    meta = file.get("meta")
+    if not isinstance(meta, dict) or set(meta) not in ({"name", "content_type", "size", "data"}, {"name", "content_type", "size", "data", "file_hash"}):
+        return False
+    if (file.get("id") != identifier or not isinstance(file.get("user_id"), str) or
+            not isinstance(file.get("filename"), str) or not 1 <= len(file["filename"]) <= 255 or
+            file["filename"] in {".", ".."} or "/" in file["filename"] or "\\" in file["filename"] or "\x00" in file["filename"] or
+            any(ord(c) < 32 or ord(c) == 127 for c in file["filename"]) or file.get("filename") != reference.get("name") or
+            meta.get("name") != reference.get("name") or meta.get("content_type") != "text/plain" or
+            type(meta.get("size")) is not int or
+            meta.get("size") != size or file.get("data") != {} or meta.get("data") != {}):
+        return False
+    if file.get("hash") is not None:
+        return False
+    if "file_hash" in meta and not isinstance(meta["file_hash"], str):
+        return False
+    return type(file.get("created_at")) is int and type(file.get("updated_at")) is int
+
+
+def _lookup_import_file(file_id):
+    from open_webui.models.files import Files
+    return Files.get_file_by_id(file_id)
+
+
+def _validate_owned_text_file(reference, user_id, row):
+    unsupported = "Attached file import is unsupported."
+    try:
+        if (row is None or getattr(row, "id", None) != reference["id"] or
+                getattr(row, "user_id", None) != user_id or reference["file"].get("user_id") != user_id):
+            raise ValueError(unsupported)
+        if getattr(row, "access_control", None) not in (None, {}):
+            raise ValueError(unsupported)
+        if getattr(row, "data", None) != {}:
+            raise ValueError(unsupported)
+        file = reference["file"]
+        meta = getattr(row, "meta", None)
+        if not isinstance(meta, dict) or set(meta) not in ({"name", "content_type", "size", "data"}, {"name", "content_type", "size", "data", "file_hash"}):
+            raise ValueError(unsupported)
+        if type(meta.get("size")) is not int:
+            raise ValueError(unsupported)
+        if (getattr(row, "filename", None) != file["filename"] or getattr(row, "hash", None) != file["hash"] or
+                getattr(row, "created_at", None) != file["created_at"] or getattr(row, "updated_at", None) != file["updated_at"] or
+                getattr(row, "data", None) != file["data"] or meta != file["meta"]):
+            raise ValueError(unsupported)
+        if meta.get("content_type") != "text/plain" or meta.get("size") != reference["size"]:
+            raise ValueError(unsupported)
+    except Exception:
+        raise ValueError(unsupported) from None
+
+
 def _prepare_bulk_chat_import(chats):
     if not isinstance(chats, list) or not 1 <= len(chats) <= 16:
         raise ValueError("Bulk import requires 1 to 16 chats.")
@@ -313,7 +431,7 @@ def _prepare_bulk_chat_import(chats):
         raise ValueError("Bulk import contains unsupported data.") from None
     if payload_size > 4 * 1024 * 1024:
         raise ValueError("Bulk import exceeds the 4 MiB limit.")
-    prepared, node_count = [], 0
+    prepared, node_count, batch_file_id = [], 0, None
     allowed = {"id", "user_id", "title", "chat", "meta", "pinned", "folder_id", "created_at", "updated_at", "archived", "share_id", "current_message_id", "variables"}
     for item in chats:
         if not isinstance(item, dict) or set(item) - allowed or not isinstance(item.get("chat"), dict):
@@ -359,14 +477,20 @@ def _prepare_bulk_chat_import(chats):
             graph = copy.deepcopy(graph)
             graph.setdefault("history", {})["currentId"] = selected
             item = {**item, "chat": graph}
+        file_reference, allowed_file_fields = _chat_text_file_reference(graph)
+        if file_reference is not None:
+            if batch_file_id is not None and batch_file_id != file_reference["id"]:
+                raise ValueError("Attached file import is unsupported.")
+            batch_file_id = file_reference["id"]
         stack = [graph]
         while stack:
             current = stack.pop()
             if isinstance(current, dict):
                 if current.get("role") == "tool" or current.get("type") in ("image", "input_image"):
                     raise ValueError("Only text conversations are supported.")
-                if any(key in current and current[key] not in (None, [], {}) for key in ("file", "files", "attachments", "attachment", "file_ids", "images", "tool_calls", "tool_call", "tool_call_id", "function_call", "image_url")):
-                    raise ValueError("Media and tool content are unsupported.")
+                for key in ("file", "files", "attachments", "attachment", "file_ids", "images", "tool_calls", "tool_call", "tool_call_id", "function_call", "image_url"):
+                    if key in current and current[key] not in (None, [], {}) and (id(current), key) not in allowed_file_fields:
+                        raise ValueError("Media and tool content are unsupported.")
                 if "content" in current and current["content"] not in (None, "") and not isinstance(current["content"], str):
                     raise ValueError("Only text conversations are supported.")
                 stack.extend(current.values())
@@ -444,6 +568,14 @@ class ChatTable:
 
     def import_chats(self, user_id: str, chats: list[dict]) -> list[ChatModel]:
         prepared = _prepare_bulk_chat_import(chats)
+        file_references = [reference for item in prepared if (reference := _chat_text_file_reference(item["chat"])[0]) is not None]
+        if file_references:
+            try:
+                row = _lookup_import_file(file_references[0]["id"])
+            except Exception:
+                raise ValueError("Attached file import is unsupported.") from None
+            for reference in file_references:
+                _validate_owned_text_file(reference, user_id, row)
         models, rows = [], []
         for item in prepared:
             now = int(time.time())

@@ -4,6 +4,7 @@
 
 import ast
 import asyncio
+import copy
 import json
 import sqlite3
 import unittest
@@ -83,7 +84,7 @@ class BulkChatImportTests(unittest.TestCase):
             yield Database()
 
         Database.connection = self.connection
-        self.namespace = extract(MODEL, {"_prepare_bulk_chat_import", "import_chats"}, {
+        self.namespace = extract(MODEL, {"_chat_text_file_reference", "_valid_text_file_reference_shape", "_lookup_import_file", "_validate_owned_text_file", "_prepare_bulk_chat_import", "import_chats"}, {
             "json": json, "copy": __import__("copy"), "time": __import__("time"),
             "uuid": __import__("uuid"), "get_db": get_db, "Chat": Row,
             "ChatModel": Model,
@@ -101,6 +102,137 @@ class BulkChatImportTests(unittest.TestCase):
 
     def rows(self):
         return self.connection.execute("SELECT id,user_id,title,chat,created_at,updated_at,share_id,archived,pinned,meta,folder_id FROM chat ORDER BY rowid").fetchall()
+
+    @staticmethod
+    def attached_item(title="Attached"):
+        value = BulkChatImportTests.item(title)
+        meta = {"name": "synthetic-workshop.txt", "content_type": "text/plain", "size": 77, "data": {}, "file_hash": "a" * 64}
+        public_file = {"created_at": 1700000000, "data": {}, "filename": "synthetic-workshop.txt", "hash": None,
+                       "id": "file-1", "meta": meta, "updated_at": 1700000001, "user_id": "verified-user"}
+        reference = {"error": "", "file": public_file, "id": "file-1", "itemId": "item-1",
+                     "name": "synthetic-workshop.txt", "size": 77, "status": "uploaded", "type": "file",
+                     "url": "/api/v1/files/file-1"}
+        value["chat"]["history"]["messages"]["m1"]["id"] = "m1"
+        value["chat"]["history"]["messages"]["m2"]["id"] = "m2"
+        value["chat"]["files"] = [copy.deepcopy(reference)]
+        value["chat"]["history"]["messages"]["m1"]["files"] = [copy.deepcopy(reference)]
+        value["chat"]["messages"] = [copy.deepcopy(value["chat"]["history"]["messages"][key]) for key in ("m1", "m2")]
+        value["chat"]["messages"][0]["files"] = [copy.deepcopy(reference)]
+        row = SimpleNamespace(id="file-1", user_id="verified-user", access_control=None, data={},
+                              filename="synthetic-workshop.txt", hash=None, meta=meta,
+                              created_at=1700000000, updated_at=1700000001, path="/never/read")
+        return value, row
+
+    def set_file_lookup(self, row):
+        calls = []
+        def lookup(file_id):
+            calls.append(file_id)
+            return row
+        self.namespace["_lookup_import_file"] = lookup
+        return calls
+
+    def test_measured_attached_text_import_uses_one_private_authoritative_lookup(self):
+        item, row = self.attached_item()
+        calls = self.set_file_lookup(row)
+        before = copy.deepcopy(item["chat"])
+        result = self.table.import_chats("verified-user", [item])
+        self.assertEqual(calls, ["file-1"])
+        self.assertEqual(len(result), 1)
+        stored = json.loads(self.rows()[0][3])
+        before["history"]["currentId"] = "m2"
+        self.assertEqual(stored, before)
+        self.assertEqual((stored["files"][0]["id"], stored["history"]["messages"]["m1"]["files"][0]["id"], stored["messages"][0]["files"][0]["id"]), ("file-1",) * 3)
+
+    def test_repeated_same_identity_across_batch_is_cached_once(self):
+        first, row = self.attached_item("First attached")
+        second, _ = self.attached_item("Second attached")
+        second["chat"]["files"][0]["itemId"] = "item-2"
+        second["chat"]["history"]["messages"]["m1"]["files"][0]["itemId"] = "item-2"
+        second["chat"]["messages"][0]["files"][0]["itemId"] = "item-2"
+        calls = self.set_file_lookup(row)
+        self.assertEqual(len(self.table.import_chats("verified-user", [first, second])), 2)
+        self.assertEqual(calls, ["file-1"])
+        self.assertEqual(len(self.rows()), 2)
+
+    def test_missing_and_foreign_files_share_fixed_prewrite_failure(self):
+        item, row = self.attached_item()
+        for record in (None, SimpleNamespace(**{**row.__dict__, "user_id": "another-user"})):
+            self.connection.execute("DELETE FROM chat"); self.connection.commit()
+            calls = self.set_file_lookup(record)
+            with self.assertRaisesRegex(ValueError, "^Attached file import is unsupported\\.$"):
+                self.table.import_chats("verified-user", [item])
+            self.assertEqual(calls, ["file-1"])
+            self.assertEqual(self.rows(), [])
+            self.assertEqual(self.opens, 0)
+
+    def test_mismatched_references_and_late_invalid_batch_do_not_lookup_or_write(self):
+        valid, row = self.attached_item("First")
+        calls = self.set_file_lookup(row)
+        mismatch = copy.deepcopy(valid)
+        mismatch["chat"]["messages"][0]["files"][0]["id"] = "file-other"
+        with self.assertRaises(ValueError):
+            self.table.import_chats("verified-user", [valid, mismatch])
+        self.assertEqual(calls, [])
+        self.assertEqual(self.rows(), [])
+        self.assertEqual(self.opens, 0)
+        other, _ = self.attached_item("Other identity")
+        for place in (other["chat"]["files"], other["chat"]["history"]["messages"]["m1"]["files"], other["chat"]["messages"][0]["files"]):
+            place[0]["id"] = "file-other"
+            place[0]["file"]["id"] = "file-other"
+            place[0]["url"] = "/api/v1/files/file-other"
+        with self.assertRaises(ValueError):
+            self.table.import_chats("verified-user", [valid, other])
+        self.assertEqual(calls, [])
+        self.assertEqual(self.rows(), [])
+
+    def test_spoofed_dto_rights_and_metadata_refuse_after_single_lookup(self):
+        for mutation, row_change, lookup_count in (
+            (lambda ref: ref["file"].update(filename="other.txt"), None, 0),
+            (lambda ref: ref["file"].update(user_id="another-user"), None, 1),
+            (lambda ref: (ref.update(size=78), ref["file"]["meta"].update(size=78)), None, 1),
+            (lambda ref: None, {"access_control": {"read": ["other"]}}, 1),
+            (lambda ref: None, {"data": {"unexpected": True}}, 1),
+        ):
+            item, row = self.attached_item()
+            for reference in (item["chat"]["files"][0], item["chat"]["history"]["messages"]["m1"]["files"][0], item["chat"]["messages"][0]["files"][0]):
+                mutation(reference)
+            if row_change:
+                row = SimpleNamespace(**{**row.__dict__, **row_change})
+            calls = self.set_file_lookup(row)
+            with self.assertRaisesRegex(ValueError, "^Attached file import is unsupported\\.$"):
+                self.table.import_chats("verified-user", [item])
+            self.assertEqual(calls, ["file-1"] if lookup_count else [])
+            self.assertEqual(self.rows(), [])
+            self.assertEqual(self.opens, 0)
+
+    def test_nontext_metadata_extra_keys_and_multiple_items_refuse_before_lookup(self):
+        for mutation in (
+            lambda refs: [ref["file"]["meta"].update(content_type="application/pdf") for ref in refs],
+            lambda refs: [ref.update(collection_name="unmeasured") for ref in refs],
+        ):
+            item, row = self.attached_item()
+            refs = [item["chat"]["files"][0], item["chat"]["history"]["messages"]["m1"]["files"][0], item["chat"]["messages"][0]["files"][0]]
+            mutation(refs)
+            calls = self.set_file_lookup(row)
+            with self.assertRaises(ValueError):
+                self.table.import_chats("verified-user", [item])
+            self.assertEqual(calls, [])
+            self.assertEqual(self.rows(), [])
+            self.assertEqual(self.opens, 0)
+        item, row = self.attached_item()
+        item["chat"]["files"].append(copy.deepcopy(item["chat"]["files"][0]))
+        calls = self.set_file_lookup(row)
+        with self.assertRaises(ValueError):
+            self.table.import_chats("verified-user", [item])
+        self.assertEqual(calls, [])
+        self.assertEqual(self.rows(), [])
+        self.assertEqual(self.opens, 0)
+
+    def test_no_file_import_keeps_existing_zero_lookup_behavior(self):
+        calls = self.set_file_lookup(None)
+        self.table.import_chats("verified-user", [self.item("No file")])
+        self.assertEqual(calls, [])
+        self.assertEqual(len(self.rows()), 1)
 
     def test_two_chat_imports_preserve_graph_and_force_private_owner(self):
         result = self.table.import_chats("verified-user", [self.item("First"), self.item("Second")])
