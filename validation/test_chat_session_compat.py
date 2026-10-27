@@ -107,6 +107,106 @@ assert.strictEqual(chatTaskStopPath('saved/chat 1'), '/api/tasks/chat/saved%2Fch
         self.assertIn("let fetchedChat;", chat)
         self.assertIn("if (chatResultMatchesCurrent(requestedChatId, $chatId)) await goto('/')", chat)
 
+    def _chat_function(self, name):
+        source = CHAT.read_text(encoding="utf-8")
+        marker = f"const {name} = "
+        start = source.index(marker)
+        body_start = source.index("=> {", start) + 3
+        depth = 0
+        for index in range(body_start, len(source)):
+            if source[index] == "{":
+                depth += 1
+            elif source[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    return source[start : index + 1] + ";"
+        self.fail(f"could not extract {name}")
+
+    def _run_chat_component(self, name, assertions):
+        prelude = """
+const assert = require('assert');
+let history = {currentId:'active', messages:{
+  parent:{childrenIds:['active','already-done','later']},
+  active:{parentId:'parent', content:'partial answer', done:false, status:{action:'search', description:'Searching'}},
+  'already-done':{parentId:'parent', content:'finished answer', done:true},
+  later:{parentId:'parent', content:'newer sibling', done:false}
+}};
+let autoScroll = false;
+const scrollToBottom = () => {};
+"""
+        subprocess.run(
+            ["node", "-e", prelude + self._chat_function(name) + "\n" + assertions],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_confirmed_stop_is_persistable_without_relabeling_later_siblings(self):
+        self._run_chat_component(
+            "markCurrentResponsesDone",
+            """
+assert.strictEqual(markCurrentResponsesDone(true, ['active','already-done']), true);
+assert.strictEqual(history.messages.active.done, true);
+assert.strictEqual(history.messages.active.content, 'partial answer');
+assert.deepStrictEqual(history.messages.active.statusHistory, [
+  {action:'search',description:'Searching'},
+  {action:'response_stopped',description:'Response stopped',done:true}
+]);
+assert.strictEqual(history.messages['already-done'].statusHistory, undefined);
+assert.strictEqual(history.messages.later.done, false);
+assert.strictEqual(markCurrentResponsesDone(true, ['active']), false);
+assert.strictEqual(history.messages.active.statusHistory.filter(s => s.action === 'response_stopped').length, 1);
+""",
+        )
+
+    def test_nonconfirmed_stop_finishes_locally_without_stopped_status(self):
+        self._run_chat_component(
+            "markCurrentResponsesDone",
+            """
+assert.strictEqual(markCurrentResponsesDone(false, ['active']), true);
+assert.strictEqual(history.messages.active.done, true);
+assert.strictEqual(history.messages.active.statusHistory, undefined);
+assert.strictEqual(history.messages.active.content, 'partial answer');
+""",
+        )
+
+    def test_stop_save_uses_latest_history_and_reports_only_fixed_failure(self):
+        persist = self._chat_function("persistStoppedChat")
+        script = r"""
+const assert = require('assert');
+let history = {currentId:'active', messages:{
+  active:{content:'partial answer',done:true,statusHistory:[{action:'search'}, {action:'response_stopped',description:'Response stopped',done:true}]}
+}};
+let $chatId = 'chat-1';
+const localStorage = {token:'synthetic'};
+const selectedModels = ['model'];
+const params = {};
+const chatFiles = [];
+const createMessagesList = (value) => Object.keys(value.messages);
+const chatResultMatchesCurrent = (wanted, current) => wanted === current;
+const notices = [];
+const toast = {error: (message) => notices.push(message)};
+let updateChatById = async (_token, _id, value) => { saved = value; };
+let saved;
+""" + persist + r"""
+(async () => {
+  history.messages.newer = {content:'new continuation',done:false};
+  await persistStoppedChat('chat-1', history);
+  assert.strictEqual(saved.history.messages.newer.content, 'new continuation');
+  assert.strictEqual(saved.history.messages.active.statusHistory[1].action, 'response_stopped');
+  updateChatById = async () => { throw new Error('SYNTHETIC_PRIVATE_DETAIL'); };
+  await persistStoppedChat('chat-1', history);
+  assert.deepStrictEqual(notices, ['The response stopped, but its status could not be saved.']);
+  assert.strictEqual(notices.join('').includes('SYNTHETIC_PRIVATE_DETAIL'), false);
+  const callsBeforeNavigation = notices.length;
+  $chatId = 'chat-2';
+  await persistStoppedChat('chat-1', history);
+  assert.strictEqual(notices.length, callsBeforeNavigation);
+})().catch((error) => { process.stderr.write(String(error)); process.exitCode = 1; });
+"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

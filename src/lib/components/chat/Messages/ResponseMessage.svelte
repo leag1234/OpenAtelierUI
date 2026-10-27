@@ -672,7 +672,9 @@
 											<div
 												class="{status?.done === false
 													? 'shimmer'
-													: ''} text-gray-500 dark:text-gray-500 text-base line-clamp-1 text-wrap"
+													: ''} {status?.action === 'response_stopped'
+														? 'text-gray-700 dark:text-gray-300'
+														: 'text-gray-500 dark:text-gray-500'} text-base line-clamp-1 text-wrap"
 											>
 												<!-- $i18n.t(`Searching "{{searchQuery}}"`) -->
 												{#if status?.description.includes('{{searchQuery}}')}
