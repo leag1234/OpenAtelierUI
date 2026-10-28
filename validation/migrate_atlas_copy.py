@@ -127,9 +127,8 @@ def _new_directory(value):
 
 def _disjoint(outputs, inputs):
     paths = outputs + inputs
-    if any(a != b and (a.is_relative_to(b) or b.is_relative_to(a))
-           for i, a in enumerate(paths) for b in paths[i + 1:]):
-        raise Refusal("path_overlap")
+    if any(a == b or a.is_relative_to(b) or b.is_relative_to(a)
+           for i, a in enumerate(paths) for b in paths[i + 1:]): raise Refusal("path_overlap")
 
 
 def _readonly(path):
@@ -144,15 +143,17 @@ def _note_snapshot(source_path):
         if not present: return {}, None
         if present != {"note", "pinned_note"}:
             raise Refusal("notes_schema_unsupported")
+        schema = db.execute(
+            "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name"
+        ).fetchall()
+        if any(kind in ("trigger", "view") or "CREATE VIRTUAL TABLE" in (sql or "").upper() for kind, _, _, sql in schema):
+            raise Refusal("source_views_or_triggers_unsupported")
         try:
             notes._check_source_schema(db)
             rows = notes._read_notes(db, db)
             notes._apply_pins(db, rows)
         except notes.Refusal as error:
             raise Refusal(error.code) from None
-        schema = db.execute(
-            "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name"
-        ).fetchall()
         incoming = [table for (table,) in db.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
             if table not in ("note", "pinned_note") and any(

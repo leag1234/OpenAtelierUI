@@ -120,6 +120,28 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
         self.assertFalse((workspace / "core-staging.sqlite").exists())
         self.assertEqual(self.source.read_bytes(), source_before)
 
+
+    def test_trigger_refuses_before_stage_trim(self):
+        db = sqlite3.connect(self.source)
+        db.execute("CREATE TRIGGER note_delete_mutates_user AFTER DELETE ON note BEGIN UPDATE user SET name='changed' WHERE id='u1'; END")
+        db.commit(); db.close()
+        original = self.source.read_bytes()
+        result = self._run("preview", "trigger")
+        workspace = self.root / "trigger-workspace"
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason"], "source_views_or_triggers_unsupported")
+        self.assertFalse((workspace / "core-staging.sqlite").exists())
+        self.assertEqual(self.source.read_bytes(), original)
+        db = sqlite3.connect(workspace / "source.sqlite")
+        self.assertEqual(db.execute("SELECT name FROM user WHERE id='u1'").fetchone()[0], "Synthetic User")
+        db.close()
+
+    def test_disjoint_paths_reject_duplicates_and_output_input_alias(self):
+        path = self.root / "same"
+        for outputs, inputs in (([path, path], []), ([path], [path])):
+            with self.subTest(outputs=outputs, inputs=inputs), self.assertRaises(coordinator.Refusal):
+                coordinator._disjoint(outputs, inputs)
+
     def test_missing_notes_schema_is_a_valid_zero_note_preview(self):
         db = sqlite3.connect(self.source)
         db.execute("DROP TABLE pinned_note")
