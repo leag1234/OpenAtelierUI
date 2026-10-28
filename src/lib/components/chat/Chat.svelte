@@ -1139,6 +1139,26 @@
 		}
 	};
 
+	const settlePendingResponseStatuses = (message) => {
+		if (Array.isArray(message.statusHistory)) {
+			message.statusHistory = message.statusHistory.filter((status) => status?.done !== false);
+		}
+		if (message.status?.done === false) {
+			delete message.status;
+		}
+	};
+
+	const clearStoppedResponseStatus = (message) => {
+		if (Array.isArray(message.statusHistory)) {
+			message.statusHistory = message.statusHistory.filter(
+				(status) => status?.action !== 'response_stopped'
+			);
+		}
+		if (message.status?.action === 'response_stopped') {
+			delete message.status;
+		}
+	};
+
 	const chatCompletionEventHandler = async (data, message, chatId) => {
 		const { id, done, choices, content, sources, selected_model_id, error, usage } = data;
 
@@ -1236,6 +1256,7 @@
 		history.messages[message.id] = message;
 
 		if (done) {
+			settlePendingResponseStatuses(message);
 			message.done = true;
 
 			if ($settings.responseAutoCopy) {
@@ -1927,6 +1948,7 @@
 
 		if (history.currentId && history.messages[history.currentId].done == true) {
 			const responseMessage = history.messages[history.currentId];
+			clearStoppedResponseStatus(responseMessage);
 			responseMessage.done = false;
 			await tick();
 
