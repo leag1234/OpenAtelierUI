@@ -1,8 +1,8 @@
-# openAtelier provenance
+# OpenAtelierUI provenance
 
 This development repository imports Open WebUI v0.6.5 unchanged from commit `07d8460126a686de9a99e2662d06106e22c3f6b6`. The original BSD-3-Clause license and notices remain in LICENSE and inherited files. The normalized import commit is recorded in validation evidence; the source archive hash is in OPENATELIER-SOURCE.json.
 
-New openAtelier-owned implementations are BSD-3-Clause. No Open WebUI v0.6.6-or-later implementation, patches, migrations, tests, translations or assets may be used as templates. New reference versions are observed only through synthetic runtime behavior, exported schemas/data and permitted public documentation/advisories. Atlas AGPL code is not part of this BSD core. Third-party plugins retain their own licenses and are compatibility inputs, not automatically part of the BSD distribution.
+New OpenAtelierUI-owned implementations are BSD-3-Clause. No Open WebUI v0.6.6-or-later implementation, patches, migrations, tests, translations or assets may be used as templates. New reference versions are observed only through synthetic runtime behavior, exported schemas/data and permitted public documentation/advisories. External consumer code is not part of this BSD core and retains its own license. Third-party plugins retain their own licenses and are compatibility inputs, not automatically part of the BSD distribution.
 
 The agent has read public advisory and documentation excerpts, including embedded vulnerable-code examples. Formal clean-room separation or legal clearance is not asserted. Independent implementation decisions and regression results must be logged below.
 
