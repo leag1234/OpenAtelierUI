@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Literal, Optional, overload
 
@@ -799,6 +800,9 @@ async def proxy(path: str, request: Request, user=Depends(get_verified_user)):
     """
     Deprecated: proxy all requests to OpenAI API
     """
+
+    if os.environ.get("ENABLE_OPENAI_API_PASSTHROUGH", "False").lower() != "true":
+        raise HTTPException(status_code=403, detail="Direct API passthrough is disabled")
 
     body = await request.body()
 
