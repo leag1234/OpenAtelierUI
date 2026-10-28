@@ -103,6 +103,32 @@ test('optional session refresh failure keeps the successful sign-in usable', asy
 	assert.match(auth, /hydrateSignedInProfile\(sessionUser, getSessionUser, \(value\) => user\.set\(value\)\)/);
 });
 
+test('a hung refresh is aborted and a late response cannot replace the signed-in session', async () => {
+	const initial = { id: 'member-4', name: 'Community member', token: 'valid-token' };
+	const stored = [];
+	let signal;
+	let resolveRefresh;
+	const pending = new Promise((resolve) => { resolveRefresh = resolve; });
+	const result = await hydrateSignedInProfile(
+		initial,
+		async (_token, requestSignal) => {
+			signal = requestSignal;
+			return pending;
+		},
+		(value) => stored.push(value),
+		5
+	);
+	assert.equal(result, initial);
+	assert.equal(signal.aborted, true);
+	assert.deepEqual(stored, [initial]);
+	resolveRefresh({ bio: 'late profile value' });
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.deepEqual(stored, [initial]);
+	const auths = readFileSync(new URL('../src/lib/apis/auths/index.ts', import.meta.url), 'utf8');
+	assert.match(auths, /getSessionUser = async \(token: string, signal\?: AbortSignal\)/);
+	assert.match(auths, /\.\.\.\(signal \? \{ signal \} : \{\}\)/);
+});
+
 test('partial server capability omits unsupported values and keeps unrelated profile fields', () => {
 	const enabled = exposedProfileFields({ bio: null, gender: 'Community' });
 	const selected = supportedProfileValues(enabled, {

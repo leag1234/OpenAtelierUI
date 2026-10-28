@@ -89,7 +89,7 @@ export const updateAdminConfig = async (token: string, body: object) => {
 	return res;
 };
 
-export const getSessionUser = async (token: string) => {
+export const getSessionUser = async (token: string, signal?: AbortSignal) => {
 	let error = null;
 
 	const res = await fetch(`${WEBUI_API_BASE_URL}/auths/`, {
@@ -98,7 +98,8 @@ export const getSessionUser = async (token: string) => {
 			'Content-Type': 'application/json',
 			Authorization: `Bearer ${token}`
 		},
-		credentials: 'include'
+		credentials: 'include',
+		...(signal ? { signal } : {})
 	})
 		.then(async (res) => {
 			if (!res.ok) throw await res.json();

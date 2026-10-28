@@ -38,15 +38,34 @@ export const supportedProfileValues = (enabled, values) => ({
 	...(enabled.date_of_birth ? { date_of_birth: values.date_of_birth } : {})
 });
 
-/** @param {Record<string, any> | null | undefined} sessionUser @param {(token: string) => Promise<any>} loadSessionUser @param {(value: any) => Promise<void>} setUser */
-export const hydrateSignedInProfile = async (sessionUser, loadSessionUser, setUser) => {
+const SIGNED_IN_PROFILE_REFRESH_TIMEOUT_MS = 1500;
+
+/** @param {Record<string, any> | null | undefined} sessionUser @param {(token: string, signal: AbortSignal) => Promise<any>} loadSessionUser @param {(value: any) => void | Promise<void>} setUser @param {number} [timeoutMs] */
+export const hydrateSignedInProfile = async (
+	sessionUser,
+	loadSessionUser,
+	setUser,
+	timeoutMs = SIGNED_IN_PROFILE_REFRESH_TIMEOUT_MS
+) => {
 	await setUser(sessionUser);
 	if (!sessionUser || typeof sessionUser.token !== 'string' || !sessionUser.token) return sessionUser;
+	const controller = new AbortController();
+	let timeout;
 	let refreshed;
 	try {
-		refreshed = await loadSessionUser(sessionUser.token);
+		refreshed = await Promise.race([
+			loadSessionUser(sessionUser.token, controller.signal),
+			new Promise((resolve) => {
+				timeout = setTimeout(() => {
+					controller.abort();
+					resolve(null);
+				}, timeoutMs);
+			})
+		]);
 	} catch {
 		return sessionUser;
+	} finally {
+		clearTimeout(timeout);
 	}
 	if (!refreshed || typeof refreshed !== 'object' || Array.isArray(refreshed)) return sessionUser;
 	const fields = supportedProfileValues(exposedProfileFields(refreshed), refreshed);
