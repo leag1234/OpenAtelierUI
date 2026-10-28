@@ -45,7 +45,11 @@ export const buildUserProfileUpdatePayload = (name, profileImageUrl, fields = {}
 	for (const field of PROFILE_FIELDS) {
 		if (Object.prototype.hasOwnProperty.call(fields, field)) {
 			const value = fields[field];
-			payload[field] = typeof value === 'string' && value !== '' ? value : null;
+			if (value === undefined) continue;
+			if (value !== null && typeof value !== 'string') {
+				throw new TypeError('Profile field values must be strings or null');
+			}
+			payload[field] = value !== null && value !== '' ? value : null;
 		}
 	}
 	return payload;

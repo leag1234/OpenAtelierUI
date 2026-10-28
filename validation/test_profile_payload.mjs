@@ -41,6 +41,19 @@ test('present nullable fields preserve values and send empty controls as explici
 	});
 });
 
+test('undefined optional values are omitted while invalid values fail before fetch construction', () => {
+	assert.deepEqual(buildUserProfileUpdatePayload('Member', 'avatar', {
+		bio: undefined,
+		gender: null
+	}), { name: 'Member', profile_image_url: 'avatar', gender: null });
+	assert.throws(
+		() => buildUserProfileUpdatePayload('Member', 'avatar', { bio: 42 }),
+		{ name: 'TypeError', message: 'Profile field values must be strings or null' }
+	);
+	const auths = readFileSync(new URL('../src/lib/apis/auths/index.ts', import.meta.url), 'utf8');
+	assert.match(auths, /body:\s*JSON\.stringify\(buildUserProfileUpdatePayload\(name, profileImageUrl, profileFields\)\)/);
+});
+
 test('partial server capability omits unsupported values and keeps unrelated profile fields', () => {
 	const enabled = exposedProfileFields({ bio: null, gender: 'Community' });
 	const selected = supportedProfileValues(enabled, {
