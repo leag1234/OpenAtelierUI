@@ -1159,6 +1159,15 @@
 		}
 	};
 
+	const clearStoppedAnnotation = (targetChatId, currentChatId, messageId, documentRef) => {
+		if (!targetChatId || targetChatId !== currentChatId || !messageId || !documentRef?.getElementById) {
+			return;
+		}
+		const messageElement = documentRef.getElementById(`message-${messageId}`);
+		const annotation = messageElement?.querySelector?.('.atlas-stop-mark');
+		if (typeof annotation?.remove === 'function') annotation.remove();
+	};
+
 	const chatCompletionEventHandler = async (data, message, chatId) => {
 		const { id, done, choices, content, sources, selected_model_id, error, usage } = data;
 
@@ -1948,6 +1957,12 @@
 
 		if (history.currentId && history.messages[history.currentId].done == true) {
 			const responseMessage = history.messages[history.currentId];
+			clearStoppedAnnotation(
+				_chatId,
+				$chatId,
+				responseMessage.id,
+				typeof document === 'undefined' ? null : document
+			);
 			clearStoppedResponseStatus(responseMessage);
 			responseMessage.done = false;
 			await tick();
