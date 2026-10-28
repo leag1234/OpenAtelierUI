@@ -1554,8 +1554,8 @@ def _validate_object_domains(
                 meta = _json_value(row.get("meta"), dict, "invalid_tool_meta", report)
                 valves = row.get("valves")
                 if valves is not None:
+                    # The old direct valves accessor and invocation path read this raw field.
                     _json_value(valves, dict, "invalid_tool_valves", report)
-                    _block(report, "tool_valves_not_behaviorally_preserved", 1, detail="the old response model omits tool valves")
                 if isinstance(meta, dict) and set(meta) - {"description", "manifest"}:
                     _block(report, "tool_metadata_fields_not_behaviorally_preserved", len(set(meta) - {"description", "manifest"}), detail="stored metadata keys outside the old ToolMeta response are not exposed")
             else:
