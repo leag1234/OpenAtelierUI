@@ -153,6 +153,9 @@ MESSAGE_UNSUPPORTED = {
     "output", "model_id", "files", "sources", "embeds", "done", "status_history",
     "error", "usage", "created_at", "updated_at", "context_summary", "meta",
 }
+MESSAGE_GRAPH_FIELDS = {"done", "created_at", "updated_at", "model_id"}
+MAX_MESSAGE_MODEL_ID_BYTES = 256
+MAX_MESSAGE_TIMESTAMP = 2534023007999999999
 
 
 class MigrationError(Exception):
@@ -173,6 +176,23 @@ def _reject_duplicate_json_keys(pairs):
             raise _DuplicateConfigJSONKey
         result[key] = value
     return result
+
+
+def _valid_message_graph_field(field: str, value: object) -> bool:
+    if field == "done":
+        return type(value) is bool or (type(value) is int and value in (0, 1)) or (type(value) is str and value in ("true", "false", "0", "1"))
+    if field in ("created_at", "updated_at"):
+        if type(value) is int:
+            return 0 <= value <= MAX_MESSAGE_TIMESTAMP
+        if type(value) is str and value.isascii() and value.isdecimal() and len(value) <= 19:
+            return int(value) <= MAX_MESSAGE_TIMESTAMP
+        return False
+    if field == "model_id" and type(value) is str:
+        try:
+            return len(value.encode("utf-8")) <= MAX_MESSAGE_MODEL_ID_BYTES and not any(ord(char) < 32 or ord(char) == 127 for char in value)
+        except UnicodeError:
+            return False
+    return False
 
 
 def _load_pinned_old_defaults() -> tuple[dict, str, str]:
@@ -1176,6 +1196,8 @@ def _validate_chat(connection: sqlite3.Connection, report: dict, *, include_priv
             if message.get("role") not in {"user", "assistant", "system", "tool", "function"}:
                 _block(report, "unsupported_message_role", 1, fatal=True)
             for field in MESSAGE_UNSUPPORTED:
+                if include_private_chat_metadata and field in MESSAGE_GRAPH_FIELDS:
+                    continue
                 if field in message and not _is_empty(message[field]):
                     _block(report, "unsupported_message_field_" + field, 1)
         for item in payload.get("messages", []):
@@ -1276,6 +1298,21 @@ def _private_chat_metadata_overrides(connection: sqlite3.Connection, report: dic
                     _block(report, "private_chat_metadata_json_profile_mismatch", 1, fatal=True)
                     author_invalid = True
                     break
+            for field in MESSAGE_GRAPH_FIELDS.intersection(message):
+                value = message[field]
+                if value is None:
+                    continue
+                if not _valid_message_graph_field(field, value):
+                    _block(report, "private_chat_metadata_invalid_message_" + field, 1, fatal=True)
+                    author_invalid = True
+                    break
+                if field in node and (type(node[field]) is not type(value) or node[field] != value):
+                    _block(report, "private_chat_metadata_message_field_mismatch_" + field, 1, fatal=True)
+                    author_invalid = True
+                    break
+                node[field] = value
+            if author_invalid:
+                break
             if node.get("role") == "user":
                 node["user_id"] = owner_id
                 node["user"] = dict(profiles[owner_id])

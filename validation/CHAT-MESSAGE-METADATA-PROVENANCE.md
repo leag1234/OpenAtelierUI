@@ -1,0 +1,9 @@
+# Bounded chat message metadata preservation
+
+With `include_private_chat_metadata=True`, the importer now carries four validated normalized-message fields into the corresponding authoritative `chat.history.messages` node: `done`, `created_at`, `updated_at`, and `model_id`. Values are copied without type coercion; conflicting values already present in the graph refuse the candidate. The selected `history.currentId` is unchanged.
+
+Bounds are deliberately narrow: `done` accepts booleans, integer 0/1, or exact text tokens `true`, `false`, `0`, `1`; timestamps accept nonnegative integers or ASCII decimal strings up to the year-9999 nanosecond ceiling; `model_id` accepts strings up to 256 UTF-8 bytes without control characters. Null values remain absent from the graph. Malformed values are fatal under the opt-in import. Other normalized message fields remain unsupported and reported as before. Without the existing private-chat metadata opt-in, nonempty values retain their previous unsupported-field report.
+
+Synthetic checks set exact text-affinity source values, convert, and compare the selected branch and preserved graph values. Negative cases cover an invalid completion token, negative and oversized timestamps, and an oversized model ID; a separate assertion confirms `output` remains unsupported. Commands: `python3 -m unittest test_migrate_sqlite.ImporterTests.test_opt_in_private_chat_graph_preserves_bounded_message_fields_exactly test_migrate_sqlite.ImporterTests.test_opt_in_message_metadata_malformed_values_refuse_and_other_fields_stay_unsupported -v` and `python3 -m unittest test_migrate_sqlite -v`.
+
+This is an own synthetic importer change only. It does not preserve the other normalized message fields, add a target table, change authorization, or establish full migration/native compatibility. Primary integration and native verification remain separate.

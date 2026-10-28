@@ -300,6 +300,52 @@ class ImporterTests(unittest.TestCase):
         self.assertTrue(any(code.startswith('unsupported_chat_field_') for code in codes))
         self.assertIn('function_revision_link_not_preserved', codes)
 
+
+    def test_opt_in_private_chat_graph_preserves_bounded_message_fields_exactly(self):
+        db = sqlite3.connect(self.source)
+        db.execute("UPDATE chat_message SET done=?,created_at=?,updated_at=?,model_id=? WHERE id='c1-b'",
+                   ("true", "1792949159", "1792952420123456789", "portable_pipe"))
+        db.execute("UPDATE chat_message SET done=?,created_at=?,updated_at=?,model_id=? WHERE id='c1-q'",
+                   ("false", "0", "1792952420", "portable_pipe"))
+        db.commit(); db.close()
+        report = convert(self.source, self.uploads, self.template, self.root / 'message-field-target',
+                         include_private_chat_metadata=True)
+        self.assertFalse(report['fatal'])
+        db = sqlite3.connect(self.root / 'message-field-target' / 'webui.db')
+        graph = json.loads(db.execute("SELECT chat FROM chat WHERE id='c1'").fetchone()[0])
+        db.close()
+        self.assertEqual(graph['history']['currentId'], 'b')
+        self.assertEqual({field: graph['history']['messages']['b'][field]
+                          for field in ('done','created_at','updated_at','model_id')},
+                         {'done':'true','created_at':'1792949159','updated_at':'1792952420123456789','model_id':'portable_pipe'})
+        self.assertEqual({field: graph['history']['messages']['q'][field]
+                          for field in ('done','created_at','updated_at','model_id')},
+                         {'done':'false','created_at':'0','updated_at':'1792952420','model_id':'portable_pipe'})
+
+    def test_opt_in_message_metadata_malformed_values_refuse_and_other_fields_stay_unsupported(self):
+        cases = (
+            ('done', 'yes', 'private_chat_metadata_invalid_message_done'),
+            ('created_at', '-1', 'private_chat_metadata_invalid_message_created_at'),
+            ('updated_at', '2534023008000000000', 'private_chat_metadata_invalid_message_updated_at'),
+            ('model_id', 'm' * 257, 'private_chat_metadata_invalid_message_model_id'),
+        )
+        for field, value, code in cases:
+            with self.subTest(field=field):
+                db = sqlite3.connect(self.source)
+                db.execute("UPDATE chat_message SET done=NULL,created_at=NULL,updated_at=NULL,model_id=NULL")
+                db.execute(f'UPDATE chat_message SET "{field}"=? WHERE id=?', (value, "c1-b"))
+                db.commit(); db.close()
+                report = preview(self.source, self.uploads, self.template, include_private_chat_metadata=True)
+                self.assertTrue(report['fatal'])
+                self.assertIn(code, {item['code'] for item in report['blockers']})
+        db = sqlite3.connect(self.source)
+        db.execute("UPDATE chat_message SET done=NULL,created_at=NULL,updated_at=NULL,model_id=NULL")
+        db.execute("UPDATE chat_message SET output='unsupported' WHERE id='c1-b'")
+        db.commit(); db.close()
+        report = preview(self.source, self.uploads, self.template, include_private_chat_metadata=True)
+        self.assertFalse(report['fatal'])
+        self.assertIn('unsupported_message_field_output', {item['code'] for item in report['blockers']})
+
     def test_opt_in_private_chat_metadata_preserves_branches_authors_and_read_marker(self):
         add_second_private_chat(self.source)
         source_hash, template_hash = digest(self.source), digest(self.template)
