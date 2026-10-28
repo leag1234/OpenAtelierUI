@@ -147,6 +147,47 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
         )
         self.assertFalse(self.target_config(target)["openai"]["enable"])
 
+    def test_static_headers_are_preserved_exactly_in_selected_endpoint_options(self):
+        values = dict(OPENAI_SETTINGS)
+        values["openai.api_base_urls"] = [
+            "http://127.0.0.1:18081/v1",
+            "http://127.0.0.1:18082/v1",
+        ]
+        values["openai.api_keys"] = [SYNTHETIC_API_KEY, "sk-openatelier-second-synthetic"]
+        values["openai.api_configs"] = {
+            "0": {
+                "enable": True,
+                "headers": {
+                    "Origin": "http://localhost:3000",
+                    "Authorization": "Bearer synthetic-operator-value",
+                },
+            },
+            "1": {"enable": True},
+        }
+        add_openai_settings(self.source, values)
+        report = preview(
+            self.source, self.uploads, self.template, include_openai_configuration=True
+        )
+        self.assertEqual(report["openai_configuration"]["selected_key_count"], 4)
+        self.assertNotIn("synthetic-operator-value", json.dumps(report))
+        self.assertNotIn(SYNTHETIC_API_KEY, json.dumps(report))
+        target = self.root / "static-headers"
+        convert(
+            self.source, self.uploads, self.template, target,
+            include_openai_configuration=True,
+        )
+        self.assertEqual(
+            self.target_config(target)["openai"]["api_configs"],
+            values["openai.api_configs"],
+        )
+        self.assertEqual(
+            self.target_config(target)["openai"]["api_base_urls"],
+            values["openai.api_base_urls"],
+        )
+        self.assertEqual(
+            self.target_config(target)["openai"]["api_keys"], values["openai.api_keys"]
+        )
+
     def test_composes_with_existing_named_api_key_and_permission_selectors(self):
         add_named_tool_configuration(self.source)
         add_api_key_settings(self.source)
@@ -190,6 +231,7 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
         self.assertIn(expected_code, {item["code"] for item in caught.exception.report["blockers"]})
         self.assertFalse(target.exists())
         self.assertNotIn(SYNTHETIC_API_KEY, json.dumps(caught.exception.report))
+        self.assertNotIn("synthetic-static-secret", json.dumps(caught.exception.report))
         self.assertEqual(digest(self.source), before)
 
     def test_alias_parent_descendant_and_duplicate_rows_refuse_before_target(self):
@@ -228,6 +270,42 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
             ({**OPENAI_SETTINGS, "openai.api_keys": ["clé"]}, "openai_configuration_value_unsupported"),
             ({**OPENAI_SETTINGS, "openai.api_keys": [SYNTHETIC_API_KEY, "second"]}, "openai_configuration_value_unsupported"),
             ({**OPENAI_SETTINGS, "openai.api_configs": {"timeout": 1}}, "openai_configuration_value_unsupported"),
+            (
+                {**OPENAI_SETTINGS, "openai.api_configs": {"0": {"enable": True, "headers": {"bad name": "x"}}}},
+                "openai_configuration_value_unsupported",
+            ),
+            (
+                {**OPENAI_SETTINGS, "openai.api_configs": {"0": {"enable": True, "headers": {"Origin": "http://ok\r\nX-Injected: synthetic-static-secret"}}}},
+                "openai_configuration_value_unsupported",
+            ),
+            (
+                {**OPENAI_SETTINGS, "openai.api_configs": {"0": {"enable": True, "headers": {"Origin": "{{ user }}"}}}},
+                "openai_configuration_value_unsupported",
+            ),
+            (
+                {**OPENAI_SETTINGS, "openai.api_configs": {"0": {"enable": True, "headers": {"X-Test": "control\x85"}}}},
+                "openai_configuration_value_unsupported",
+            ),
+            (
+                {**OPENAI_SETTINGS, "openai.api_configs": {"0": {"enable": True, "headers": {"Origin": "a", "origin": "b"}}}},
+                "openai_configuration_value_unsupported",
+            ),
+            (
+                {**OPENAI_SETTINGS, "openai.api_configs": {"0": {"enable": True, "headers": {"Origin": "x" * 4097}}}},
+                "openai_configuration_value_unsupported",
+            ),
+            (
+                {**OPENAI_SETTINGS, "openai.api_configs": {"0": {"enable": True, "headers": {f"X-{index}": "v" for index in range(33)}}}},
+                "openai_configuration_value_unsupported",
+            ),
+            (
+                {**OPENAI_SETTINGS, "openai.api_configs": {"0": {"enable": True, "headers": {f"X-{index}": "v" * 4096 for index in range(5)}}}},
+                "openai_configuration_value_invalid",
+            ),
+            (
+                {**OPENAI_SETTINGS, "openai.api_configs": {"0": {"enable": True, "unexpected": True}}},
+                "openai_configuration_value_unsupported",
+            ),
             ({**OPENAI_SETTINGS, "openai.api_configs": "RAW:{\"x\":1,\"x\":2}"}, "openai_configuration_value_invalid"),
             ({**OPENAI_SETTINGS, "openai.enable": "RAW:True"}, "openai_configuration_value_invalid"),
         )

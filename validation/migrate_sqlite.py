@@ -135,6 +135,9 @@ OPENAI_CONFIG_OLD_ALIASES = {
 MAX_OPENAI_CONFIG_VALUE_BYTES = 16 * 1024
 MAX_OPENAI_API_KEY_CHARS = 4096
 MAX_OPENAI_ENDPOINTS = 8
+MAX_OPENAI_HEADER_COUNT = 32
+MAX_OPENAI_HEADER_VALUE_BYTES = 4096
+MAX_OPENAI_HEADER_TOTAL_BYTES = 16 * 1024
 CHAT_UNSUPPORTED = {"tasks", "summary", "last_read_at", "current_message_id", "variables", "timer_at"}
 PRIVATE_CHAT_META_KEY = "_mdk_private_saved_work"
 PRIVATE_CHAT_META_VERSION = 1
@@ -658,22 +661,58 @@ def _parse_openai_configuration(connection: sqlite3.Connection) -> dict[str, obj
         )
     if configs:
         expected_indexes = {str(index) for index in range(len(urls))}
-        if set(configs) != expected_indexes or any(
-            type(configs[index]) is not dict
-            or set(configs[index]) != {"enable"}
-            or type(configs[index]["enable"]) is not bool
-            for index in expected_indexes
-        ):
+        if set(configs) != expected_indexes:
             raise MigrationError(
                 "openai_configuration_value_unsupported",
                 "only a complete canonical endpoint-index map with a boolean enable field is supported",
             )
+        for index in expected_indexes:
+            entry = configs[index]
+            if (
+                type(entry) is not dict
+                or "enable" not in entry
+                or set(entry) - {"enable", "headers"}
+                or type(entry["enable"]) is not bool
+            ):
+                raise MigrationError(
+                    "openai_configuration_value_unsupported",
+                    "only endpoint enablement and bounded static headers are supported",
+                )
+            if "headers" in entry:
+                _validate_openai_static_headers(entry["headers"])
     return {
         "enable": enable,
         "api_base_urls": urls,
         "api_keys": keys,
         "api_configs": configs,
     }
+
+
+def _validate_openai_static_headers(headers: object) -> None:
+    if headers is None:
+        return
+    token = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+\Z")
+    if not isinstance(headers, dict) or len(headers) > MAX_OPENAI_HEADER_COUNT:
+        raise MigrationError("openai_configuration_value_unsupported", "static headers are unsupported")
+    seen = set()
+    total = 0
+    for name, value in headers.items():
+        if not isinstance(name, str) or not name.isascii() or not token.fullmatch(name) or name.lower() in seen:
+            raise MigrationError("openai_configuration_value_unsupported", "static headers are unsupported")
+        seen.add(name.lower())
+        if not isinstance(value, str):
+            raise MigrationError("openai_configuration_value_unsupported", "static headers are unsupported")
+        try:
+            size = len(value.encode("utf-8", errors="strict"))
+        except UnicodeError:
+            raise MigrationError("openai_configuration_value_unsupported", "static headers are unsupported") from None
+        if size > MAX_OPENAI_HEADER_VALUE_BYTES or any(
+            (ord(char) < 32 and char != "\t") or 127 <= ord(char) <= 159 for char in value
+        ) or any(marker in value for marker in ("{{", "}}", "${")):
+            raise MigrationError("openai_configuration_value_unsupported", "static headers are unsupported")
+        total += len(name) + size
+        if total > MAX_OPENAI_HEADER_TOTAL_BYTES:
+            raise MigrationError("openai_configuration_value_unsupported", "static headers are unsupported")
 
 
 def _parse_user_permissions(connection: sqlite3.Connection) -> dict[str, dict[str, bool]]:
