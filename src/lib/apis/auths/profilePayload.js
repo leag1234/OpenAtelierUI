@@ -38,6 +38,24 @@ export const supportedProfileValues = (enabled, values) => ({
 	...(enabled.date_of_birth ? { date_of_birth: values.date_of_birth } : {})
 });
 
+/** @param {Record<string, any> | null | undefined} sessionUser @param {(token: string) => Promise<any>} loadSessionUser @param {(value: any) => Promise<void>} setUser */
+export const hydrateSignedInProfile = async (sessionUser, loadSessionUser, setUser) => {
+	await setUser(sessionUser);
+	if (!sessionUser || typeof sessionUser.token !== 'string' || !sessionUser.token) return sessionUser;
+	let refreshed;
+	try {
+		refreshed = await loadSessionUser(sessionUser.token);
+	} catch {
+		return sessionUser;
+	}
+	if (!refreshed || typeof refreshed !== 'object' || Array.isArray(refreshed)) return sessionUser;
+	const fields = supportedProfileValues(exposedProfileFields(refreshed), refreshed);
+	if (!Object.keys(fields).length) return sessionUser;
+	const hydrated = { ...sessionUser, ...fields };
+	await setUser(hydrated);
+	return hydrated;
+};
+
 /** @param {string} name @param {string} profileImageUrl @param {ProfileFields} [fields] */
 export const buildUserProfileUpdatePayload = (name, profileImageUrl, fields = {}) => {
 	/** @type {Record<string, string | null>} */

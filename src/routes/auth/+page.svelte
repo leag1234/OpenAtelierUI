@@ -7,6 +7,7 @@
 
 	import { getBackendConfig } from '$lib/apis';
 	import { ldapUserSignIn, getSessionUser, userSignIn, userSignUp } from '$lib/apis/auths';
+	import { hydrateSignedInProfile } from '$lib/apis/auths/profilePayload';
 
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 	import { WEBUI_NAME, config, user, socket } from '$lib/stores';
@@ -43,7 +44,7 @@
 			}
 
 			$socket.emit('user-join', { auth: { token: sessionUser.token } });
-			await user.set(sessionUser);
+			await hydrateSignedInProfile(sessionUser, getSessionUser, (value) => user.set(value));
 			await config.set(await getBackendConfig());
 
 			const redirectPath = querystringValue('redirect') || '/';

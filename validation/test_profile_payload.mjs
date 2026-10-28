@@ -5,6 +5,7 @@ import test from 'node:test';
 import {
 	buildUserProfileUpdatePayload,
 	exposedProfileFields,
+	hydrateSignedInProfile,
 	supportedProfileValues
 } from '../src/lib/apis/auths/profilePayload.js';
 
@@ -52,6 +53,54 @@ test('undefined optional values are omitted while invalid values fail before fet
 	);
 	const auths = readFileSync(new URL('../src/lib/apis/auths/index.ts', import.meta.url), 'utf8');
 	assert.match(auths, /body:\s*JSON\.stringify\(buildUserProfileUpdatePayload\(name, profileImageUrl, profileFields\)\)/);
+});
+
+test('successful sign-in hydrates authoritative optional values while retaining the original session', async () => {
+	const initial = { id: 'member-1', name: 'Community member', token: 'synthetic-token' };
+	const stored = [];
+	const result = await hydrateSignedInProfile(
+		initial,
+		async (token) => {
+			assert.equal(token, 'synthetic-token');
+			return { id: 'member-1', bio: 'Workshop member', gender: null, date_of_birth: '1990-04-05' };
+		},
+		async (value) => stored.push(value)
+	);
+	assert.deepEqual(stored, [initial, {
+		...initial,
+		bio: 'Workshop member',
+		gender: null,
+		date_of_birth: '1990-04-05'
+	}]);
+	assert.equal(result.token, initial.token);
+	assert.equal(result.name, initial.name);
+	assert.equal(result.bio, 'Workshop member');
+});
+
+test('legacy session responses with absent optional fields keep the original signed-in state', async () => {
+	const initial = { id: 'member-2', name: 'Community member', token: 'legacy-token' };
+	const stored = [];
+	const result = await hydrateSignedInProfile(
+		initial,
+		async () => ({ id: 'member-2', name: 'Community member' }),
+		async (value) => stored.push(value)
+	);
+	assert.equal(result, initial);
+	assert.deepEqual(stored, [initial]);
+});
+
+test('optional session refresh failure keeps the successful sign-in usable', async () => {
+	const initial = { id: 'member-3', name: 'Community member', token: 'valid-token' };
+	const stored = [];
+	const result = await hydrateSignedInProfile(
+		initial,
+		async () => { throw new Error('synthetic refresh failure'); },
+		async (value) => stored.push(value)
+	);
+	assert.equal(result, initial);
+	assert.deepEqual(stored, [initial]);
+	const auth = readFileSync(new URL('../src/routes/auth/+page.svelte', import.meta.url), 'utf8');
+	assert.match(auth, /hydrateSignedInProfile\(sessionUser, getSessionUser, \(value\) => user\.set\(value\)\)/);
 });
 
 test('partial server capability omits unsupported values and keeps unrelated profile fields', () => {
