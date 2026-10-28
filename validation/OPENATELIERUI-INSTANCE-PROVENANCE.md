@@ -1,0 +1,20 @@
+# OpenAtelierUI isolated instance lifecycle helper
+
+The canonical operator tool is the standard-library `validation/openatelierui_instance.py`. Its old `validation/atlas_instance.py` path remains a tiny command/API alias. Example command shape:
+
+```text
+python3 validation/openatelierui_instance.py start --image openatelierui-candidate:local --expected-image-id sha256:<64-lowercase-hex> --source-data /path/to/closed-copy/data --env-file /path/to/operator.env --workspace /path/to/new-private-workspace --network openatelierui-private --host-port 18080 --container-port 8080
+python3 validation/openatelierui_instance.py status --workspace /path/to/new-private-workspace
+python3 validation/openatelierui_instance.py stop --workspace /path/to/new-private-workspace
+python3 validation/openatelierui_instance.py restart --workspace /path/to/new-private-workspace
+```
+
+The tool requires the invoking operator to run as UID/GID 1000, an existing local image tag that matches the supplied image config ID, and a pre-existing named runtime network. Docker calls use the verified config ID and `--pull=never`; no network is created by the helper. The named network and operator's egress policy are not qualified here. The host port binds only to loopback; the container listen address and port are set explicitly.
+
+`start` refuses an existing workspace, source tree symlinks, SQLite sidecars, a missing/non-regular `webui.db`, an env file not regular and mode 0600, oversized input or an image mismatch. The new workspace and its manifest are mode 0700/0600. Data and retained pre-session copies use mode 0700 directories and 0600 files. Static directories use 0755 and files 0644 so UID/GID 1000 can read and write the mounted static tree. Source data is hashed before and after copy; the copied tree is compared before changing the new database. The env-file path is retained privately; the env-file contents are never read or emitted.
+
+The tool reads `/app/backend/open_webui/static` and `/app/build/static` from a temporary never-started container made from the pinned image. It merges the first tree and overlays the frontend static tree into a fresh static directory. It retains the copied original DB under `pre-session/`, invokes the packaged `session_epochs.py prepare-copy` against that retained file in a network-none resource-bounded container, then replaces only the new data copy's `webui.db`. Startup flags enable the qualified session, private-notes, imported-profile/history and lazy-local-embedding slices, while disabling signup, title/tag/autocomplete, follow-up, version-check and model auto-update settings. Provider and trusted-header configuration remains supplied by the operator env file.
+
+The app container is non-root (`1000:1000`), read-only root, all capabilities dropped, no-new-privileges, 256 pids, 2 CPUs, 2 GiB memory and swap limit, and a 64 MiB `nodev,noexec,nosuid` `/tmp`. Only the explicit data/static binds are writable. Health polling is bounded to 240 seconds and bypasses ambient HTTP proxy configuration. On failure, the helper attempts a normal stop only after checking its random instance label, pinned image ID and workspace mounts; copies remain for diagnosis. `status`, `stop` and `restart` repeat those identity/mount checks. A stop that cannot be confirmed is recorded as `stop_not_confirmed` when the private manifest remains writable.
+
+`test_openatelierui_instance.py` uses mocked Docker commands and loopback health, plus the actual stdlib session-copy component. It checks copy and static merge, exact source/pre-session preservation, UID/env refusal, private file modes, flags/resource arguments, lifecycle ownership, restart failure cleanup, proxy bypass, secret-free CLI output and the legacy alias. It does not invoke Docker or make network requests. Primary-owned integration must verify real engine behavior, bind-mount UID handling, named-network egress, HTTP/user journeys, restart/recovery, and rendered UX. This prototype does not establish runtime readiness or product acceptance.
