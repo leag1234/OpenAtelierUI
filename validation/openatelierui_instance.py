@@ -263,7 +263,7 @@ def start(args):
               "--pids-limit", "128", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
               "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=64m",
               "--mount", f"type=bind,src={workspace / 'pre-session' / 'webui.db'},dst=/source.db,ro",
-              "--mount", f"type=bind,src={prep_temp},dst=/target,rw",
+              "--mount", f"type=bind,src={prep_temp},dst=/target",
               "--entrypoint", "python", image_id,
               "/app/backend/open_webui/utils/session_epochs.py", "prepare-copy",
               "--source", "/source.db", "--target", "/target/webui.db"], timeout=120)
@@ -285,8 +285,8 @@ def start(args):
                    "--pids-limit", "256", "--cpus", "2", "--memory", "2g", "--memory-swap", "2g",
                    "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=64m",
                    "--publish", f"127.0.0.1:{args.host_port}:{args.container_port}",
-                   "--mount", f"type=bind,src={manifest['data_path']},dst=/app/backend/data,rw",
-                   "--mount", f"type=bind,src={manifest['static_path']},dst=/app/backend/open_webui/static,rw",
+                   "--mount", f"type=bind,src={manifest['data_path']},dst=/app/backend/data",
+                   "--mount", f"type=bind,src={manifest['static_path']},dst=/app/backend/open_webui/static",
                    "--env-file", manifest["env_file"]]
         for key, value in FLAGS.items(): command.extend(["--env", f"{key}={value}"])
         command.extend(["--env", "HOST=0.0.0.0", "--env", f"PORT={args.container_port}"])

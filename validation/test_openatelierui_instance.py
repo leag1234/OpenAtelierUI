@@ -54,7 +54,7 @@ class DockerDouble:
             pass
         elif args[:3] == ["docker", "run", "--pull=never"] and "--rm" in args:
             source_mount = next(v for v in args if v.startswith("type=bind,src=") and ",dst=/source.db," in v)
-            target_mount = next(v for v in args if v.startswith("type=bind,src=") and ",dst=/target," in v)
+            target_mount = next(v for v in args if v.startswith("type=bind,src=") and ",dst=/target" in v)
             source = Path(source_mount.split("src=", 1)[1].split(",dst=", 1)[0])
             target = Path(target_mount.split("src=", 1)[1].split(",dst=", 1)[0]) / "webui.db"
             self.prep_modes = (source.stat().st_mode & 0o777, target.parent.stat().st_mode & 0o777)
@@ -163,7 +163,13 @@ class OpenAtelierUIInstanceTests(unittest.TestCase):
         self.assertEqual(run[run.index("--pids-limit") + 1], "256")
         self.assertEqual(run[run.index("--tmpfs") + 1], "/tmp:rw,noexec,nosuid,nodev,size=64m")
         self.assertTrue(any(value.startswith("openatelierui-instance-") for value in run))
+        runtime_mounts = [run[i + 1] for i, value in enumerate(run[:-1]) if value == "--mount"]
+        self.assertEqual(len(runtime_mounts), 2)
+        self.assertTrue(all(mount.endswith((",dst=/app/backend/data", ",dst=/app/backend/open_webui/static"))
+                            for mount in runtime_mounts))
+        self.assertTrue(all("rw" not in mount.split(",") for mount in runtime_mounts))
         prep = next(call for call in self.docker.calls if "--rm" in call and call[:2] == ["docker", "run"])
+        prep_mounts = [prep[i + 1] for i, value in enumerate(prep[:-1]) if value == "--mount"]
         self.assertIn("none", prep); self.assertIn("128", prep); self.assertIn("--cap-drop", prep)
         self.assertIn("--memory-swap", prep); self.assertIn("nodev", prep[prep.index("--tmpfs") + 1])
         self.assertEqual(prep[prep.index("--cpus") + 1], "2")
@@ -172,6 +178,9 @@ class OpenAtelierUIInstanceTests(unittest.TestCase):
         self.assertEqual(prep[prep.index("--pids-limit") + 1], "128")
         self.assertIn("--security-opt", prep)
         self.assertIn("no-new-privileges", prep)
+        self.assertTrue(any(mount.endswith(",dst=/source.db,ro") for mount in prep_mounts))
+        self.assertTrue(any(mount.endswith(",dst=/target") for mount in prep_mounts))
+        self.assertTrue(all("rw" not in mount.split(",") for mount in prep_mounts))
 
     def test_closed_source_image_pin_and_owned_container_fail_closed(self):
         with patch.object(instance.subprocess, "run", side_effect=self.docker):
