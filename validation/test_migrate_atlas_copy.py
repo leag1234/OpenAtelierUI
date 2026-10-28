@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: BSD-3-Clause
+import json
 from pathlib import Path
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -41,10 +43,15 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
         build_template(self.template)
         add_notes(self.source)
 
-    def _run(self, mode, label, target=None):
+    def _run(self, mode, label, target=None, **options):
         return coordinator.run(mode, self.source, self.uploads, self.template,
                                self.root / (label + "-workspace"),
-                               self.root / (label + "-target") if mode == "convert" else target)
+                               self.root / (label + "-target") if mode == "convert" else target, **options)
+
+    def _add_nonfatal_blocker(self):
+        db = sqlite3.connect(self.source)
+        db.execute("UPDATE auth SET session_stamp='retained-session' WHERE id='u1'")
+        db.commit(); db.close()
 
     def _note_rows(self, path):
         db = sqlite3.connect(path)
@@ -141,6 +148,54 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
         for outputs, inputs in (([path, path], []), ([path], [path])):
             with self.subTest(outputs=outputs, inputs=inputs), self.assertRaises(coordinator.Refusal):
                 coordinator._disjoint(outputs, inputs)
+
+
+    def test_partial_preview_stays_inspectable_but_conversion_refuses_by_default(self):
+        self._add_nonfatal_blocker()
+        before = self.source.read_bytes()
+        preview = self._run("preview", "partial-preview")
+        self.assertTrue(preview["ok"])
+        self.assertEqual(preview["status"], "preview_partial")
+        self.assertGreater(preview["core_blocker_count"], 0)
+        refused = self._run("convert", "partial-default")
+        self.assertFalse(refused["ok"])
+        self.assertEqual(refused["reason"], "partial_copy_requires_explicit_opt_in")
+        self.assertFalse((self.root / "partial-default-target").exists())
+        self.assertTrue((self.root / "partial-default-workspace" / "core-preview.json").exists())
+        self.assertEqual(self.source.read_bytes(), before)
+
+    def test_explicit_partial_copy_optin_keeps_archive_and_blocker_status(self):
+        self._add_nonfatal_blocker()
+        before = self.source.read_bytes()
+        result = self._run("convert", "partial-optin", allow_partial_copy=True)
+        target = self.root / "partial-optin-target"
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["status"], "converted_partial_copy_only")
+        self.assertTrue(result["partial_copy_opt_in"])
+        self.assertIs(result["cutover"], False)
+        self.assertTrue(result["originals_unchanged"])
+        archive = next(self.root.glob("partial-optin-target.source-archive-*/source.sqlite"))
+        archived = sqlite3.connect(archive)
+        self.assertEqual(archived.execute("SELECT session_stamp FROM auth WHERE id='u1'").fetchone()[0], "retained-session")
+        archived.close()
+        self.assertEqual(len(self._note_rows(target / "webui.db")), 2)
+        self.assertEqual(self.source.read_bytes(), before)
+
+
+    def test_cli_partial_conversion_requires_and_accepts_explicit_flag(self):
+        self._add_nonfatal_blocker()
+        script = Path(coordinator.__file__)
+        base = [sys.executable, str(script), "convert", "--source-db", str(self.source),
+                "--uploads-root", str(self.uploads), "--empty-old-target-template", str(self.template)]
+        refused = subprocess.run(base + ["--workspace-dir", str(self.root / "cli-refused-ws"),
+            "--new-target-dir", str(self.root / "cli-refused-target")], text=True, capture_output=True)
+        self.assertEqual(refused.returncode, 2)
+        self.assertEqual(json.loads(refused.stdout)["reason"], "partial_copy_requires_explicit_opt_in")
+        accepted = subprocess.run(base + ["--workspace-dir", str(self.root / "cli-allowed-ws"),
+            "--new-target-dir", str(self.root / "cli-allowed-target"), "--allow-partial-copy"],
+            text=True, capture_output=True)
+        self.assertEqual(accepted.returncode, 0, accepted.stdout)
+        self.assertEqual(json.loads(accepted.stdout)["status"], "converted_partial_copy_only")
 
     def test_missing_notes_schema_is_a_valid_zero_note_preview(self):
         db = sqlite3.connect(self.source)

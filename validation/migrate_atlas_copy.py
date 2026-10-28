@@ -230,7 +230,7 @@ def _verify_notes(target_path, expected):
 
 
 def run(mode, source_db, uploads_root, template_path, workspace_dir, target_dir=None,
-        runtime_data_root="/app/backend/data", include_history_sidecar=False, **options):
+        runtime_data_root="/app/backend/data", include_history_sidecar=False, allow_partial_copy=False, **options):
     if mode not in ("preview", "convert") or (mode == "convert") != bool(target_dir):
         raise Refusal("invalid_arguments")
     source = core._db_path(source_db, label="source database")
@@ -284,6 +284,8 @@ def run(mode, source_db, uploads_root, template_path, workspace_dir, target_dir=
         }
         if mode == "convert" and not summary["ok"]:
             raise Refusal("fatal_core_input")
+        if mode == "convert" and core_report.get("blockers") and not allow_partial_copy:
+            raise Refusal("partial_copy_requires_explicit_opt_in")
         if mode == "convert":
             core_report = core.convert(stage, full_uploads, template_copy, target,
                                       runtime_data_root=runtime_data_root,
@@ -303,7 +305,7 @@ def run(mode, source_db, uploads_root, template_path, workspace_dir, target_dir=
             summary.update(status="converted_copy_only", target_created=True,
                            target_database_sha256=core._digest(app_db))
             if core_report.get("blockers"):
-                summary["status"] = "converted_partial_copy_only"
+                summary.update(status="converted_partial_copy_only", partial_copy_opt_in=True)
         if core._digest(source) != source_hash or core._digest(template) != template_hash or _upload_manifest(uploads) != upload_before:
             raise Refusal("original_changed")
         summary["originals_unchanged"] = True
@@ -336,6 +338,7 @@ def main(argv=None):
             command.add_argument("--new-target-dir", required=True)
             command.add_argument("--runtime-data-root", default="/app/backend/data")
             command.add_argument("--include-history-sidecar", action="store_true")
+            command.add_argument("--allow-partial-copy", action="store_true")
         for name in FLAGS: command.add_argument("--" + name.replace("_", "-"), action="store_true")
     args = parser.parse_args(argv)
     options = {name: getattr(args, name) for name in FLAGS}
@@ -343,7 +346,8 @@ def main(argv=None):
         result = run(args.mode, args.source_db, args.uploads_root, args.empty_old_target_template,
                      args.workspace_dir, getattr(args, "new_target_dir", None),
                      getattr(args, "runtime_data_root", "/app/backend/data"),
-                     getattr(args, "include_history_sidecar", False), **options)
+                     getattr(args, "include_history_sidecar", False),
+                     getattr(args, "allow_partial_copy", False), **options)
     except (Refusal, core.MigrationError, notes.Refusal, OSError, ValueError):
         result = {"ok": False, "status": "refused_input", "reason": "input_or_workspace_unavailable", "cutover": False}
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
