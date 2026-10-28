@@ -654,7 +654,7 @@
 		<div class="flex flex-row h-screen">
 			<AppSidebar />
 
-			<div class="w-full flex-1 max-w-[calc(100%-4.5rem)]">
+			<div class="min-w-0 w-full flex-1">
 				<slot />
 			</div>
 		</div>
