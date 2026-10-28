@@ -319,7 +319,7 @@
 											required
 										/>
 									</div>
-				</div>
+								</div>
 							{/if}
 							<div class="mt-5">
 								{#if $config?.features.enable_login_form || $config?.features.enable_ldap}
