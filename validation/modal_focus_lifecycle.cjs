@@ -6,7 +6,9 @@ const path = require('path');
 
 const helperPath = path.join(__dirname, '../src/lib/utils/modalFocus.js');
 const helperSource = fs.readFileSync(helperPath, 'utf8').replace('export function activateModalFocus', 'function activateModalFocus');
-const activateModalFocus = new Function(`${helperSource}; return activateModalFocus;`)();
+const navigationSource = helperSource.replace('export function activateContainedNavigationFocus', 'function activateContainedNavigationFocus');
+const helpers = new Function(`${navigationSource}; return { activateModalFocus, activateContainedNavigationFocus };`)();
+const { activateModalFocus, activateContainedNavigationFocus } = helpers;
 
 function element(doc, options = {}) {
 	const attributes = options.inert ? { inert: '' } : {};
@@ -105,4 +107,25 @@ assert.strictEqual(modal.listeners.keydown, undefined, 'Tab handler is removed')
 assert.strictEqual(modal.listeners.focusout, undefined, 'iframe exit guard is removed');
 assert.strictEqual(documentListeners.focusin, undefined, 'focus guard is removed');
 assert.strictEqual(document.activeElement, opener, 'closing restores focus to opener');
-console.log('modal focus lifecycle: 17 assertions passed');
+const navDoc = { activeElement: null };
+const navOpener = element(navDoc);
+const nav = element(navDoc, { tabIndex: -1 });
+const closeNav = element(navDoc);
+const navLink = element(navDoc);
+nav.focusables = [closeNav, navLink];
+nav.children = [closeNav, navLink];
+navDoc.activeElement = navOpener;
+let escaped = false;
+const stopNavigation = activateContainedNavigationFocus(nav, closeNav, () => { escaped = true; });
+assert.strictEqual(navDoc.activeElement, closeNav, 'opening mobile navigation focuses its named close control');
+prevented = false;
+nav.listeners.keydown({ key: 'Tab', shiftKey: true, preventDefault() { prevented = true; } });
+assert.strictEqual(prevented, true, 'Shift+Tab stays inside mobile navigation');
+assert.strictEqual(navDoc.activeElement, navLink, 'Shift+Tab from close wraps to final navigation item');
+prevented = false;
+nav.listeners.keydown({ key: 'Escape', preventDefault() { prevented = true; } });
+assert.strictEqual(escaped && prevented, true, 'Escape requests closing the navigation');
+stopNavigation();
+assert.strictEqual(navDoc.activeElement, navOpener, 'closing restores the original visible toggle');
+assert.strictEqual(nav.listeners.keydown, undefined, 'close removes mobile keyboard handling');
+console.log('modal and mobile navigation focus lifecycle: 22 assertions passed');

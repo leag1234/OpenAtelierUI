@@ -42,6 +42,7 @@
 	import { createNewFolder, getFolders, updateFolderParentIdById } from '$lib/apis/folders';
 	import { WEBUI_BASE_URL } from '$lib/constants';
 	import { sidebarStateMarker } from '$lib/utils/sidebarState';
+	import { activateContainedNavigationFocus } from '$lib/utils/modalFocus';
 
 	import ArchivedChatsModal from './Sidebar/ArchivedChatsModal.svelte';
 	import UserMenu from './Sidebar/UserMenu.svelte';
@@ -64,6 +65,8 @@
 	const BREAKPOINT = 768;
 
 	let navElement;
+	let closeNavigationButton;
+	let mobileFocusCleanup = null;
 	let search = '';
 
 	let shiftKey = false;
@@ -352,6 +355,22 @@
 		selectedChatId = null;
 	};
 
+	$: if (
+		$mobile &&
+		$showSidebar &&
+		navElement &&
+		closeNavigationButton &&
+		!mobileFocusCleanup
+	) {
+		mobileFocusCleanup = activateContainedNavigationFocus(navElement, closeNavigationButton, () =>
+			showSidebar.set(false)
+		);
+	} else if ((!$mobile || !$showSidebar) && mobileFocusCleanup) {
+		const cleanup = mobileFocusCleanup;
+		mobileFocusCleanup = null;
+		cleanup();
+	}
+
 	onMount(async () => {
 		showPinnedChat = localStorage?.showPinnedChat ? localStorage.showPinnedChat === 'true' : true;
 
@@ -412,6 +431,7 @@
 	});
 
 	onDestroy(() => {
+		if (mobileFocusCleanup) mobileFocusCleanup();
 		window.removeEventListener('keydown', onKeyDown);
 		window.removeEventListener('keyup', onKeyUp);
 
@@ -471,6 +491,9 @@
 <div
 	bind:this={navElement}
 	id="sidebar"
+	role={$mobile && $showSidebar ? 'dialog' : undefined}
+	aria-modal={$mobile && $showSidebar ? 'true' : undefined}
+	aria-label={$mobile && $showSidebar ? 'Navigation' : undefined}
 	class="h-screen max-h-[100dvh] min-h-screen select-none {$showSidebar
 		? 'md:relative w-[260px] max-w-[260px]'
 		: '-translate-x-[260px] w-[0px]'} {$isApp
@@ -488,7 +511,9 @@
 	>
 		<div class="px-1.5 flex justify-between space-x-1 text-gray-600 dark:text-gray-400">
 			<button
+				bind:this={closeNavigationButton}
 				class=" cursor-pointer p-[7px] flex rounded-xl hover:bg-gray-100 dark:hover:bg-gray-900 transition"
+				aria-label="Close navigation"
 				on:click={() => {
 					showSidebar.set(!$showSidebar);
 				}}

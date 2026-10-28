@@ -29,3 +29,16 @@ test('collapsed navigation is inert and has a keyboard-operable visible reopen c
 	assert.match(toggle, /aria-label="Toggle Sidebar"/);
 	assert.match(toggle, /showSidebar\.set\(!\$showSidebar\)/);
 });
+
+test('mobile navigation names its close control and enables focus containment only while open', () => {
+	const sidebar = source('../src/lib/components/layout/Sidebar.svelte');
+	const navbar = source('../src/lib/components/layout/Navbar.svelte');
+	assert.match(sidebar, /activateContainedNavigationFocus\(navElement, closeNavigationButton/);
+	assert.match(sidebar, /\$mobile &&[\s\S]*?\$showSidebar &&[\s\S]*?navElement &&[\s\S]*?closeNavigationButton/);
+	assert.match(sidebar, /role=\{\$mobile && \$showSidebar \? 'dialog' : undefined\}/);
+	assert.match(sidebar, /aria-modal=\{\$mobile && \$showSidebar \? 'true' : undefined\}/);
+	assert.match(sidebar, /bind:this=\{closeNavigationButton\}[\s\S]*?aria-label="Close navigation"/);
+	assert.match(sidebar, /\$mobile \|\| !\$showSidebar\)[\s\S]*?cleanup\(\)/);
+	assert.match(sidebar, /onDestroy\(\(\) => \{\s*if \(mobileFocusCleanup\) mobileFocusCleanup\(\);/);
+	assert.match(navbar, /id="sidebar-toggle-button"[\s\S]*?aria-label="Toggle Sidebar"[\s\S]*?aria-controls="sidebar"[\s\S]*?aria-expanded=\{\$showSidebar\}/);
+});
