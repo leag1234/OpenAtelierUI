@@ -82,6 +82,24 @@ def build_source(path: Path, uploads: Path, *, blocked: bool = False, bad_chat: 
     db.close()
 
 
+def store_done_in_integer_column(path: Path, graph_values: dict, normalized_values: dict) -> None:
+    db = sqlite3.connect(path)
+    columns = [row[1] for row in db.execute('PRAGMA table_info("chat_message")')]
+    names = ",".join('"' + name + '"' for name in columns)
+    db.execute('ALTER TABLE "chat_message" RENAME TO "chat_message_text"')
+    declarations = ",".join('"' + name + '"' + ("" if name == "done" else " TEXT") for name in columns)
+    db.execute(f'CREATE TABLE "chat_message" ({declarations})')
+    db.execute(f'INSERT INTO "chat_message" ({names}) SELECT {names} FROM "chat_message_text"')
+    db.execute('DROP TABLE "chat_message_text"')
+    for node_id, value in normalized_values.items():
+        db.execute('UPDATE "chat_message" SET done=? WHERE id=?', (value, "c1-" + node_id))
+    payload = json.loads(db.execute('SELECT chat FROM "chat" WHERE id="c1"').fetchone()[0])
+    payload["history"]["messages"].update({node_id: {**payload["history"]["messages"][node_id], "done": value}
+                                             for node_id, value in graph_values.items()})
+    db.execute('UPDATE "chat" SET chat=? WHERE id="c1"', (json.dumps(payload),))
+    db.commit(); db.close()
+
+
 def build_template(path: Path) -> None:
     db = sqlite3.connect(path)
     db.executescript("""
@@ -321,6 +339,36 @@ class ImporterTests(unittest.TestCase):
         self.assertEqual({field: graph['history']['messages']['q'][field]
                           for field in ('done','created_at','updated_at','model_id')},
                          {'done':'false','created_at':'0','updated_at':'1792952420','model_id':'portable_pipe'})
+
+    def test_done_integer_equivalence_preserves_existing_graph_values_and_types(self):
+        store_done_in_integer_column(self.source, {"b": True, "q": "false"}, {"b": 1, "q": 0})
+        db = sqlite3.connect(self.source)
+        self.assertEqual(db.execute('SELECT done FROM "chat_message" WHERE id="c1-b"').fetchone()[0], 1)
+        self.assertEqual(db.execute('SELECT done FROM "chat_message" WHERE id="c1-q"').fetchone()[0], 0)
+        db.close()
+        report = convert(self.source, self.uploads, self.template, self.root / 'done-equivalence-target',
+                         include_private_chat_metadata=True)
+        self.assertFalse(report['fatal'])
+        db = sqlite3.connect(self.root / 'done-equivalence-target' / 'webui.db')
+        graph = json.loads(db.execute('SELECT chat FROM "chat" WHERE id="c1"').fetchone()[0])
+        db.close()
+        self.assertIs(graph['history']['messages']['b']['done'], True)
+        self.assertIs(type(graph['history']['messages']['q']['done']), str)
+        self.assertEqual(graph['history']['messages']['q']['done'], 'false')
+        self.assertEqual(graph['history']['currentId'], 'b')
+
+    def test_done_conflict_and_invalid_graph_value_are_refused(self):
+        cases = ((True, 0, 'private_chat_metadata_message_field_mismatch_done'),
+                 ('yes', 1, 'private_chat_metadata_invalid_graph_done'))
+        for index, (graph_value, stored_value, blocker) in enumerate(cases):
+            with self.subTest(blocker=blocker):
+                source = self.root / f'done-invalid-{index}.db'
+                uploads = self.root / f'done-invalid-{index}-uploads'
+                build_source(source, uploads)
+                store_done_in_integer_column(source, {"b": graph_value}, {"b": stored_value})
+                report = preview(source, uploads, self.template, include_private_chat_metadata=True)
+                self.assertTrue(report['fatal'])
+                self.assertIn(blocker, {item['code'] for item in report['blockers']})
 
     def test_opt_in_message_metadata_malformed_values_refuse_and_other_fields_stay_unsupported(self):
         cases = (

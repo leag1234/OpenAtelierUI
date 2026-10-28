@@ -195,6 +195,16 @@ def _valid_message_graph_field(field: str, value: object) -> bool:
     return False
 
 
+def _message_done_value(value: object) -> bool:
+    if type(value) is bool:
+        return value
+    if type(value) is int:
+        return value == 1
+    if type(value) is str:
+        return value in ("true", "1")
+    return False
+
+
 def _load_pinned_old_defaults() -> tuple[dict, str, str]:
     """Read only the pinned literal defaults; never import the runtime module."""
     path = NAMED_TOOL_CONFIG_PATH
@@ -1298,6 +1308,10 @@ def _private_chat_metadata_overrides(connection: sqlite3.Connection, report: dic
                     _block(report, "private_chat_metadata_json_profile_mismatch", 1, fatal=True)
                     author_invalid = True
                     break
+            if "done" in node and not _valid_message_graph_field("done", node["done"]):
+                _block(report, "private_chat_metadata_invalid_graph_done", 1, fatal=True)
+                author_invalid = True
+                break
             for field in MESSAGE_GRAPH_FIELDS.intersection(message):
                 value = message[field]
                 if value is None:
@@ -1306,11 +1320,16 @@ def _private_chat_metadata_overrides(connection: sqlite3.Connection, report: dic
                     _block(report, "private_chat_metadata_invalid_message_" + field, 1, fatal=True)
                     author_invalid = True
                     break
-                if field in node and (type(node[field]) is not type(value) or node[field] != value):
-                    _block(report, "private_chat_metadata_message_field_mismatch_" + field, 1, fatal=True)
-                    author_invalid = True
-                    break
-                node[field] = value
+                if field in node:
+                    matches = (_message_done_value(node[field]) == _message_done_value(value)
+                               if field == "done" else
+                               type(node[field]) is type(value) and node[field] == value)
+                    if not matches:
+                        _block(report, "private_chat_metadata_message_field_mismatch_" + field, 1, fatal=True)
+                        author_invalid = True
+                        break
+                else:
+                    node[field] = value
             if author_invalid:
                 break
             if node.get("role") == "user":
