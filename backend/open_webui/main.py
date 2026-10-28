@@ -81,6 +81,8 @@ from open_webui.routers import (
 
 if os.environ.get("OPENATELIER_PRIVATE_NOTES_COMPAT") == "1":
     from open_webui.routers import notes
+if os.environ.get("OPENATELIER_TERMINAL_DOWNLOAD_COMPAT") == "1":
+    from open_webui.routers import terminals
 
 from open_webui.routers.retrieval import (
     get_embedding_function,
@@ -1011,6 +1013,8 @@ app.include_router(memories.router, prefix="/api/v1/memories", tags=["memories"]
 app.include_router(folders.router, prefix="/api/v1/folders", tags=["folders"])
 app.include_router(groups.router, prefix="/api/v1/groups", tags=["groups"])
 app.include_router(files.router, prefix="/api/v1/files", tags=["files"])
+if os.environ.get("OPENATELIER_TERMINAL_DOWNLOAD_COMPAT") == "1":
+    app.include_router(terminals.router, prefix="/api/v1/terminals", tags=["terminals"])
 app.include_router(functions.router, prefix="/api/v1/functions", tags=["functions"])
 app.include_router(
     evaluations.router, prefix="/api/v1/evaluations", tags=["evaluations"]
