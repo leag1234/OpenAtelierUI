@@ -285,8 +285,12 @@
 										</div>
 									{:else}
 										<div class="mb-2">
-											<div class=" text-sm font-medium text-left mb-1">{$i18n.t('Email')}</div>
+											<label
+												for="sign-in-email"
+												class="block text-sm font-medium text-left mb-1"
+											>{$i18n.t('Email')}</label>
 											<input
+												id="sign-in-email"
 												bind:value={email}
 												type="email"
 												class="my-0.5 w-full text-sm outline-hidden bg-transparent"
@@ -299,9 +303,13 @@
 									{/if}
 
 									<div>
-										<div class=" text-sm font-medium text-left mb-1">{$i18n.t('Password')}</div>
+										<label
+											for="sign-in-password"
+											class="block text-sm font-medium text-left mb-1"
+										>{$i18n.t('Password')}</label>
 
 										<input
+											id="sign-in-password"
 											bind:value={password}
 											type="password"
 											class="my-0.5 w-full text-sm outline-hidden bg-transparent"
@@ -311,7 +319,6 @@
 											required
 										/>
 									</div>
-								</div>
 							{/if}
 							<div class="mt-5">
 								{#if $config?.features.enable_login_form || $config?.features.enable_ldap}

@@ -234,4 +234,7 @@ type SessionUser = {
 	name: string;
 	role: string;
 	profile_image_url: string;
+	bio?: string | null;
+	gender?: string | null;
+	date_of_birth?: string | null;
 };

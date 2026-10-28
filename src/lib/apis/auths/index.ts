@@ -1,4 +1,11 @@
 import { WEBUI_API_BASE_URL } from '$lib/constants';
+import { buildUserProfileUpdatePayload } from './profilePayload';
+
+type UserProfileFields = {
+	bio?: string | null;
+	gender?: string | null;
+	date_of_birth?: string | null;
+};
 
 export const getAdminDetails = async (token: string) => {
 	let error = null;
@@ -388,7 +395,12 @@ export const addUser = async (
 	return res;
 };
 
-export const updateUserProfile = async (token: string, name: string, profileImageUrl: string) => {
+export const updateUserProfile = async (
+	token: string,
+	name: string,
+	profileImageUrl: string,
+	profileFields: UserProfileFields = {}
+) => {
 	let error = null;
 
 	const res = await fetch(`${WEBUI_API_BASE_URL}/auths/update/profile`, {
@@ -397,10 +409,7 @@ export const updateUserProfile = async (token: string, name: string, profileImag
 			'Content-Type': 'application/json',
 			...(token && { authorization: `Bearer ${token}` })
 		},
-		body: JSON.stringify({
-			name: name,
-			profile_image_url: profileImageUrl
-		})
+		body: JSON.stringify(buildUserProfileUpdatePayload(name, profileImageUrl, profileFields))
 	})
 		.then(async (res) => {
 			if (!res.ok) throw await res.json();

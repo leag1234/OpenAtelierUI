@@ -1,0 +1,9 @@
+# Optional imported profile fields in the account UI
+
+The account settings view now exposes Biography and Gender for session values that are strings or `null`, and Date of birth for a valid ISO date or `null`. Unsupported value shapes stay hidden rather than being converted into accidental clears. Existing values prefill the controls; empty controls serialize as explicit `null` clears. A partial session capability sends only the fields it exposes, while name and avatar remain in the same existing profile update request. No new required personal information or default values are introduced.
+
+The sign-in email and password controls now have explicit associated labels. The new profile controls use associated labels and retain ordinary text/date inputs. Failed profile updates return without clearing the bound drafts. The implementation uses the existing account/profile endpoint and session store; no backend, schema, auth, dependency, or permission change is included.
+
+`validation/test_profile_payload.mjs` uses the existing Node 24 runtime and exercises absent and partial capabilities, explicit clears, exact ISO date strings, preservation of name/avatar, and draft immutability on a rejected save. Primary owns the offline frontend build, rendered review, and end-to-end save/reopen/caller-isolation checks.
+
+This source change does not establish rendered usability, all profile schemas, translated labels, browser persistence after process failure, or end-to-end API behavior. Biography, gender, and date of birth are sensitive optional values; they remain on the existing authenticated profile path and are not sent to an external provider by this UI slice.
