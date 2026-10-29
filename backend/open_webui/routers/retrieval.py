@@ -31,6 +31,7 @@ from langchain_core.documents import Document
 
 from open_webui.models.files import FileModel, Files
 from open_webui.models.knowledge import Knowledges
+from open_webui.utils.access_control import has_access
 from open_webui.storage.provider import Storage
 
 
@@ -95,6 +96,34 @@ from open_webui.constants import ERROR_MESSAGES
 
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["RAG"])
+
+
+def _authorized_collection(name: str, user, permission: str = "read") -> bool:
+    """Resolve collection ownership through persisted file/knowledge records."""
+    if not isinstance(name, str) or not name or len(name) > 256:
+        return False
+    if user.role == "admin":
+        return True
+    if name.startswith("file-"):
+        file_id = name[5:]
+    else:
+        file_id = name
+    file = Files.get_file_by_id(file_id)
+    knowledge = Knowledges.get_knowledge_by_id(name)
+    if file and knowledge:
+        return False
+    if file:
+        if file.user_id == user.id or (isinstance(file.access_control, dict) and has_access(user.id, permission, file.access_control)):
+            return True
+        knowledge_id = (file.meta or {}).get("collection_name")
+        linked = Knowledges.get_knowledge_by_id(knowledge_id) if knowledge_id else None
+        return bool(linked and (linked.user_id == user.id or has_access(user.id, permission, linked.access_control)))
+    return bool(knowledge and (knowledge.user_id == user.id or has_access(user.id, permission, knowledge.access_control)))
+
+
+def _require_collection(name: str, user, permission: str = "read"):
+    if not _authorized_collection(name, user, permission):
+        raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
 
 ##########################################
 #
@@ -960,8 +989,14 @@ def process_file(
 ):
     try:
         file = Files.get_file_by_id(form_data.file_id)
+        if not file:
+            raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+        if not _authorized_collection(f"file-{file.id}", user, "write"):
+            raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
 
         collection_name = form_data.collection_name
+        if collection_name:
+            _require_collection(collection_name, user, "write")
 
         if collection_name is None:
             collection_name = f"file-{file.id}"
@@ -1117,6 +1152,8 @@ def process_file(
                 "content": text_content,
             }
 
+    except HTTPException:
+        raise
     except Exception as e:
         log.exception(e)
         if "No pandoc was found" in str(e):
@@ -1565,6 +1602,7 @@ def query_doc_handler(
     user=Depends(get_verified_user),
 ):
     try:
+        _require_collection(form_data.collection_name, user)
         if request.app.state.config.ENABLE_RAG_HYBRID_SEARCH:
             collection_results = {}
             collection_results[form_data.collection_name] = VECTOR_DB_CLIENT.get(
@@ -1597,6 +1635,8 @@ def query_doc_handler(
                 k=form_data.k if form_data.k else request.app.state.config.TOP_K,
                 user=user,
             )
+    except HTTPException:
+        raise
     except Exception as e:
         log.exception(e)
         raise HTTPException(
@@ -1621,6 +1661,10 @@ def query_collection_handler(
     user=Depends(get_verified_user),
 ):
     try:
+        if not form_data.collection_names or len(form_data.collection_names) > 64:
+            raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+        for collection_name in form_data.collection_names:
+            _require_collection(collection_name, user)
         if request.app.state.config.ENABLE_RAG_HYBRID_SEARCH:
             return query_collection_with_hybrid_search(
                 collection_names=form_data.collection_names,
@@ -1648,6 +1692,8 @@ def query_collection_handler(
                 k=form_data.k if form_data.k else request.app.state.config.TOP_K,
             )
 
+    except HTTPException:
+        raise
     except Exception as e:
         log.exception(e)
         raise HTTPException(
@@ -1756,9 +1802,19 @@ def process_files_batch(
     errors: List[BatchProcessFilesResult] = []
     collection_name = form_data.collection_name
 
+    if len(form_data.files) > 64:
+        raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+    persisted = []
+    for submitted in form_data.files:
+        file = Files.get_file_by_id(submitted.id)
+        if not file or not _authorized_collection(f"file-{submitted.id}", user, "write"):
+            raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+        persisted.append(file)
+    _require_collection(collection_name, user, "write")
+
     # Prepare all documents first
     all_docs: List[Document] = []
-    for file in form_data.files:
+    for file in persisted:
         try:
             text_content = file.data.get("content", "")
 
