@@ -6,6 +6,7 @@
 
 	import { onMount, tick, getContext } from 'svelte';
 	import { createNewModel, getModelById } from '$lib/apis/models';
+	import { modelCreatePayload } from '$lib/apis/models/sharing.js';
 	import { getModels } from '$lib/apis';
 
 	import ModelEditor from '$lib/components/workspace/Models/ModelEditor.svelte';
@@ -27,7 +28,7 @@
 
 		if (modelInfo) {
 			const res = await createNewModel(localStorage.token, {
-				...modelInfo,
+				...modelCreatePayload(modelInfo),
 				meta: {
 					...modelInfo.meta,
 					profile_image_url: modelInfo.meta.profile_image_url ?? '/static/favicon.png',

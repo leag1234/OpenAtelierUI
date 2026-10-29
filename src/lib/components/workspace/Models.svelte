@@ -292,14 +292,14 @@
 				<div class="flex justify-between items-center -mb-0.5 px-0.5">
 					<div class=" text-xs mt-0.5">
 						<Tooltip
-							content={model?.user?.email ?? $i18n.t('Deleted User')}
+							content={model?.user?.email ?? $i18n.t('Author unavailable')}
 							className="flex shrink-0"
 							placement="top-start"
 						>
 							<div class="shrink-0 text-gray-500">
 								{$i18n.t('By {{name}}', {
 									name: capitalizeFirstLetter(
-										model?.user?.name ?? model?.user?.email ?? $i18n.t('Deleted User')
+										model?.user?.name ?? model?.user?.email ?? $i18n.t('Author unavailable')
 									)
 								})}
 							</div>
@@ -320,7 +320,7 @@
 								</button>
 							</Tooltip>
 						{:else}
-							{#if $user?.role === 'admin' || model.user_id === $user?.id || model.access_control.write.group_ids.some( (wg) => group_ids.includes(wg) )}
+							{#if $user?.role === 'admin' || model.user_id === $user?.id || (model?.access_control?.write?.group_ids ?? []).some((wg) => group_ids.includes(wg))}
 								<a
 									class="self-center w-fit text-sm px-2 py-2 dark:text-gray-300 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 rounded-xl"
 									type="button"

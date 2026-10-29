@@ -13,7 +13,7 @@
 	import { getTools } from '$lib/apis/tools';
 	import { getFunctions } from '$lib/apis/functions';
 	import { getKnowledgeBases } from '$lib/apis/knowledge';
-	import AccessControl from '../common/AccessControl.svelte';
+	import { buildModelReadGrants, parseModelReadGrants } from '$lib/apis/models/sharing.js';
 	import { stringify } from 'postcss';
 	import { toast } from 'svelte-sonner';
 
@@ -85,7 +85,12 @@
 	let filterIds = [];
 	let actionIds = [];
 
-	let accessControl = {};
+	let sharingVisibility = 'private';
+	let originalSharingVisibility = 'private';
+	let sharingUserIds = '';
+	let sharingSupported = true;
+	let sharingMessage = '';
+	$: allowPublicSharing = $user?.permissions?.sharing?.public_models || $user?.role === 'admin';
 
 	const addUsage = (base_model_id) => {
 		const baseModel = $models.find((m) => m.id === base_model_id);
@@ -114,7 +119,20 @@
 			toast.error('Model Name is required.');
 		}
 
-		info.access_control = accessControl;
+		delete info.access_control;
+		delete info.access_grants;
+		if (sharingSupported) {
+			try {
+				if (sharingVisibility === 'public' && !allowPublicSharing && originalSharingVisibility !== 'public') {
+					throw new Error('Public model access is not enabled for this account.');
+				}
+				info.access_grants = buildModelReadGrants(sharingVisibility, sharingUserIds);
+			} catch (error) {
+				toast.error(`${error}`);
+				loading = false;
+				return;
+			}
+		}
 		info.meta.capabilities = capabilities;
 
 		if (enableDescription) {
@@ -162,10 +180,12 @@
 			}
 		});
 
-		await onSubmit(info);
-
-		loading = false;
-		success = false;
+		try {
+			await onSubmit(info);
+		} finally {
+			loading = false;
+			success = false;
+		}
 	};
 
 	onMount(async () => {
@@ -231,14 +251,18 @@
 			});
 			capabilities = { ...capabilities, ...(model?.meta?.capabilities ?? {}) };
 
-			if ('access_control' in model) {
-				accessControl = model.access_control;
+			const parsedSharing = parseModelReadGrants(model);
+			sharingSupported = parsedSharing.supported;
+			sharingMessage = parsedSharing.supported ? '' : parsedSharing.reason;
+			if (parsedSharing.supported) {
+				sharingVisibility = parsedSharing.visibility;
+				originalSharingVisibility = parsedSharing.visibility;
+				sharingUserIds = parsedSharing.userIds.join('\n');
 			} else {
-				accessControl = {};
+				sharingVisibility = 'private';
+				originalSharingVisibility = 'private';
+				sharingUserIds = '';
 			}
-
-			console.log(model?.access_control);
-			console.log(accessControl);
 
 			info = {
 				...info,
@@ -530,11 +554,34 @@
 
 					<div class="my-2">
 						<div class="px-3 py-2 bg-gray-50 dark:bg-gray-950 rounded-lg">
-							<AccessControl
-								bind:accessControl
-								accessRoles={['read', 'write']}
-								allowPublic={$user?.permissions?.sharing?.public_models || $user?.role === 'admin'}
-							/>
+							{#if sharingSupported}
+								<div class="space-y-2 text-sm">
+									<label class="block space-y-1">
+										<span>Who can read this model?</span>
+										<select class="w-full rounded-lg bg-transparent p-2" bind:value={sharingVisibility}>
+											<option value="private">Private</option>
+											<option value="public" disabled={!allowPublicSharing && originalSharingVisibility !== 'public'}>Public read access</option>
+											<option value="users">Selected users</option>
+										</select>
+									</label>
+									{#if sharingVisibility === 'users'}
+										<label class="block space-y-1">
+											<span>User IDs, one per line</span>
+											<textarea
+												class="w-full rounded-lg bg-transparent p-2 text-sm"
+												rows="3"
+												bind:value={sharingUserIds}
+												placeholder="user-id"
+											/>
+										</label>
+									{/if}
+									<p class="text-xs text-gray-500">Sharing grants read access only.</p>
+								</div>
+							{:else}
+								<p class="text-sm text-amber-700 dark:text-amber-300">
+									{sharingMessage} Model details can be edited without changing current sharing.
+								</p>
+							{/if}
 						</div>
 					</div>
 
