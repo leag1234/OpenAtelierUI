@@ -1,7 +1,9 @@
 import json
+import hashlib
 import logging
 import mimetypes
 import os
+import re
 import shutil
 
 import uuid
@@ -118,7 +120,29 @@ def _authorized_collection(name: str, user, permission: str = "read") -> bool:
         knowledge_id = (file.meta or {}).get("collection_name")
         linked = Knowledges.get_knowledge_by_id(knowledge_id) if knowledge_id else None
         return bool(linked and (linked.user_id == user.id or has_access(user.id, permission, linked.access_control)))
-    return bool(knowledge and (knowledge.user_id == user.id or has_access(user.id, permission, knowledge.access_control)))
+    if knowledge:
+        return knowledge.user_id == user.id or has_access(user.id, permission, knowledge.access_control)
+    return bool(re.fullmatch(r"oa-" + hashlib.sha256(user.id.encode()).hexdigest()[:32] + r"-[0-9a-f]{24}", name))
+
+
+def _generated_collection(user, domain: str, resource: str) -> str:
+    if not isinstance(resource, str):
+        raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+    try:
+        digest = hashlib.sha256((domain + "\0" + resource).encode("utf-8")).hexdigest()[:24]
+        owner = hashlib.sha256(user.id.encode("utf-8")).hexdigest()[:32]
+    except UnicodeError:
+        raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+    return f"oa-{owner}-{digest}"
+
+
+def _ingestion_collection(requested, user, domain: str, resource: str) -> str:
+    if requested is None or requested == "":
+        requested = _generated_collection(user, domain, resource)
+    if not isinstance(requested, str):
+        raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+    _require_collection(requested, user, "write")
+    return requested
 
 
 def _require_collection(name: str, user, permission: str = "read"):
@@ -1281,9 +1305,7 @@ def process_text(
     form_data: ProcessTextForm,
     user=Depends(get_verified_user),
 ):
-    collection_name = form_data.collection_name
-    if collection_name is None:
-        collection_name = calculate_sha256_string(form_data.content)
+    collection_name = _ingestion_collection(form_data.collection_name, user, "text", form_data.content)
 
     docs = [
         Document(
@@ -1313,9 +1335,7 @@ def process_youtube_video(
     request: Request, form_data: ProcessUrlForm, user=Depends(get_verified_user)
 ):
     try:
-        collection_name = form_data.collection_name
-        if not collection_name:
-            collection_name = calculate_sha256_string(form_data.url)[:63]
+        collection_name = _ingestion_collection(form_data.collection_name, user, "youtube", form_data.url)
 
         loader = YoutubeLoader(
             form_data.url,
@@ -1344,6 +1364,8 @@ def process_youtube_video(
                 },
             },
         }
+    except HTTPException:
+        raise
     except Exception as e:
         log.exception(e)
         raise HTTPException(
@@ -1357,9 +1379,7 @@ def process_web(
     request: Request, form_data: ProcessUrlForm, user=Depends(get_verified_user)
 ):
     try:
-        collection_name = form_data.collection_name
-        if not collection_name:
-            collection_name = calculate_sha256_string(form_data.url)[:63]
+        collection_name = _ingestion_collection(form_data.collection_name, user, "web", form_data.url)
 
         loader = get_web_loader(
             form_data.url,
@@ -1392,6 +1412,8 @@ def process_web(
                 },
             },
         }
+    except HTTPException:
+        raise
     except Exception as e:
         log.exception(e)
         raise HTTPException(
@@ -1618,6 +1640,8 @@ async def process_web_search(
         web_results = search_web(
             request, request.app.state.config.WEB_SEARCH_ENGINE, form_data.query
         )
+    except HTTPException:
+        raise
     except Exception as e:
         log.exception(e)
 
@@ -1629,6 +1653,9 @@ async def process_web_search(
     log.debug(f"web_results: {web_results}")
 
     try:
+        collection_names = [_generated_collection(user, "web-search", form_data.query + "-" + result.link) for result in web_results]
+        for name in collection_names:
+            _require_collection(name, user, "write")
         urls = [result.link for result in web_results]
         loader = get_web_loader(
             urls,
@@ -1640,6 +1667,7 @@ async def process_web_search(
         urls = [
             doc.metadata["source"] for doc in docs
         ]  # only keep URLs which could be retrieved
+        collection_names = []
 
         if request.app.state.config.BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL:
             return {
@@ -1656,13 +1684,10 @@ async def process_web_search(
                 "loaded_count": len(docs),
             }
         else:
-            collection_names = []
             for doc_idx, doc in enumerate(docs):
                 if doc and doc.page_content:
-                    collection_name = f"web-search-{calculate_sha256_string(form_data.query + '-' + urls[doc_idx])}"[
-                        :63
-                    ]
-
+                    collection_name = _generated_collection(user, "web-search", form_data.query + "-" + urls[doc_idx])
+                    _require_collection(collection_name, user, "write")
                     collection_names.append(collection_name)
                     await run_in_threadpool(
                         save_docs_to_vector_db,
@@ -1679,6 +1704,8 @@ async def process_web_search(
                 "filenames": urls,
                 "loaded_count": len(docs),
             }
+    except HTTPException:
+        raise
     except Exception as e:
         log.exception(e)
         raise HTTPException(

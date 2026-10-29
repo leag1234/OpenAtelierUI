@@ -3,6 +3,7 @@
 import ast
 import __future__
 import hashlib
+import re
 from pathlib import Path
 from types import SimpleNamespace as NS
 import unittest
@@ -29,9 +30,11 @@ class RetrievalResourceAccessTests(unittest.TestCase):
         def query_doc(**kw):self.effects.append(('query',kw['collection_name']));return {'ok':True}
         def query_collection(**kw):self.effects.append(('query-many',kw['collection_names']));return {'ok':True}
         def embed(*a,**kw):self.effects.append(('embedding',));return [0.1,0.2]
-        def save(**kw):self.effects.append(('vector-write',kw['collection_name'],[d.page_content for d in kw['docs']]));return True
+        def save(*args,**kw):
+            if args:kw.update(zip(['request','docs','collection_name'],args))
+            self.effects.append(('vector-write',kw['collection_name'],[d.page_content for d in kw['docs']]));return True
         def read_path(p):self.effects.append(('file-read',));raise RuntimeError('positive owner path reached')
-        self.ns={'HTTPException':HTTPError,'ERROR_MESSAGES':NS(NOT_FOUND='Resource not found',DEFAULT=lambda e:str(e)),
+        self.ns={'hashlib':hashlib,'re':re,'HTTPException':HTTPError,'ERROR_MESSAGES':NS(NOT_FOUND='Resource not found',DEFAULT=lambda e:str(e)),
           'status':NS(HTTP_400_BAD_REQUEST=400),'Depends':lambda f:None,'get_verified_user':lambda:None,
           'Files':NS(get_file_by_id=lambda i:self.files.get(i),update_file_hash_by_id=update,update_file_data_by_id=update,update_file_metadata_by_id=update),
           'Knowledges':NS(get_knowledge_by_id=lambda i:self.knowledge.get(i)),
@@ -42,7 +45,7 @@ class RetrievalResourceAccessTests(unittest.TestCase):
           'Document':lambda **kw:NS(**kw),'calculate_sha256_string':lambda s:hashlib.sha256(s.encode()).hexdigest(),
           'BatchProcessFilesResult':lambda **kw:NS(**kw),'BatchProcessFilesResponse':lambda **kw:NS(**kw)}
         load_functions(ROOT/'backend/open_webui/utils/access_control.py',['has_access'],self.ns)
-        load_functions(ROOT/'backend/open_webui/routers/retrieval.py',['_authorized_collection','_require_collection','process_file','process_files_batch','query_doc_handler','query_collection_handler'],self.ns)
+        load_functions(ROOT/'backend/open_webui/routers/retrieval.py',['_authorized_collection','_generated_collection','_ingestion_collection','_require_collection','process_file','process_files_batch','query_doc_handler','query_collection_handler'],self.ns)
         config=NS(ENABLE_RAG_HYBRID_SEARCH=False,TOP_K=1,TOP_K_RERANKER=1,RELEVANCE_THRESHOLD=0)
         self.request=NS(app=NS(state=NS(config=config,EMBEDDING_FUNCTION=embed,rf=None)))
     def allowed(self,name,user,permission='read'):return self.ns['_authorized_collection'](name,user,permission)
