@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import shutil
 import subprocess
 import tempfile
 import types
@@ -128,6 +129,7 @@ class OpenAtelierUIInstanceTests(unittest.TestCase):
         workspace = Path(self.args.workspace)
         manifest = json.loads((workspace / "instance.json").read_text())
         self.assertEqual(result["image_id"], IMAGE)
+        self.assertFalse(result["profile_fields_enabled"])
         self.assertEqual((workspace / "pre-session" / "webui.db").read_bytes(), original_db)
         self.assertNotEqual((workspace / "data" / "webui.db").read_bytes(), original_db)
         check = sqlite3.connect(workspace / "data" / "webui.db")
@@ -156,7 +158,13 @@ class OpenAtelierUIInstanceTests(unittest.TestCase):
         self.assertIn("--security-opt", run)
         self.assertIn("no-new-privileges", run)
         self.assertIn("--env-file", run)
-        self.assertTrue(all(f"{key}={value}" in run for key, value in instance.FLAGS.items()))
+        self.assertTrue(all(
+            f"{key}={value}" in run
+            for key, value in instance.FLAGS.items()
+            if key != "OPEN_WEBUI_IMPORTED_USER_PROFILE_FIELDS"
+        ))
+        self.assertIn("OPEN_WEBUI_IMPORTED_USER_PROFILE_FIELDS=0", run)
+        self.assertFalse(manifest["profile_fields_enabled"])
         self.assertIn("HOST=0.0.0.0", run); self.assertIn("PORT=8080", run)
         self.assertIn("--memory-swap", run); self.assertIn("nodev", run[run.index("--tmpfs") + 1])
         self.assertEqual(run[run.index("--memory-swap") + 1], "2g")
@@ -181,6 +189,56 @@ class OpenAtelierUIInstanceTests(unittest.TestCase):
         self.assertTrue(any(mount.endswith(",dst=/source.db,ro") for mount in prep_mounts))
         self.assertTrue(any(mount.endswith(",dst=/target") for mount in prep_mounts))
         self.assertTrue(all("rw" not in mount.split(",") for mount in prep_mounts))
+        manifest.pop("profile_fields_enabled")
+        (workspace / "instance.json").write_text(json.dumps(manifest), encoding="utf-8")
+        with patch.object(instance.subprocess, "run", side_effect=self.docker), patch.object(instance, "_health"):
+            self.assertEqual(instance.operate(self.args.workspace, "status")["status"], "running")
+            self.assertEqual(instance.operate(self.args.workspace, "stop")["status"], "stopped")
+            self.assertEqual(instance.operate(self.args.workspace, "restart")["status"], "running")
+
+    def test_prepared_nullable_profile_schema_enables_only_its_existing_flag(self):
+        db = sqlite3.connect(self.source / "webui.db")
+        db.execute('CREATE TABLE "user" (id TEXT, bio TEXT, gender TEXT, date_of_birth DATE)')
+        db.execute('INSERT INTO "user" VALUES (?,?,?,?)', ("synthetic-user", None, "", "2000-01-02"))
+        db.commit(); db.close()
+        original = instance._closed_data(self.source)
+        with self._patch():
+            result = instance.start(self.args)
+        workspace = Path(self.args.workspace)
+        manifest = json.loads((workspace / "instance.json").read_text())
+        run = next(call for call in self.docker.calls if call[:2] == ["docker", "run"] and "-d" in call)
+        self.assertTrue(manifest["profile_fields_enabled"])
+        self.assertTrue(result["profile_fields_enabled"])
+        self.assertIn("OPEN_WEBUI_IMPORTED_USER_PROFILE_FIELDS=1", run)
+        self.assertEqual(instance._closed_data(self.source), original)
+
+    def test_partial_or_malformed_profile_schema_refuses_before_docker_or_workspace(self):
+        schemas = (
+            ('CREATE TABLE "user" (id TEXT, bio TEXT)', "partial"),
+            ('CREATE TABLE "user" (id TEXT, bio BLOB, gender TEXT, date_of_birth DATE)', "wrong-type"),
+            ('CREATE TABLE "user" (id TEXT, bio TEXT, gender TEXT NOT NULL, date_of_birth DATE)', "not-null"),
+        )
+        for ddl, name in schemas:
+            with self.subTest(schema=name):
+                source = self.root / ("source-" + name)
+                shutil.copytree(self.source, source)
+                with sqlite3.connect(source / "webui.db") as db:
+                    db.execute(ddl)
+                source_hash = instance._closed_data(source)
+                args = types.SimpleNamespace(**vars(self.args))
+                args.source_data = str(source)
+                args.workspace = str(self.root / ("workspace-" + name))
+                docker = DockerDouble(self.old_static, self.frontend)
+                with patch.object(instance.subprocess, "run", side_effect=docker), \
+                        patch.object(instance, "_health"), \
+                        patch.object(instance.os, "getuid", return_value=1000), \
+                        patch.object(instance.os, "getgid", return_value=1000):
+                    with self.assertRaises(instance.InstanceError) as caught:
+                        instance.start(args)
+                self.assertEqual(caught.exception.code, "profile_schema_unsupported")
+                self.assertEqual(docker.calls, [])
+                self.assertFalse(Path(args.workspace).exists())
+                self.assertEqual(instance._closed_data(source), source_hash)
 
     def test_closed_source_image_pin_and_owned_container_fail_closed(self):
         with patch.object(instance.subprocess, "run", side_effect=self.docker):

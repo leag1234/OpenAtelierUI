@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 from __future__ import annotations
 
-import argparse, hashlib, json, os, re, shutil, subprocess, tempfile, time, uuid
+import argparse, hashlib, json, os, re, shutil, sqlite3, subprocess, tempfile, time, uuid
 from pathlib import Path
 from urllib import error as urlerror, request as urlrequest
 
@@ -93,6 +93,29 @@ def _closed_data(path):
     if any(Path(str(db) + suffix).exists() for suffix in ("-wal", "-shm", "-journal")):
         raise InstanceError("sqlite_sidecar", "source database is not closed")
     return profile
+
+
+def _profile_fields_enabled(path):
+    database = (Path(path) / "webui.db").resolve(strict=True)
+    connection = None
+    try:
+        connection = sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)
+        columns = {row[1]: row for row in connection.execute('PRAGMA table_info("user")')}
+    except sqlite3.DatabaseError:
+        raise InstanceError("profile_schema_unsupported", "source user schema cannot be inspected") from None
+    finally:
+        if connection is not None:
+            connection.close()
+    expected = {"bio": "TEXT", "gender": "TEXT", "date_of_birth": "DATE"}
+    present = set(expected) & set(columns)
+    if not present:
+        return False
+    if present != set(expected) or any(
+        str(columns[name][2]).upper() != kind or columns[name][3] != 0
+        for name, kind in expected.items()
+    ):
+        raise InstanceError("profile_schema_unsupported", "source profile fields are partial or not nullable supported types")
+    return True
 
 
 def _run(args, *, input_text=None, timeout=30):
@@ -225,6 +248,7 @@ def start(args):
         raise InstanceError("env_file_permissions", "operator env file must have mode 0600")
     data_src = Path(args.source_data)
     source_summary = _closed_data(data_src)
+    profile_fields_enabled = _profile_fields_enabled(data_src)
     if data_src.resolve() == Path(args.workspace).resolve() or "," in str(Path(args.workspace).absolute()):
         raise InstanceError("workspace_is_source", "workspace must be separate and use a bind-mount-safe path")
     image_id = _inspect_image(tag, expected)
@@ -241,7 +265,8 @@ def start(args):
                 "static_path": str((workspace / "static").resolve()),
                 "env_file": str(env.resolve()), "network": args.network,
                 "host_port": args.host_port, "container_port": args.container_port,
-                "state": "preparing", "source_data": source_summary}
+                "state": "preparing", "source_data": source_summary,
+                "profile_fields_enabled": profile_fields_enabled}
     _save_manifest(workspace, manifest)
     try:
         shutil.copytree(data_src, workspace / "data")
@@ -288,7 +313,10 @@ def start(args):
                    "--mount", f"type=bind,src={manifest['data_path']},dst=/app/backend/data",
                    "--mount", f"type=bind,src={manifest['static_path']},dst=/app/backend/open_webui/static",
                    "--env-file", manifest["env_file"]]
-        for key, value in FLAGS.items(): command.extend(["--env", f"{key}={value}"])
+        for key, value in FLAGS.items():
+            if key == "OPEN_WEBUI_IMPORTED_USER_PROFILE_FIELDS":
+                value = "1" if profile_fields_enabled else "0"
+            command.extend(["--env", f"{key}={value}"])
         command.extend(["--env", "HOST=0.0.0.0", "--env", f"PORT={args.container_port}"])
         command.extend([image_id])
         cid = _run(command, timeout=60)
@@ -299,7 +327,8 @@ def start(args):
         _container(manifest)
         _health(args.host_port, args.health_timeout)
         manifest["state"] = "running"; _save_manifest(workspace, manifest)
-        return {"status": "running", "workspace": str(workspace.resolve()), "image_id": image_id}
+        return {"status": "running", "workspace": str(workspace.resolve()), "image_id": image_id,
+                "profile_fields_enabled": profile_fields_enabled}
     except Exception: _stop_failed(workspace, manifest); raise
 
 
