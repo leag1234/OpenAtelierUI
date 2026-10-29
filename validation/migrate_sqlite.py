@@ -1385,9 +1385,10 @@ def _resolve_chat_preview_ids(payload: dict, nodes: dict, allow_derived: bool) -
 def _validate_chat_file_links(connection: sqlite3.Connection, report: dict, file_rows: list[dict]) -> None:
     """Validate selected chat-file joins against private graph descriptors and file owners."""
     tables = set(_tables(connection))
-    rows_count = _count(connection, "chat_file") if "chat_file" in tables else 0
+    if "chat_file" not in tables: return
+    rows_count = _count(connection, "chat_file")
     expected = {"id", "user_id", "chat_id", "file_id", "message_id", "created_at", "updated_at"}
-    if rows_count and (set(_columns(connection, "chat_file")) != expected or rows_count > 10000):
+    if set(_columns(connection, "chat_file")) != expected or rows_count > 10000:
         _block(report, "private_chat_file_schema_or_limit_unsupported", 1, fatal=True)
         return
     if (not SOURCE_REQUIRED["chat"].issubset(_columns(connection, "chat"))
@@ -2690,6 +2691,7 @@ def _copy_domains(
     object_access: dict[tuple[str, str], object],
     group_memberships: dict[str, list[str]],
     private_chat_overrides: dict[str, dict[str, str]] | None = None,
+    map_chat_file_paths: bool = False,
     named_tool_config_data: dict | None = None,
     include_user_profile_fields: bool = False,
     api_key_overrides: dict[str, str] | None = None,
@@ -2718,11 +2720,12 @@ def _copy_domains(
     copied_chat = {}
     for chat_id, values in (private_chat_overrides or {}).items():
         payload = json.loads(values["chat"])
-        for node in payload["history"]["messages"].values():
-            for descriptor in node.get("files", []) if isinstance(node.get("files", []), list) else []:
-                nested = descriptor.get("file") if isinstance(descriptor, dict) else None
-                if isinstance(nested, dict) and nested.get("id") in file_paths and "path" in nested:
-                    nested["path"] = file_paths[nested["id"]]
+        if map_chat_file_paths:
+            for node in payload["history"]["messages"].values():
+                for descriptor in node.get("files", []) if isinstance(node.get("files", []), list) else []:
+                    nested = descriptor.get("file") if isinstance(descriptor, dict) else None
+                    if isinstance(nested, dict) and nested.get("id") in file_paths and "path" in nested:
+                        nested["path"] = file_paths[nested["id"]]
         copied_chat[chat_id] = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     counts["chat"] = _insert_rows(source, target, "chat", {
         "id": "id", "user_id": "user_id", "title": "title", "share_id": "share_id", "archived": "archived",
@@ -2890,7 +2893,8 @@ def convert(
             counts = _copy_domains(
                 source_connection, target_connection, upload_rows, runtime_root,
                 object_access, group_memberships, private_chat_overrides,
-                named_tool_config_data,
+                map_chat_file_paths=bool(report.get("chat_file_mapping")),
+                named_tool_config_data=named_tool_config_data,
                 include_user_profile_fields=include_user_profile_fields,
                 api_key_overrides=api_key_overrides,
             )

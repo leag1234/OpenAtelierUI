@@ -477,6 +477,27 @@ class ImporterTests(unittest.TestCase):
         self.assertEqual(graph['history']['messages']['q']['files'][0]['file']['path'], file_path)
         self.assertEqual(Path(file_path).name, 'f1_synthetic.html')
 
+    def test_opt_in_preserves_legacy_embedded_attachment_without_chat_file_table(self):
+        add_chat_file_link(self.source)
+        db = sqlite3.connect(self.source)
+        db.execute('DROP TABLE chat_file')
+        db.commit(); db.close()
+        source_hash = digest(self.source)
+        report = preview(self.source, self.uploads, self.template, include_private_chat_metadata=True)
+        self.assertFalse(report['fatal'])
+        self.assertNotIn('chat_file_mapping', report)
+        target = self.root / 'legacy-embedded-file-target'
+        result = convert(self.source, self.uploads, self.template, target,
+                         runtime_data_root=self.root / 'runtime-legacy', include_private_chat_metadata=True)
+        self.assertFalse(result['fatal'])
+        self.assertEqual(digest(self.source), source_hash)
+        db = sqlite3.connect(target / 'webui.db')
+        graph = json.loads(db.execute('SELECT chat FROM "chat" WHERE id="c1"').fetchone()[0])
+        db.close()
+        descriptor_file = graph['history']['messages']['q']['files'][0]['file']
+        self.assertEqual(descriptor_file['id'], 'f1')
+        self.assertEqual(descriptor_file['path'], '/app/data/uploads/f1_synthetic.html')
+
     def test_opt_in_chat_file_links_reject_foreign_missing_and_ambiguous_references(self):
         cases = ('foreign_owner', 'missing_chat', 'missing_file', 'missing_message', 'missing_descriptor',
                  'missing_join', 'foreign_descriptor_owner', 'duplicate_link', 'invalid_timestamp')
