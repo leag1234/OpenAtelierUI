@@ -781,7 +781,13 @@
 						{:else}
 							<div class="w-full flex flex-col relative" id="response-content-container">
 								{#if message.content === '' && !message.error}
-									<Skeleton />
+									{#if message.done === true}
+										<div class="text-sm text-gray-600 dark:text-gray-300">
+											{$i18n.t('Response ended without content.')}
+										</div>
+									{:else}
+										<Skeleton />
+									{/if}
 								{:else if message.content && message.error !== true}
 									<!-- always show message contents even if there's an error -->
 									<!-- unless message.error === true which is legacy error handling, where the error message is stored in message.content -->
