@@ -94,5 +94,5 @@ test('dedicated ACL request uses fixed endpoint and explicit JSON grants, with s
 	assert.deepEqual(JSON.parse(request.options.body), { id: 'm1', access_grants: [] });
 	await assert.rejects(() => sharing.requestModelAccessUpdate(async () => ({
 		ok: false, json: async () => ({ detail: 'server-private-detail' })
-	}), '/api', 'token', 'm1', []), /Model sharing could not be updated/);
+	}), '/api', 'token', 'm1', []), /Access grants could not be updated/);
 });

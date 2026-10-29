@@ -1,7 +1,8 @@
 <script>
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
-	import { getToolById, getTools, updateToolById } from '$lib/apis/tools';
+	import { getToolById, getTools, updateToolById, updateToolAccessById } from '$lib/apis/tools';
+	import { buildResourceReadGrants, parseResourceReadGrants, saveResourceWithSharing } from '$lib/apis/models/sharing.js';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import ToolkitEditor from '$lib/components/workspace/Tools/ToolkitEditor.svelte';
 	import { WEBUI_VERSION } from '$lib/constants';
@@ -32,18 +33,24 @@
 			return;
 		}
 
-		const res = await updateToolById(localStorage.token, tool.id, {
-			id: data.id,
-			name: data.name,
-			meta: data.meta,
-			content: data.content,
-			access_control: data.access_control
-		}).catch((error) => {
-			toast.error(`${error}`);
-			return null;
-		});
+		const parsed = parseResourceReadGrants(tool, 'tool');
+		const existingGrants = parsed.supported
+			? buildResourceReadGrants(parsed.visibility, parsed.userIds.join('\n'))
+			: undefined;
+		const result = await saveResourceWithSharing(data.id, data, existingGrants,
+			(id, details) => updateToolById(localStorage.token, id, details),
+			(id, grants) => updateToolAccessById(localStorage.token, id, grants)
+		);
+		if (result.status === 'sharing_failed') {
+			toast.error('Tool details were saved, but sharing was not updated. Retry the sharing change.');
+			return;
+		}
+		if (result.status !== 'saved') {
+			toast.error('The tool details could not be saved. Review the form and try again.');
+			return;
+		}
 
-		if (res) {
+		if (result.model) {
 			toast.success($i18n.t('Tool updated successfully'));
 			tools.set(await getTools(localStorage.token));
 
@@ -74,9 +81,9 @@
 		name={tool.name}
 		meta={tool.meta}
 		content={tool.content}
-		accessControl={tool.access_control}
+		existingTool={tool}
 		onSave={(value) => {
-			saveHandler(value);
+			return saveHandler(value);
 		}}
 	/>
 {:else}

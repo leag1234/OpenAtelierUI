@@ -10,14 +10,14 @@
 	import ChevronLeft from '$lib/components/icons/ChevronLeft.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import LockClosed from '$lib/components/icons/LockClosed.svelte';
-	import AccessControlModal from '../common/AccessControlModal.svelte';
+	import { buildResourceReadGrants, parseResourceReadGrants } from '$lib/apis/models/sharing.js';
 	import { user } from '$lib/stores';
 
 	let formElement = null;
 	let loading = false;
 
 	let showConfirm = false;
-	let showAccessControlModal = false;
+	let showAccessPanel = false;
 
 	export let edit = false;
 	export let clone = false;
@@ -30,9 +30,26 @@
 		description: ''
 	};
 	export let content = '';
-	export let accessControl = {};
+	export let existingTool = null;
 
 	let _content = '';
+	let sharingVisibility = 'private';
+	let originalSharingVisibility = 'private';
+	let sharingUserIds = '';
+	let sharingSupported = true;
+	let sharingMessage = '';
+	$: allowPublicSharing = $user?.permissions?.sharing?.public_tools || $user?.role === 'admin';
+
+	onMount(() => {
+		const parsed = parseResourceReadGrants(existingTool ?? { id, access_grants: [] }, 'tool');
+		sharingSupported = parsed.supported;
+		sharingMessage = parsed.supported ? '' : parsed.reason;
+		if (parsed.supported) {
+			sharingVisibility = parsed.visibility;
+			originalSharingVisibility = parsed.visibility;
+			sharingUserIds = parsed.userIds.join('\n');
+		}
+	});
 
 	$: if (content) {
 		updateContent();
@@ -156,13 +173,21 @@ class Tools:
 
 	const saveHandler = async () => {
 		loading = true;
-		onSave({
-			id,
-			name,
-			meta,
-			content,
-			access_control: accessControl
-		});
+		try {
+			const data = { id, name, meta, content };
+			if (sharingSupported) {
+				if (sharingVisibility === 'public' && !allowPublicSharing && originalSharingVisibility !== 'public') {
+					throw new Error('Public tool access is not enabled for this account.');
+				}
+				data.access_grants = buildResourceReadGrants(sharingVisibility, sharingUserIds);
+			}
+			await onSave(data);
+		} catch (error) {
+			showConfirm = false;
+			toast.error(`${error}`);
+		} finally {
+			loading = false;
+		}
 	};
 
 	const submitHandler = async () => {
@@ -184,13 +209,6 @@ class Tools:
 		}
 	};
 </script>
-
-<AccessControlModal
-	bind:show={showAccessControlModal}
-	bind:accessControl
-	accessRoles={['read', 'write']}
-	allowPublic={$user?.permissions?.sharing?.public_tools || $user?.role === 'admin'}
-/>
 
 <div class=" flex flex-col justify-between w-full overflow-y-auto h-full">
 	<div class="mx-auto w-full md:px-0 h-full">
@@ -238,8 +256,10 @@ class Tools:
 							<button
 								class="bg-gray-50 hover:bg-gray-100 text-black dark:bg-gray-850 dark:hover:bg-gray-800 dark:text-white transition px-2 py-1 rounded-full flex gap-1 items-center"
 								type="button"
+								aria-expanded={showAccessPanel}
+								aria-controls="tool-sharing-panel"
 								on:click={() => {
-									showAccessControlModal = true;
+									showAccessPanel = !showAccessPanel;
 								}}
 							>
 								<LockClosed strokeWidth="2.5" className="size-3.5" />
@@ -250,6 +270,29 @@ class Tools:
 							</button>
 						</div>
 					</div>
+					{#if showAccessPanel}
+						<div id="tool-sharing-panel" class="my-2 rounded-lg bg-gray-50 p-3 text-sm dark:bg-gray-950">
+							{#if sharingSupported}
+								<label class="block space-y-1">
+									<span>Who can read this tool?</span>
+									<select class="w-full rounded-lg bg-transparent p-2" bind:value={sharingVisibility}>
+										<option value="private">Private</option>
+										<option value="public" disabled={!allowPublicSharing && originalSharingVisibility !== 'public'}>Public read access</option>
+										<option value="users">Selected users</option>
+									</select>
+								</label>
+								{#if sharingVisibility === 'users'}
+									<label class="mt-2 block space-y-1">
+										<span>User IDs, one per line</span>
+										<textarea class="w-full rounded-lg bg-transparent p-2" rows="3" bind:value={sharingUserIds} />
+									</label>
+								{/if}
+								<p class="mt-2 text-xs text-gray-500">Read access only. Code execution rules are unchanged.</p>
+							{:else}
+								<p class="text-amber-700 dark:text-amber-300">{sharingMessage} Existing sharing will be preserved.</p>
+							{/if}
+						</div>
+					{/if}
 
 					<div class=" flex gap-2 px-1 items-center">
 						{#if edit}

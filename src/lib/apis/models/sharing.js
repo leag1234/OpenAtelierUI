@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 const grantFields = new Set(['principal_type', 'principal_id', 'permission', 'id', 'resource_type', 'resource_id', 'created_at']);
 
-export const parseModelReadGrants = (model) => {
+export const parseResourceReadGrants = (model, resourceType) => {
 	let grants = model?.access_grants;
 	if (!Array.isArray(grants)) {
 		if (model?.access_control === null) grants = [{ principal_type: 'user', principal_id: '*', permission: 'read' }];
@@ -14,7 +14,7 @@ export const parseModelReadGrants = (model) => {
 			!['principal_type', 'principal_id', 'permission'].every((key) => key in grant) || grant.principal_type !== 'user' ||
 			grant.permission !== 'read' || typeof grant.principal_id !== 'string' || !grant.principal_id.trim() ||
 			grant.principal_id.trim() !== grant.principal_id || grant.principal_id.length > 256 || /[\u0000-\u001f\u007f-\u009f]/u.test(grant.principal_id) ||
-			(grant.resource_type && grant.resource_type !== 'model') ||
+			(grant.resource_type && grant.resource_type !== resourceType) ||
 			(grant.resource_id && grant.resource_id !== model?.id)) {
 			return { supported: false, reason: 'Sharing uses permissions this editor cannot safely change.' };
 		}
@@ -27,6 +27,8 @@ export const parseModelReadGrants = (model) => {
 	return { supported: true, visibility: userIds.length ? 'users' : 'private', userIds };
 };
 
+export const parseModelReadGrants = (model) => parseResourceReadGrants(model, 'model');
+
 export const buildModelReadGrants = (visibility, userIdsText = '') => {
 	if (visibility === 'private') return [];
 	if (visibility === 'public') return [{ principal_type: 'user', principal_id: '*', permission: 'read' }];
@@ -36,6 +38,8 @@ export const buildModelReadGrants = (visibility, userIdsText = '') => {
 		new Set(ids).size !== ids.length) throw new Error('Enter distinct user IDs, one per line, for selected-user access.');
 	return ids.map((principal_id) => ({ principal_type: 'user', principal_id, permission: 'read' }));
 };
+
+export const buildResourceReadGrants = buildModelReadGrants;
 
 const grantKey = (grant) => `${grant.principal_type}\u0000${grant.principal_id}\u0000${grant.permission}`;
 export const sameModelReadGrants = (left, right) =>
@@ -47,8 +51,8 @@ export const modelCreatePayload = (modelInfo) => {
 	return payload;
 };
 
-export const saveModelWithSharing = async (id, modelInfo, existingGrants, updateDetails, updateAccess) => {
-	const { access_control, access_grants, ...details } = modelInfo;
+export const saveResourceWithSharing = async (id, info, existingGrants, updateDetails, updateAccess) => {
+	const { access_control, access_grants, ...details } = info;
 	let saved;
 	try { saved = await updateDetails(id, details); } catch { return { status: 'details_failed' }; }
 	if (!saved) return { status: 'details_failed' };
@@ -63,14 +67,22 @@ export const saveModelWithSharing = async (id, modelInfo, existingGrants, update
 	return { status: 'saved', model: saved };
 };
 
-export const requestModelAccessUpdate = async (fetchImpl, baseUrl, token, id, accessGrants) => {
-	const response = await fetchImpl(`${baseUrl}/models/model/access/update`, {
+export const saveModelWithSharing = saveResourceWithSharing;
+
+export const requestResourceAccessUpdate = async (fetchImpl, baseUrl, token, path, id, accessGrants) => {
+	const response = await fetchImpl(`${baseUrl}${path}`, {
 		method: 'POST',
 		headers: { Accept: 'application/json', 'Content-Type': 'application/json', authorization: `Bearer ${token}` },
 		body: JSON.stringify({ id, access_grants: accessGrants })
 	});
 	let result = null;
 	try { result = await response.json(); } catch { /* the fixed error below avoids exposing response internals */ }
-	if (!response.ok) throw new Error('Model sharing could not be updated.');
+	if (!response.ok) throw new Error('Access grants could not be updated.');
 	return result;
 };
+
+export const requestModelAccessUpdate = (fetchImpl, baseUrl, token, id, accessGrants) =>
+	requestResourceAccessUpdate(fetchImpl, baseUrl, token, '/models/model/access/update', id, accessGrants);
+
+export const requestToolAccessUpdate = (fetchImpl, baseUrl, token, id, accessGrants) =>
+	requestResourceAccessUpdate(fetchImpl, baseUrl, token, `/tools/id/${encodeURIComponent(id)}/access/update`, id, accessGrants);
