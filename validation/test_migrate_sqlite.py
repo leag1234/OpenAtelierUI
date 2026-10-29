@@ -120,6 +120,25 @@ def build_template(path: Path) -> None:
     db.close()
 
 
+def add_chat_file_link(path: Path, *, owner="u1", chat_id="c1", file_id="f1", message_id="q", descriptor=True):
+    db = sqlite3.connect(path)
+    db.execute('CREATE TABLE chat_file(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,chat_id TEXT NOT NULL,file_id TEXT NOT NULL,message_id TEXT,created_at BIGINT NOT NULL,updated_at BIGINT NOT NULL)')
+    db.execute('INSERT INTO chat_file VALUES (?,?,?,?,?,?,?)', ('link1', owner, chat_id, file_id, message_id, 10, 11))
+    row = db.execute('SELECT chat FROM "chat" WHERE id=?', (chat_id,)).fetchone()
+    payload = json.loads(row[0])
+    if descriptor:
+        payload['history']['messages'][message_id]['files'] = [{
+            'type': 'file', 'id': file_id, 'url': file_id, 'name': 'synthetic.html',
+            'status': 'uploaded', 'itemId': message_id, 'content_type': 'text/html',
+            'file': {'id': file_id, 'user_id': owner, 'filename': 'synthetic.html',
+                     'hash': None, 'path': '/app/data/uploads/f1_synthetic.html', 'data': {}, 'meta': {}},
+        }]
+    payload['messages'] = [{'role': 'user', 'content': 'Question'}]
+    db.execute('UPDATE "chat" SET chat=? WHERE id=?', (json.dumps(payload), chat_id))
+    db.commit()
+    db.close()
+
+
 def add_group_import_schema(source: Path, template: Path, *, target_group: bool = True) -> None:
     db = sqlite3.connect(source)
     db.execute('DROP TABLE "group_member"')
@@ -431,6 +450,112 @@ class ImporterTests(unittest.TestCase):
                 self.assertEqual(node['user_id'], 'u2')
                 self.assertNotIn('user', node)
         self.assertEqual(len(second_graph['messages']), 4)
+
+    def test_opt_in_maps_validated_chat_file_and_derived_preview_without_source_edits(self):
+        add_chat_file_link(self.source)
+        source_hash, template_hash = digest(self.source), digest(self.template)
+        default = preview(self.source, self.uploads, self.template)
+        default_codes = {entry['code'] for entry in default['blockers']}
+        self.assertIn('unsupported_nonempty_domain_chat_file', default_codes)
+        self.assertIn('chat_preview_message_mismatch', default_codes)
+        selected = preview(self.source, self.uploads, self.template, include_private_chat_metadata=True)
+        self.assertFalse(selected['fatal'])
+        self.assertEqual(selected['chat_file_mapping']['validated_link_count'], 1)
+        self.assertIn('chat_file_join_metadata_archived_only', {entry['code'] for entry in selected['blockers']})
+        target = self.root / 'chat-file-target'
+        report = convert(self.source, self.uploads, self.template, target,
+                         runtime_data_root=self.root / 'runtime', include_private_chat_metadata=True)
+        self.assertFalse(report['fatal'])
+        self.assertEqual((digest(self.source), digest(self.template)), (source_hash, template_hash))
+        self.assertEqual(digest(Path(report['archive']['path']) / 'source.sqlite'), source_hash)
+        db = sqlite3.connect(target / 'webui.db')
+        graph = json.loads(db.execute('SELECT chat FROM "chat" WHERE id="c1"').fetchone()[0])
+        file_path = db.execute('SELECT path FROM "file" WHERE id="f1"').fetchone()[0]
+        db.close()
+        self.assertEqual(graph['messages'][0]['id'], 'q')
+        self.assertEqual(graph['history']['messages']['q']['files'][0]['file']['id'], 'f1')
+        self.assertEqual(graph['history']['messages']['q']['files'][0]['file']['path'], file_path)
+        self.assertEqual(Path(file_path).name, 'f1_synthetic.html')
+
+    def test_opt_in_chat_file_links_reject_foreign_missing_and_ambiguous_references(self):
+        cases = ('foreign_owner', 'missing_chat', 'missing_file', 'missing_message', 'missing_descriptor',
+                 'missing_join', 'foreign_descriptor_owner', 'duplicate_link', 'invalid_timestamp')
+        for case in cases:
+            with self.subTest(case=case):
+                self.tearDown()
+                self.temp = tempfile.TemporaryDirectory()
+                self.root = Path(self.temp.name)
+                self.source, self.template, self.uploads = self.root/'source.db', self.root/'template.db', self.root/'uploads'
+                build_source(self.source, self.uploads)
+                build_template(self.template)
+                add_chat_file_link(self.source, descriptor=case != 'missing_descriptor')
+                db = sqlite3.connect(self.source)
+                if case == 'foreign_owner':
+                    db.execute('UPDATE chat_file SET user_id="foreign"')
+                elif case == 'missing_chat':
+                    db.execute('UPDATE chat_file SET chat_id="missing"')
+                elif case == 'missing_file':
+                    db.execute('UPDATE chat_file SET file_id="missing"')
+                elif case == 'missing_message':
+                    db.execute('UPDATE chat_file SET message_id="missing"')
+                elif case == 'missing_join':
+                    db.execute('DELETE FROM chat_file')
+                elif case == 'foreign_descriptor_owner':
+                    raw = db.execute('SELECT chat FROM "chat" WHERE id="c1"').fetchone()[0]
+                    payload = json.loads(raw)
+                    payload['history']['messages']['q']['files'][0]['file']['user_id'] = 'foreign'
+                    db.execute('UPDATE "chat" SET chat=? WHERE id="c1"', (json.dumps(payload),))
+                elif case == 'duplicate_link':
+                    db.execute('INSERT INTO chat_file SELECT "link2",user_id,chat_id,file_id,message_id,created_at,updated_at FROM chat_file')
+                elif case == 'invalid_timestamp':
+                    db.execute('UPDATE chat_file SET updated_at=-1')
+                db.commit(); db.close()
+                source_hash, template_hash = digest(self.source), digest(self.template)
+                target = self.root / 'refused-chat-file-target'
+                with self.assertRaises(MigrationError) as caught:
+                    convert(self.source, self.uploads, self.template, target, include_private_chat_metadata=True)
+                self.assertEqual(caught.exception.code, 'fatal_source_input')
+                self.assertIn('private_chat_file_reference_invalid_or_ambiguous',
+                              {entry['code'] for entry in caught.exception.report['blockers']})
+                self.assertFalse(target.exists())
+                self.assertEqual((digest(self.source), digest(self.template)), (source_hash, template_hash))
+
+    def test_opt_in_refuses_ambiguous_idless_preview_match(self):
+        db = sqlite3.connect(self.source)
+        raw = db.execute('SELECT chat FROM "chat" WHERE id="c1"').fetchone()[0]
+        payload = json.loads(raw)
+        nodes = payload['history']['messages']
+        nodes['q']['childrenIds'] = ['a']
+        nodes['a'].update({'parentId': 'q', 'childrenIds': ['b'], 'role': 'user', 'content': 'Question'})
+        nodes['b']['parentId'] = 'a'
+        payload['messages'] = [{'role': 'user', 'content': 'Question'}]
+        db.execute('UPDATE "chat" SET chat=? WHERE id="c1"', (json.dumps(payload),))
+        db.execute('UPDATE "chat_message" SET role="user",parent_id="q",content=? WHERE id="c1-a"', (json.dumps('Question'),))
+        db.execute('UPDATE "chat_message" SET parent_id="a" WHERE id="c1-b"')
+        db.commit(); db.close()
+        report = preview(self.source, self.uploads, self.template, include_private_chat_metadata=True)
+        self.assertTrue(report['fatal'])
+        self.assertIn('chat_preview_message_mismatch', {entry['code'] for entry in report['blockers']})
+        target = self.root / 'ambiguous-derived-preview'
+        with self.assertRaises(MigrationError):
+            convert(self.source, self.uploads, self.template, target, include_private_chat_metadata=True)
+        self.assertFalse(target.exists())
+
+    def test_opt_in_refuses_idless_preview_with_unmapped_fields(self):
+        db = sqlite3.connect(self.source)
+        payload = json.loads(db.execute('SELECT chat FROM "chat" WHERE id="c1"').fetchone()[0])
+        payload['messages'] = [{'role': 'user', 'content': 'Question', 'user_id': 'u1'}]
+        db.execute('UPDATE "chat" SET chat=? WHERE id="c1"', (json.dumps(payload),))
+        db.commit(); db.close()
+        source_hash, template_hash = digest(self.source), digest(self.template)
+        report = preview(self.source, self.uploads, self.template, include_private_chat_metadata=True)
+        self.assertTrue(report['fatal'])
+        self.assertIn('chat_preview_message_mismatch', {entry['code'] for entry in report['blockers']})
+        target = self.root / 'unmapped-preview-fields'
+        with self.assertRaises(MigrationError):
+            convert(self.source, self.uploads, self.template, target, include_private_chat_metadata=True)
+        self.assertFalse(target.exists())
+        self.assertEqual((digest(self.source), digest(self.template)), (source_hash, template_hash))
 
     def test_opt_in_does_not_clear_unrelated_partial_cutover_blockers(self):
         add_second_private_chat(self.source)

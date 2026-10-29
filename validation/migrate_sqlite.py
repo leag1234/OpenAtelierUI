@@ -1296,13 +1296,8 @@ def _validate_chat(connection: sqlite3.Connection, report: dict, *, include_priv
                     continue
                 if field in message and not _is_empty(message[field]):
                     _block(report, "unsupported_message_field_" + field, 1)
-        for item in payload.get("messages", []):
-            if not isinstance(item, dict) or item.get("id") not in nodes:
-                _block(report, "chat_preview_message_mismatch", 1, fatal=True)
-                break
-            node = nodes[item["id"]]
-            if any(k in item and item[k] != node.get(k) for k in ("role", "content")):
-                _block(report, "chat_preview_message_mismatch", 1, fatal=True)
+        if _resolve_chat_preview_ids(payload, nodes, include_private_chat_metadata) is None:
+            _block(report, "chat_preview_message_mismatch", 1, fatal=True)
         for field in CHAT_UNSUPPORTED:
             if field in chat and not _is_empty(chat[field]):
                 # current_message_id is supported through chat.history.currentId.
@@ -1311,6 +1306,187 @@ def _validate_chat(connection: sqlite3.Connection, report: dict, *, include_priv
                 if include_private_chat_metadata and field == "last_read_at":
                     continue
                 _block(report, "unsupported_chat_field_" + field, 1, fatal=include_private_chat_metadata)
+
+
+def _resolve_chat_preview_ids(payload: dict, nodes: dict, allow_derived: bool) -> list[str] | None:
+    """Resolve id-less derived preview messages only by a unique selected graph match."""
+    flat = payload.get("messages", [])
+    if not isinstance(flat, list) or len(flat) > 10000:
+        return None
+    if not allow_derived or all(isinstance(item, dict) and isinstance(item.get("id"), str)
+                                and item["id"] in nodes for item in flat):
+        resolved = []
+        for item in flat:
+            if not isinstance(item, dict) or item.get("id") not in nodes:
+                return None
+            node = nodes[item["id"]]
+            if any(key in item and item[key] != node.get(key) for key in ("role", "content")):
+                return None
+            resolved.append(item["id"])
+        return resolved
+    if len(nodes) > 10000:
+        return None
+    current = payload.get("history", {}).get("currentId")
+    selected = []
+    cursor = current
+    seen = set()
+    while cursor is not None:
+        if cursor not in nodes or cursor in seen:
+            return None
+        seen.add(cursor)
+        selected.append(cursor)
+        cursor = nodes[cursor].get("parentId")
+    selected.reverse()
+    last_position = -1
+    resolved = []
+    explicit_ids = {item.get("id") for item in flat if isinstance(item, dict)
+                     and isinstance(item.get("id"), str) and item.get("id") in nodes}
+    preview_positions = {}
+    for position, node_id in enumerate(selected):
+        if node_id in explicit_ids:
+            continue
+        node = nodes[node_id]
+        try:
+            key = json.dumps([node.get("role"), node.get("content")], ensure_ascii=True,
+                             sort_keys=True, separators=(",", ":"))
+        except (TypeError, ValueError):
+            return None
+        preview_positions.setdefault(key, []).append((position, node_id))
+    for item in flat:
+        if not isinstance(item, dict):
+            return None
+        identity = item.get("id")
+        if isinstance(identity, str) and identity in nodes:
+            node = nodes[identity]
+            if any(key in item and item[key] != node.get(key) for key in ("role", "content")):
+                return None
+            resolved.append(identity)
+            continue
+        if not allow_derived or identity is not None or set(item) - {"role", "content"}:
+            return None
+        if not {"role", "content"}.issubset(item):
+            return None
+        try:
+            key = json.dumps([item["role"], item["content"]], ensure_ascii=True,
+                             sort_keys=True, separators=(",", ":"))
+        except (TypeError, ValueError):
+            return None
+        matches = preview_positions.get(key, [])
+        if len(matches) != 1 or matches[0][1] in resolved:
+            return None
+        position, match = matches[0]
+        if position <= last_position:
+            return None
+        last_position = position
+        resolved.append(match)
+    return resolved
+
+
+def _validate_chat_file_links(connection: sqlite3.Connection, report: dict, file_rows: list[dict]) -> None:
+    """Validate selected chat-file joins against private graph descriptors and file owners."""
+    tables = set(_tables(connection))
+    rows_count = _count(connection, "chat_file") if "chat_file" in tables else 0
+    expected = {"id", "user_id", "chat_id", "file_id", "message_id", "created_at", "updated_at"}
+    if rows_count and (set(_columns(connection, "chat_file")) != expected or rows_count > 10000):
+        _block(report, "private_chat_file_schema_or_limit_unsupported", 1, fatal=True)
+        return
+    if (not SOURCE_REQUIRED["chat"].issubset(_columns(connection, "chat"))
+            or not SOURCE_REQUIRED["file"].issubset(_columns(connection, "file"))):
+        _block(report, "private_chat_file_schema_or_limit_unsupported", 1, fatal=True)
+        return
+    chats = {row["id"]: row for row in connection.execute('SELECT id,user_id,chat FROM "chat"')}
+    files = {row["id"]: row for row in connection.execute('SELECT id,user_id,filename,hash FROM "file"')}
+    links = connection.execute('SELECT * FROM "chat_file" ORDER BY id').fetchall() if rows_count else []
+    link_ids, linked = set(), set()
+    valid = True
+    known_files = {row["id"] for row in file_rows}
+    for row in links:
+        link_id, owner, chat_id, file_id, message_id = (row[k] for k in ("id", "user_id", "chat_id", "file_id", "message_id"))
+        if (not _safe_chat_file_id(link_id) or not _safe_chat_file_id(owner)
+                or not _safe_chat_file_id(chat_id) or not _safe_chat_file_id(file_id)
+                or not _safe_chat_file_id(message_id)
+                or link_id in link_ids or type(row["created_at"]) is not int or row["created_at"] < 0
+                or type(row["updated_at"]) is not int or row["updated_at"] < 0):
+            valid = False
+            break
+        link_ids.add(link_id)
+        chat, file_row = chats.get(chat_id), files.get(file_id)
+        if (not isinstance(owner, str) or not chat or chat["user_id"] != owner
+                or not file_row or file_id not in known_files or file_row["user_id"] != owner
+                or not isinstance(message_id, str)):
+            valid = False
+            break
+        try:
+            payload = json.loads(chat["chat"]) if isinstance(chat["chat"], str) else chat["chat"]
+            node = payload["history"]["messages"][message_id]
+        except (ValueError, TypeError, KeyError):
+            valid = False
+            break
+        if not isinstance(node, dict) or node.get("role") != "user" or (chat_id, message_id, file_id) in linked:
+            valid = False
+            break
+        descriptors = node.get("files")
+        if not isinstance(descriptors, list) or len(descriptors) > 64:
+            valid = False
+            break
+        matches = []
+        for descriptor in descriptors:
+            if not isinstance(descriptor, dict):
+                continue
+            nested = descriptor.get("file")
+            if (isinstance(nested, dict) and nested.get("id") == file_id
+                    and descriptor.get("id") == file_id
+                    and descriptor.get("itemId") == message_id):
+                matches.append(nested)
+        if len(matches) != 1 or matches[0].get("user_id") != owner or matches[0].get("filename") != file_row["filename"]:
+            valid = False
+            break
+        if file_row["hash"] is not None and matches[0].get("hash") != file_row["hash"]:
+            valid = False
+            break
+        linked.add((chat_id, message_id, file_id))
+    if valid:
+        for chat_id, chat in chats.items():
+            try:
+                payload = json.loads(chat["chat"]) if isinstance(chat["chat"], str) else chat["chat"]
+                nodes = payload["history"]["messages"]
+            except (ValueError, TypeError, KeyError):
+                continue
+            for message_id, node in nodes.items():
+                if not isinstance(node, dict):
+                    continue
+                for descriptor in node.get("files", []) if isinstance(node.get("files", []), list) else []:
+                    nested = descriptor.get("file") if isinstance(descriptor, dict) else None
+                    file_id = nested.get("id") if isinstance(nested, dict) else None
+                    if file_id is not None and (chat_id, message_id, file_id) not in linked:
+                        valid = False
+                        break
+                if not valid:
+                    break
+            if not valid:
+                break
+    if not valid:
+        _block(report, "private_chat_file_reference_invalid_or_ambiguous", 1, fatal=True)
+        return
+    if links:
+        report["chat_file_mapping"] = {
+            "enabled": True,
+            "validated_link_count": len(links),
+            "target_representation": "same-owner embedded chat graph plus imported file row",
+            "source_join_row_ids_and_timestamps": "retained in exact source archive",
+        }
+        _block(report, "chat_file_join_metadata_archived_only", len(links),
+               detail="validated file references remain embedded in copied private chat graphs; source join-row identifiers and timestamps remain archive-only")
+
+
+def _safe_chat_file_id(value) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        encoded = value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError:
+        return False
+    return len(encoded) <= 256 and not any(ord(char) < 32 or 127 <= ord(char) < 160 for char in value)
 
 
 def _private_chat_metadata_overrides(connection: sqlite3.Connection, report: dict) -> dict[str, dict[str, str]]:
@@ -1429,8 +1605,14 @@ def _private_chat_metadata_overrides(connection: sqlite3.Connection, report: dic
         if not isinstance(flat, list):
             _block(report, "private_chat_metadata_flat_messages_invalid", 1, fatal=True)
             continue
-        for item in flat:
-            if not isinstance(item, dict) or item.get("id") not in nodes:
+        flat_ids = _resolve_chat_preview_ids(payload, nodes, allow_derived=True)
+        if flat_ids is None:
+            _block(report, "private_chat_metadata_flat_messages_invalid", 1, fatal=True)
+            continue
+        for item, node_id in zip(flat, flat_ids):
+            if item.get("id") is None:
+                item["id"] = node_id
+            if item.get("id") not in nodes:
                 _block(report, "private_chat_metadata_flat_messages_invalid", 1, fatal=True)
                 author_invalid = True
                 break
@@ -2069,6 +2251,7 @@ def _inspect_source(
                 count
                 and table not in APP_TABLES | MARKER_TABLES | {"config", "function_history", "access_grant", "group", "group_member", "tool_history", "model_history"}
                 and not (table == "api_key" and include_api_keys)
+                and not (table == "chat_file" and include_private_chat_metadata)
             ):
                 _block(report, "unsupported_nonempty_domain_" + table, count, fatal=True)
         for table in ("config", "function_history"):
@@ -2209,6 +2392,10 @@ def _inspect_source(
                 }
             else:
                 report["function_history"] = {"opt_in": True, "prepared": False, "revision_count": 0, "resource_count": 0}
+        file_rows = _source_file_rows(connection, upload_root, report) if valid_required.get("file") else []
+        report["uploads"] = [{key: row[key] for key in ("id", "filename", "bytes", "sha256")} for row in file_rows]
+        if include_private_chat_metadata:
+            _validate_chat_file_links(connection, report, file_rows)
         _validate_chat(connection, report, include_private_chat_metadata=include_private_chat_metadata)
         private_chat_overrides = (
             _private_chat_metadata_overrides(connection, report)
@@ -2216,8 +2403,6 @@ def _inspect_source(
                     and valid_required.get("chat_message") and valid_required.get("user"))
             else {}
         )
-        file_rows = _source_file_rows(connection, upload_root, report) if valid_required.get("file") else []
-        report["uploads"] = [{key: row[key] for key in ("id", "filename", "bytes", "sha256")} for row in file_rows]
         if source.stat().st_size + report.get("upload_bytes", 0) > MAX_INPUT_BYTES:
             _block(report, "dataset_too_large", source.stat().st_size + report.get("upload_bytes", 0), fatal=True)
         auth_ids = {row[0] for row in connection.execute('SELECT id FROM "auth"')} if valid_required.get("auth") else set()
@@ -2529,13 +2714,22 @@ def _copy_domains(
         user_mapping,
         {"api_key": api_key_overrides or {}},
     )
+    file_paths = {row["id"]: str(runtime_data_root / "uploads" / (row["id"] + "_" + row["filename"])) for row in upload_rows}
+    copied_chat = {}
+    for chat_id, values in (private_chat_overrides or {}).items():
+        payload = json.loads(values["chat"])
+        for node in payload["history"]["messages"].values():
+            for descriptor in node.get("files", []) if isinstance(node.get("files", []), list) else []:
+                nested = descriptor.get("file") if isinstance(descriptor, dict) else None
+                if isinstance(nested, dict) and nested.get("id") in file_paths and "path" in nested:
+                    nested["path"] = file_paths[nested["id"]]
+        copied_chat[chat_id] = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     counts["chat"] = _insert_rows(source, target, "chat", {
         "id": "id", "user_id": "user_id", "title": "title", "share_id": "share_id", "archived": "archived",
         "created_at": "created_at", "updated_at": "updated_at", "chat": "chat", "pinned": "pinned",
         "meta": "meta", "folder_id": "folder_id",
-    }, {"chat": {chat_id: value["chat"] for chat_id, value in (private_chat_overrides or {}).items()},
+    }, {"chat": copied_chat or {chat_id: value["chat"] for chat_id, value in (private_chat_overrides or {}).items()},
         "meta": {chat_id: value["meta"] for chat_id, value in (private_chat_overrides or {}).items()}})
-    file_paths = {row["id"]: str(runtime_data_root / "uploads" / (row["id"] + "_" + row["filename"])) for row in upload_rows}
     counts["file"] = _insert_rows(source, target, "file", {
         "id": "id", "user_id": "user_id", "filename": "filename", "meta": "meta", "created_at": "created_at",
         "hash": "hash", "data": "data", "updated_at": "updated_at", "path": None, "access_control": None,
