@@ -1,0 +1,7 @@
+# Saved status description compatibility
+
+The separated BSD helper authored `src/lib/utils/chatStatus.js` and the narrow `ResponseMessage.svelte` call-site correction under slice41. Inputs were the existing own BSD source and two captured synthetic serialized statuses: `queries_generated` with an empty `queries` array and `done: false`, and `sources_retrieved` with `count: 1` and `done: true`, both without `description`. No newer upstream implementation was supplied.
+
+Actual browser validation of the pre-correction core14 blanked the imported conversation and reported an `undefined.includes` JavaScript exception. The helper runtime edits were reviewed by the primary, then the helper turn was stopped before further changes after no completion/status response; primary integration adds regression tests and this provenance only, without editing the runtime implementation. This is recorded coordination history, not an independent legal audit or a strict clean-room guarantee.
+
+`validation/test_imported_status_rendering.mjs` uses the observed fixture and malformed optional description values, verifies explicit templates and the original data are retained, and checks bounded query/link refusal. Returned strings are still text: actual Svelte browser rendering must establish escaping. The existing status lifecycle suite separately checks Stop/Continue history behavior. Full frontend build and migrated conversation reopen/continue remain required integration evidence.
