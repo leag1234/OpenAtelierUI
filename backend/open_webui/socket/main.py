@@ -5,6 +5,9 @@ import os
 import sys
 import time
 from redis import asyncio as aioredis
+from fastapi import HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
+from starlette.requests import Request
 
 from open_webui.models.users import Users, UserNameResponse
 from open_webui.models.channels import Channels
@@ -22,7 +25,7 @@ from open_webui.env import (
     WEBSOCKET_SENTINEL_PORT,
     WEBSOCKET_SENTINEL_HOSTS,
 )
-from open_webui.utils.auth import decode_token
+from open_webui.utils.auth import get_current_user, get_verified_user
 from open_webui.socket.utils import RedisDict, RedisLock
 
 from open_webui.env import (
@@ -139,7 +142,7 @@ async def periodic_usage_pool_cleanup():
 
             if send_usage:
                 # Emit updated usage information after cleaning
-                await sio.emit("usage", {"models": get_models_in_use()})
+                await _emit_verified("usage", {"models": get_models_in_use()})
 
             await asyncio.sleep(TIMEOUT_DURATION)
     finally:
@@ -152,6 +155,100 @@ app = socketio.ASGIApp(
 )
 
 
+def _socket_user(token):
+    if not isinstance(token, str) or not token or token.startswith("sk-"):
+        return None
+    scope = {"type": "http", "http_version": "1.1", "method": "GET", "scheme": "http",
+             "path": "/ws/socket.io", "raw_path": b"/ws/socket.io", "query_string": b"",
+             "headers": [], "client": ("127.0.0.1", 0), "server": ("127.0.0.1", 80), "state": {}}
+    request = Request(scope)
+    credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+    try:
+        return get_verified_user(get_current_user(request, None, credentials))
+    except (HTTPException, AttributeError, TypeError, ValueError):
+        return None
+
+
+def _socket_token(auth):
+    token = auth.get("token") if isinstance(auth, dict) else None
+    return token if isinstance(token, str) and token and not token.startswith("sk-") else None
+
+
+def _session_identity(sid):
+    session = SESSION_POOL.get(sid)
+    if not isinstance(session, dict):
+        return None
+    user_id, role = session.get("id"), session.get("role")
+    sessions = USER_POOL.get(user_id, []) if isinstance(user_id, str) and user_id else []
+    if (not isinstance(user_id, str) or not user_id or not isinstance(role, str) or role not in {"user", "admin"}
+            or not isinstance(sessions, (list, tuple, set)) or sid not in sessions):
+        return None
+    return session
+
+
+async def _emit_verified(event, payload):
+    for sid, session in list(SESSION_POOL.items()):
+        user_id = session.get("id") if isinstance(session, dict) else None
+        sessions = USER_POOL.get(user_id, []) if isinstance(user_id, str) and user_id else []
+        if (isinstance(session, dict) and isinstance(session.get("role"), str) and session.get("role") in {"user", "admin"} and isinstance(sessions, (list, tuple, set))
+                and sid in sessions):
+            await sio.emit(event, payload, to=sid)
+
+
+async def _emit_user_list():
+    verified = []
+    for sid, session in list(SESSION_POOL.items()):
+        user_id = session.get("id") if isinstance(session, dict) else None
+        sessions = USER_POOL.get(user_id, []) if isinstance(user_id, str) and user_id else []
+        if (isinstance(session, dict) and isinstance(session.get("role"), str) and session.get("role") in {"user", "admin"} and isinstance(sessions, (list, tuple, set))
+                and sid in sessions):
+            verified.append((sid, user_id))
+    user_ids = list(dict.fromkeys(user_id for _, user_id in verified))
+    for sid, _ in verified:
+        await sio.emit("user-list", {"user_ids": user_ids}, to=sid)
+
+
+def _register_socket_user(sid, user):
+    if (not isinstance(getattr(user, "id", None), str) or not user.id
+            or not isinstance(getattr(user, "role", None), str) or user.role not in {"user", "admin"}):
+        return False
+    existing = SESSION_POOL.get(sid)
+    if isinstance(existing, dict) and existing.get("id") != user.id:
+        return False
+    SESSION_POOL[sid] = user.model_dump()
+    sessions = USER_POOL.get(user.id, [])
+    sessions = list(sessions) if isinstance(sessions, (list, tuple, set)) else []
+    if sid not in sessions:
+        sessions.append(sid)
+    USER_POOL[user.id] = sessions
+    return True
+
+
+async def disconnect_user_sockets(user_id):
+    sessions = USER_POOL.get(user_id, []) if isinstance(user_id, str) and user_id else []
+    if not isinstance(sessions, (list, tuple, set)):
+        sessions = []
+    owned = []
+    for sid in list(sessions):
+        session = SESSION_POOL.get(sid)
+        if isinstance(session, dict) and session.get("id") == user_id:
+            owned.append(sid)
+    owned = list(dict.fromkeys(owned))
+    for sid in owned:
+        del SESSION_POOL[sid]
+        for model_id, connections in list(USAGE_POOL.items()):
+            if isinstance(connections, dict) and sid in connections:
+                remaining = {key: value for key, value in connections.items() if key != sid}
+                if remaining:
+                    USAGE_POOL[model_id] = remaining
+                else:
+                    del USAGE_POOL[model_id]
+        await sio.disconnect(sid, namespace="/")
+    if user_id in USER_POOL:
+        del USER_POOL[user_id]
+    await _emit_user_list()
+
+
 def get_models_in_use():
     # List models that are currently in use
     models_in_use = list(USAGE_POOL.keys())
@@ -160,7 +257,11 @@ def get_models_in_use():
 
 @sio.on("usage")
 async def usage(sid, data):
-    model_id = data["model"]
+    if _session_identity(sid) is None or not isinstance(data, dict):
+        return
+    model_id = data.get("model")
+    if not isinstance(model_id, str) or not model_id:
+        return
     # Record the timestamp for the last update
     current_time = int(time.time())
 
@@ -171,50 +272,23 @@ async def usage(sid, data):
     }
 
     # Broadcast the usage data to all clients
-    await sio.emit("usage", {"models": get_models_in_use()})
+    await _emit_verified("usage", {"models": get_models_in_use()})
 
 
 @sio.event
 async def connect(sid, environ, auth):
-    user = None
-    if auth and "token" in auth:
-        data = decode_token(auth["token"])
-
-        if data is not None and "id" in data:
-            user = Users.get_user_by_id(data["id"])
-
-        if user:
-            SESSION_POOL[sid] = user.model_dump()
-            if user.id in USER_POOL:
-                USER_POOL[user.id] = USER_POOL[user.id] + [sid]
-            else:
-                USER_POOL[user.id] = [sid]
-
-            # print(f"user {user.name}({user.id}) connected with session ID {sid}")
-            await sio.emit("user-list", {"user_ids": list(USER_POOL.keys())})
-            await sio.emit("usage", {"models": get_models_in_use()})
+    user = _socket_user(_socket_token(auth))
+    if user and _register_socket_user(sid, user):
+        await _emit_user_list()
+        await _emit_verified("usage", {"models": get_models_in_use()})
 
 
 @sio.on("user-join")
 async def user_join(sid, data):
-
-    auth = data["auth"] if "auth" in data else None
-    if not auth or "token" not in auth:
+    auth = data.get("auth") if isinstance(data, dict) else None
+    user = _socket_user(_socket_token(auth))
+    if user is None or not _register_socket_user(sid, user):
         return
-
-    data = decode_token(auth["token"])
-    if data is None or "id" not in data:
-        return
-
-    user = Users.get_user_by_id(data["id"])
-    if not user:
-        return
-
-    SESSION_POOL[sid] = user.model_dump()
-    if user.id in USER_POOL:
-        USER_POOL[user.id] = USER_POOL[user.id] + [sid]
-    else:
-        USER_POOL[user.id] = [sid]
 
     # Join all the channels
     channels = Channels.get_channels_by_user_id(user.id)
@@ -224,22 +298,16 @@ async def user_join(sid, data):
 
     # print(f"user {user.name}({user.id}) connected with session ID {sid}")
 
-    await sio.emit("user-list", {"user_ids": list(USER_POOL.keys())})
+    await _emit_user_list()
+    await _emit_verified("usage", {"models": get_models_in_use()})
     return {"id": user.id, "name": user.name}
 
 
 @sio.on("join-channels")
 async def join_channel(sid, data):
-    auth = data["auth"] if "auth" in data else None
-    if not auth or "token" not in auth:
-        return
-
-    data = decode_token(auth["token"])
-    if data is None or "id" not in data:
-        return
-
-    user = Users.get_user_by_id(data["id"])
-    if not user:
+    auth = data.get("auth") if isinstance(data, dict) else None
+    user = _socket_user(_socket_token(auth))
+    if user is None or not _register_socket_user(sid, user):
         return
 
     # Join all the channels
@@ -251,7 +319,13 @@ async def join_channel(sid, data):
 
 @sio.on("channel-events")
 async def channel_events(sid, data):
-    room = f"channel:{data['channel_id']}"
+    if _session_identity(sid) is None or not isinstance(data, dict):
+        return
+    channel_id = data.get("channel_id")
+    event_data = data.get("data")
+    if not isinstance(channel_id, str) or not channel_id or not isinstance(event_data, dict):
+        return
+    room = f"channel:{channel_id}"
     participants = sio.manager.get_participants(
         namespace="/",
         room=room,
@@ -261,14 +335,13 @@ async def channel_events(sid, data):
     if sid not in sids:
         return
 
-    event_data = data["data"]
-    event_type = event_data["type"]
+    event_type = event_data.get("type")
 
     if event_type == "typing":
         await sio.emit(
             "channel-events",
             {
-                "channel_id": data["channel_id"],
+                "channel_id": channel_id,
                 "message_id": data.get("message_id", None),
                 "data": event_data,
                 "user": UserNameResponse(**SESSION_POOL[sid]).model_dump(),
@@ -279,7 +352,8 @@ async def channel_events(sid, data):
 
 @sio.on("user-list")
 async def user_list(sid):
-    await sio.emit("user-list", {"user_ids": list(USER_POOL.keys())})
+    if _session_identity(sid) is not None:
+        await _emit_user_list()
 
 
 @sio.event
@@ -288,13 +362,19 @@ async def disconnect(sid):
         user = SESSION_POOL[sid]
         del SESSION_POOL[sid]
 
-        user_id = user["id"]
-        USER_POOL[user_id] = [_sid for _sid in USER_POOL[user_id] if _sid != sid]
-
-        if len(USER_POOL[user_id]) == 0:
+        user_id = user.get("id") if isinstance(user, dict) else None
+        sessions = USER_POOL.get(user_id, []) if isinstance(user_id, str) else []
+        remaining = [item for item in sessions if item != sid] if isinstance(sessions, (list, tuple, set)) else []
+        if remaining:
+            USER_POOL[user_id] = remaining
+        elif isinstance(user_id, str) and user_id in USER_POOL:
             del USER_POOL[user_id]
-
-        await sio.emit("user-list", {"user_ids": list(USER_POOL.keys())})
+        for model_id, connections in list(USAGE_POOL.items()):
+            if isinstance(connections, dict) and sid in connections:
+                keep = {key: value for key, value in connections.items() if key != sid}
+                if keep: USAGE_POOL[model_id] = keep
+                else: del USAGE_POOL[model_id]
+        await _emit_user_list()
     else:
         pass
         # print(f"Unknown session ID {sid} disconnected")
@@ -317,7 +397,7 @@ def get_event_emitter(request_info, update_db=True):
             owned_sessions = set()
             for session_id in session_ids:
                 session = SESSION_POOL.get(session_id)
-                if isinstance(session, dict) and session.get("id") == user_id:
+                if _session_identity(session_id) is not None and session.get("id") == user_id:
                     owned_sessions.add(session_id)
             session_ids = owned_sessions
 
@@ -383,7 +463,7 @@ def get_event_call(request_info):
         ):
             raise ValueError("Callback session unavailable")
         session = SESSION_POOL.get(session_id)
-        if not isinstance(session, dict) or session.get("id") != user_id:
+        if _session_identity(session_id) is None or session.get("id") != user_id:
             raise ValueError("Callback session unavailable")
 
         event_name = (
@@ -421,11 +501,11 @@ def get_user_ids_from_room(room):
         room=room,
     )
 
-    active_user_ids = list(
-        set(
-            [SESSION_POOL.get(session_id[0])["id"] for session_id in active_session_ids]
-        )
-    )
+    active_user_ids = list(dict.fromkeys(
+        SESSION_POOL[session_id[0]]["id"]
+        for session_id in active_session_ids
+        if _session_identity(session_id[0]) is not None
+    ))
     return active_user_ids
 
 

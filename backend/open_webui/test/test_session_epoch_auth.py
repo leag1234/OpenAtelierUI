@@ -211,6 +211,10 @@ def _request(cookie=None, *, path="/api/v1/users/me", api_key_enabled=False):
     )
 
 
+async def _noop_disconnect_user_sockets(_user_id):
+    return None
+
+
 def _prepared_db(path: Path):
     source = path.with_name(path.stem + ".old-source.db")
     db = sqlite3.connect(source)
@@ -880,6 +884,7 @@ class SessionEpochAuthTests(unittest.TestCase):
             "Depends": lambda dependency: dependency,
             "get_admin_user": self.namespace["get_admin_user"],
             "revoke_user_session_epoch": self.namespace["revoke_user_session_epoch"],
+            "disconnect_user_sockets": _noop_disconnect_user_sockets,
         }
         exec(compile(ast.Module(body=[route_node], type_ignores=[]), str(path), "exec"), namespace)
         self.assertEqual(_route_decorator(path, "revoke_user_sessions"), "router.post('/{user_id}/sessions/revoke')")
