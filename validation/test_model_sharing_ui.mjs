@@ -16,13 +16,18 @@ test('model visibility maps only to private, public-read, or selected-user grant
 	]);
 });
 
-test('parser preserves known grants and refuses groups, write access, duplicates and unknown fields', () => {
+test('parser preserves known grants and refuses write access, duplicates and unknown fields', () => {
 	const parsed = sharing.parseModelReadGrants({ id: 'm1', access_grants: [
 		{ id: 7, resource_type: 'model', resource_id: 'm1', principal_type: 'user', principal_id: 'member-a', permission: 'read', created_at: 'now' }
 	] });
-	assert.deepEqual(parsed, { supported: true, visibility: 'users', userIds: ['member-a'] });
+	assert.deepEqual(parsed, {
+		supported: true,
+		visibility: 'users',
+		userIds: ['member-a'],
+		groupIds: [],
+		accessControl: { read: { group_ids: [], user_ids: [] }, write: { group_ids: [], user_ids: [] } }
+	});
 	for (const grant of [
-		{ principal_type: 'group', principal_id: 'g1', permission: 'read' },
 		{ principal_type: 'user', principal_id: 'u1', permission: 'write' },
 		{ principal_type: 'user', principal_id: 'u1', permission: 'read', extra: true }
 	]) assert.equal(sharing.parseModelReadGrants({ access_grants: [grant] }).supported, false);
@@ -33,12 +38,47 @@ test('parser preserves known grants and refuses groups, write access, duplicates
 	assert.equal(sharing.parseModelReadGrants({ access_grants: [
 		{ principal_type: 'user', principal_id: 'u1\nbad', permission: 'read' }
 	] }).supported, false);
+	assert.equal(sharing.parseModelReadGrants({ access_grants: [
+		{ principal_type: 'group', principal_id: '*', permission: 'read' }
+	] }).supported, false);
 	assert.deepEqual(sharing.parseModelReadGrants({ access_control: {} }), {
-		supported: true, visibility: 'private', userIds: []
+		supported: true, visibility: 'private', userIds: [], groupIds: [],
+		accessControl: { read: { group_ids: [], user_ids: [] }, write: { group_ids: [], user_ids: [] } }
 	});
 	assert.deepEqual(sharing.parseModelReadGrants({ access_control: null }), {
-		supported: true, visibility: 'public', userIds: []
+		supported: true, visibility: 'public', userIds: [], groupIds: [], accessControl: null
 	});
+});
+
+test('model group read grants stay named and round-trip; write grants remain unsupported', async () => {
+	const parsed = sharing.parseModelReadGrants({ id: 'm1', access_grants: [
+		{ principal_type: 'group', principal_id: 'workshop', permission: 'read', resource_type: 'model', resource_id: 'm1' },
+		{ principal_type: 'user', principal_id: 'user-a', permission: 'read', resource_type: 'model', resource_id: 'm1' }
+	] });
+	assert.equal(parsed.supported, true);
+	assert.deepEqual(parsed.groupIds, ['workshop']);
+	assert.deepEqual(sharing.buildReadGrantsFromParsed(parsed), [
+		{ principal_type: 'group', principal_id: 'workshop', permission: 'read' },
+		{ principal_type: 'user', principal_id: 'user-a', permission: 'read' }
+	]);
+	assert.deepEqual(sharing.buildModelAccessReadGrants(parsed.accessControl, 'user-a'), [
+		{ principal_type: 'group', principal_id: 'workshop', permission: 'read' },
+		{ principal_type: 'user', principal_id: 'user-a', permission: 'read' }
+	]);
+	const unchangedCalls = [];
+	const unchanged = sharing.buildReadGrantsFromParsed(parsed);
+	await sharing.saveModelWithSharing('m1', { name: 'Edited', access_grants: unchanged }, unchanged,
+		async () => ({ id: 'm1' }), async () => { unchangedCalls.push('access update'); return { id: 'm1' }; });
+	assert.deepEqual(unchangedCalls, []);
+	assert.throws(() => sharing.buildModelAccessReadGrants({
+		read: { group_ids: ['*'], user_ids: [] }, write: { group_ids: [], user_ids: [] }
+	}, ''));
+	assert.equal(sharing.parseModelReadGrants({ access_grants: [
+		{ principal_type: 'user', principal_id: 'user-a', permission: 'read' }
+	], access_control: { write: { group_ids: ['g1'], user_ids: [] } } }).supported, false);
+	assert.equal(sharing.parseResourceReadGrants({ access_grants: [
+		{ principal_type: 'group', principal_id: 'g1', permission: 'read', resource_type: 'tool' }
+	] }, 'tool').supported, false);
 });
 
 test('selected IDs reject duplicates, wildcard mixing, control characters and empty selection', () => {

@@ -9,7 +9,7 @@ test('tool editor reads explicit tool grants and refuses unsupported ACL forms',
 	assert.deepEqual(sharing.buildResourceReadGrants('private'), []);
 	assert.deepEqual(sharing.parseResourceReadGrants({ id: 'weather', access_grants: [
 		{ principal_type: 'user', principal_id: '*', permission: 'read', resource_type: 'tool', resource_id: 'weather' }
-	] }, 'tool'), { supported: true, visibility: 'public', userIds: [] });
+	] }, 'tool'), { supported: true, visibility: 'public', userIds: [], groupIds: [], accessControl: null });
 	assert.equal(sharing.parseResourceReadGrants({ id: 'weather', access_grants: [
 		{ principal_type: 'group', principal_id: 'g1', permission: 'read', resource_type: 'tool' }
 	] }, 'tool').supported, false);

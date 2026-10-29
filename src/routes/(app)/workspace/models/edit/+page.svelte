@@ -9,7 +9,7 @@
 	import { config, models, settings } from '$lib/stores';
 
 	import { getModelById, updateModelById, updateModelAccessById } from '$lib/apis/models';
-	import { buildModelReadGrants, parseModelReadGrants, saveModelWithSharing } from '$lib/apis/models/sharing.js';
+	import { buildReadGrantsFromParsed, parseModelReadGrants, saveModelWithSharing } from '$lib/apis/models/sharing.js';
 
 	import { getModels } from '$lib/apis';
 	import ModelEditor from '$lib/components/workspace/Models/ModelEditor.svelte';
@@ -34,7 +34,7 @@
 	const onSubmit = async (modelInfo) => {
 		const parsed = parseModelReadGrants(model);
 		const existingGrants = parsed.supported
-			? buildModelReadGrants(parsed.visibility, parsed.userIds.join('\n'))
+			? buildReadGrantsFromParsed(parsed)
 			: undefined;
 		const result = await saveModelWithSharing(
 			modelInfo.id,
