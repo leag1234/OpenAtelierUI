@@ -459,7 +459,7 @@
 					? 'max-w-full'
 					: 'max-w-6xl'} px-2.5 mx-auto inset-x-0"
 			>
-				<div class="w-full min-w-0 flex-1 max-w-none" style="max-width: none">
+				<div class="w-full min-w-0 flex-1 max-w-none" style="max-width: none !important">
 					<input
 						bind:this={filesInputElement}
 						bind:files={inputFiles}
