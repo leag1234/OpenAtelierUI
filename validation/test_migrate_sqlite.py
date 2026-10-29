@@ -129,7 +129,7 @@ def add_chat_file_link(path: Path, *, owner="u1", chat_id="c1", file_id="f1", me
     if descriptor:
         payload['history']['messages'][message_id]['files'] = [{
             'type': 'file', 'id': file_id, 'url': file_id, 'name': 'synthetic.html',
-            'status': 'uploaded', 'itemId': message_id, 'content_type': 'text/html',
+            'status': 'uploaded', 'itemId': 'upload-item-opaque', 'content_type': 'text/html',
             'file': {'id': file_id, 'user_id': owner, 'filename': 'synthetic.html',
                      'hash': None, 'path': '/app/data/uploads/f1_synthetic.html', 'data': {}, 'meta': {}},
         }]
@@ -453,6 +453,9 @@ class ImporterTests(unittest.TestCase):
 
     def test_opt_in_maps_validated_chat_file_and_derived_preview_without_source_edits(self):
         add_chat_file_link(self.source)
+        db = sqlite3.connect(self.source)
+        db.execute('UPDATE "file" SET hash=? WHERE id="f1"', (digest(self.uploads / 'f1_synthetic.html'),))
+        db.commit(); db.close()
         source_hash, template_hash = digest(self.source), digest(self.template)
         default = preview(self.source, self.uploads, self.template)
         default_codes = {entry['code'] for entry in default['blockers']}
@@ -473,9 +476,24 @@ class ImporterTests(unittest.TestCase):
         file_path = db.execute('SELECT path FROM "file" WHERE id="f1"').fetchone()[0]
         db.close()
         self.assertEqual(graph['messages'][0]['id'], 'q')
-        self.assertEqual(graph['history']['messages']['q']['files'][0]['file']['id'], 'f1')
-        self.assertEqual(graph['history']['messages']['q']['files'][0]['file']['path'], file_path)
+        descriptor = graph['history']['messages']['q']['files'][0]
+        self.assertEqual(descriptor['file']['id'], 'f1')
+        self.assertEqual(descriptor['itemId'], 'upload-item-opaque')
+        self.assertEqual(descriptor['file']['hash'], None)
+        self.assertEqual(descriptor['file']['path'], file_path)
         self.assertEqual(Path(file_path).name, 'f1_synthetic.html')
+
+    def test_opt_in_accepts_captured_hash_matching_verified_upload_bytes(self):
+        add_chat_file_link(self.source)
+        actual = digest(self.uploads / 'f1_synthetic.html')
+        db = sqlite3.connect(self.source)
+        payload = json.loads(db.execute('SELECT chat FROM "chat" WHERE id="c1"').fetchone()[0])
+        payload['history']['messages']['q']['files'][0]['file']['hash'] = actual
+        db.execute('UPDATE "chat" SET chat=? WHERE id="c1"', (json.dumps(payload),))
+        db.execute('UPDATE "file" SET hash=? WHERE id="f1"', (actual,))
+        db.commit(); db.close()
+        report = preview(self.source, self.uploads, self.template, include_private_chat_metadata=True)
+        self.assertFalse(report['fatal'])
 
     def test_opt_in_preserves_legacy_embedded_attachment_without_chat_file_table(self):
         add_chat_file_link(self.source)
@@ -500,7 +518,9 @@ class ImporterTests(unittest.TestCase):
 
     def test_opt_in_chat_file_links_reject_foreign_missing_and_ambiguous_references(self):
         cases = ('foreign_owner', 'missing_chat', 'missing_file', 'missing_message', 'missing_descriptor',
-                 'missing_join', 'foreign_descriptor_owner', 'duplicate_link', 'invalid_timestamp')
+                 'missing_join', 'foreign_descriptor_owner', 'descriptor_file_id_mismatch',
+                 'nested_hash_conflict', 'row_hash_conflict', 'nested_path_conflict',
+                 'duplicate_link', 'invalid_timestamp')
         for case in cases:
             with self.subTest(case=case):
                 self.tearDown()
@@ -526,6 +546,19 @@ class ImporterTests(unittest.TestCase):
                     payload = json.loads(raw)
                     payload['history']['messages']['q']['files'][0]['file']['user_id'] = 'foreign'
                     db.execute('UPDATE "chat" SET chat=? WHERE id="c1"', (json.dumps(payload),))
+                elif case in {'descriptor_file_id_mismatch', 'nested_hash_conflict', 'nested_path_conflict'}:
+                    raw = db.execute('SELECT chat FROM "chat" WHERE id="c1"').fetchone()[0]
+                    payload = json.loads(raw)
+                    nested = payload['history']['messages']['q']['files'][0]['file']
+                    if case == 'descriptor_file_id_mismatch':
+                        payload['history']['messages']['q']['files'][0]['id'] = 'other-file'
+                    elif case == 'nested_hash_conflict':
+                        nested['hash'] = 'not-the-upload-digest'
+                    else:
+                        nested['path'] = '/other-owner/file'
+                    db.execute('UPDATE "chat" SET chat=? WHERE id="c1"', (json.dumps(payload),))
+                elif case == 'row_hash_conflict':
+                    db.execute('UPDATE "file" SET hash="not-the-upload-digest" WHERE id="f1"')
                 elif case == 'duplicate_link':
                     db.execute('INSERT INTO chat_file SELECT "link2",user_id,chat_id,file_id,message_id,created_at,updated_at FROM chat_file')
                 elif case == 'invalid_timestamp':

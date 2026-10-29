@@ -1396,11 +1396,12 @@ def _validate_chat_file_links(connection: sqlite3.Connection, report: dict, file
         _block(report, "private_chat_file_schema_or_limit_unsupported", 1, fatal=True)
         return
     chats = {row["id"]: row for row in connection.execute('SELECT id,user_id,chat FROM "chat"')}
-    files = {row["id"]: row for row in connection.execute('SELECT id,user_id,filename,hash FROM "file"')}
+    files = {row["id"]: row for row in connection.execute('SELECT id,user_id,filename,hash,path FROM "file"')}
     links = connection.execute('SELECT * FROM "chat_file" ORDER BY id').fetchall() if rows_count else []
     link_ids, linked = set(), set()
     valid = True
-    known_files = {row["id"] for row in file_rows}
+    upload_by_id = {row["id"]: row for row in file_rows}
+    known_files = set(upload_by_id)
     for row in links:
         link_id, owner, chat_id, file_id, message_id = (row[k] for k in ("id", "user_id", "chat_id", "file_id", "message_id"))
         if (not _safe_chat_file_id(link_id) or not _safe_chat_file_id(owner)
@@ -1436,13 +1437,15 @@ def _validate_chat_file_links(connection: sqlite3.Connection, report: dict, file
                 continue
             nested = descriptor.get("file")
             if (isinstance(nested, dict) and nested.get("id") == file_id
-                    and descriptor.get("id") == file_id
-                    and descriptor.get("itemId") == message_id):
+                    and descriptor.get("id") == file_id):
                 matches.append(nested)
         if len(matches) != 1 or matches[0].get("user_id") != owner or matches[0].get("filename") != file_row["filename"]:
             valid = False
             break
-        if file_row["hash"] is not None and matches[0].get("hash") != file_row["hash"]:
+        actual_hash = upload_by_id[file_id]["sha256"]
+        if ((file_row["hash"] is not None and file_row["hash"] != actual_hash)
+                or (matches[0].get("hash") is not None and matches[0].get("hash") != actual_hash)
+                or (matches[0].get("path") is not None and matches[0].get("path") != file_row["path"])):
             valid = False
             break
         linked.add((chat_id, message_id, file_id))
