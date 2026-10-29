@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -12,7 +13,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from migrate_sqlite import MigrationError, convert, preview
+from migrate_sqlite import MigrationError, _secure_output_tree, convert, preview
 from test_api_key_configuration_import import SETTINGS as API_KEY_SETTINGS
 from test_api_key_configuration_import import add_api_key_settings
 from test_migrate_sqlite import add_named_tool_configuration, build_source, build_template, digest
@@ -147,6 +148,59 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
         self.assertEqual(config["openai"]["api_configs"], {})
         self.assertEqual(config["version"], 0)
         self.assertEqual(digest(self.source), before)
+
+    def test_selected_conversion_outputs_are_private_without_changing_inputs(self):
+        add_openai_settings(self.source)
+        originals = [self.source, self.template, self.uploads, self.uploads / "f1_synthetic.html"]
+        before = {
+            path: (path.stat().st_mode & 0o777, digest(path) if path.is_file() else None)
+            for path in originals
+        }
+        target = self.root / "private-output"
+        old_umask = os.umask(0o022)
+        try:
+            report = convert(
+                self.source, self.uploads, self.template, target,
+                include_openai_configuration=True,
+            )
+        finally:
+            os.umask(old_umask)
+
+        archive = Path(report["archive"]["path"])
+        for output_root in (target, archive):
+            self.assertEqual(output_root.stat().st_mode & 0o777, 0o700)
+            for path in output_root.rglob("*"):
+                mode = path.lstat().st_mode & 0o777
+                self.assertEqual(mode, 0o700 if path.is_dir() else 0o600, str(path))
+        self.assertEqual(report["status"], "prepared_for_independent_review")
+        self.assertTrue(any("No cutover or activation" in item for item in report["limitations"]))
+        self.assertEqual(self.target_config(target)["openai"], {
+            "enable": True,
+            "api_base_urls": OPENAI_SETTINGS["openai.api_base_urls"],
+            "api_keys": [SYNTHETIC_API_KEY],
+            "api_configs": {},
+        })
+        for path in originals:
+            self.assertEqual(path.stat().st_mode & 0o777, before[path][0])
+            self.assertEqual(digest(path) if path.is_file() else None, before[path][1])
+
+    def test_output_permission_guard_refuses_symlink_and_fifo(self):
+        root = self.root / "unsafe-output"
+        root.mkdir(mode=0o700)
+        outside = self.root / "outside.txt"
+        outside.write_text("unchanged", encoding="utf-8")
+        (root / "link").symlink_to(outside)
+        with self.assertRaises(MigrationError) as caught:
+            _secure_output_tree(root)
+        self.assertEqual(caught.exception.code, "unsafe_output_artifact")
+        self.assertEqual(outside.read_text(encoding="utf-8"), "unchanged")
+        self.assertTrue((root / "link").is_symlink())
+
+        (root / "link").unlink()
+        os.mkfifo(root / "pipe")
+        with self.assertRaises(MigrationError) as caught:
+            _secure_output_tree(root)
+        self.assertEqual(caught.exception.code, "unsafe_output_artifact")
 
     def test_false_enablement_and_selected_mapping_preserve_exact_values(self):
         values = dict(OPENAI_SETTINGS)

@@ -23,6 +23,7 @@ import re
 import resource
 import shutil
 import sqlite3
+import stat
 import sys
 import tempfile
 import time
@@ -2586,6 +2587,24 @@ def _dir_size(root: Path) -> int:
     return sum(path.stat().st_size for path in root.rglob("*") if path.is_file())
 
 
+def _secure_output_tree(root: Path) -> None:
+    def private_directory(path: Path) -> None:
+        if not stat.S_ISDIR(path.lstat().st_mode):
+            raise MigrationError("unsafe_output_artifact", "new output contains a symlink or non-directory")
+        os.chmod(path, 0o700)
+
+    private_directory(root)
+    for directory, subdirs, files in os.walk(root, followlinks=False):
+        parent = Path(directory)
+        for name in subdirs:
+            private_directory(parent / name)
+        for name in files:
+            path = parent / name
+            if not stat.S_ISREG(path.lstat().st_mode):
+                raise MigrationError("unsafe_output_artifact", "new output contains a symlink or non-regular file")
+            os.chmod(path, 0o600)
+
+
 def convert(
     source_db: str | Path,
     uploads_root: str | Path,
@@ -2795,6 +2814,8 @@ def convert(
             raise MigrationError("target_already_exists", "new target appeared during conversion; refusing overwrite", report)
         if archive_final.exists():
             raise MigrationError("archive_target_already_exists", "source archive destination appeared during conversion", report)
+        _secure_output_tree(archive_attempt)
+        _secure_output_tree(attempt)
         os.replace(archive_attempt, archive_final)
         os.replace(attempt, target)
         return report
@@ -2804,7 +2825,12 @@ def convert(
             (attempt / "failure.json").write_text(json.dumps(failure, sort_keys=True, indent=2) + "\n", encoding="utf-8")
             if archive_attempt.exists():
                 (archive_attempt / "failure.json").write_text(json.dumps(failure, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+            for retained in (attempt, archive_attempt):
+                if retained.exists():
+                    _secure_output_tree(retained)
         except OSError:
+            pass
+        except MigrationError:
             pass
         if isinstance(error, MigrationError):
             error.report = {**report, **failure, "failed_attempt_dir": str(attempt)}
