@@ -453,7 +453,7 @@
 			</div>
 		</div>
 
-		<div class="{transparentBackground ? 'bg-transparent' : 'bg-white dark:bg-gray-900'} ">
+		<div id="message-input-container" class="w-full min-w-0 {transparentBackground ? 'bg-transparent' : 'bg-white dark:bg-gray-900'} ">
 			<div
 				class="{($settings?.widescreenMode ?? null)
 					? 'max-w-full'
