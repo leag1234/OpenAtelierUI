@@ -2073,7 +2073,12 @@ def _inspect_source(
         for table in ("config", "function_history"):
             if table in tables and _count(connection, table) and not (
                 table == "config"
-                and (include_named_tool_configuration or include_api_key_configuration or include_user_permissions)
+                and (
+                    include_named_tool_configuration
+                    or include_api_key_configuration
+                    or include_openai_configuration
+                    or include_user_permissions
+                )
             ) and not (table == "function_history" and include_function_history):
                 _block(report, "unsupported_nonempty_domain_" + table, _count(connection, table), detail="full bytes are retained in the source archive; old target behavior is not implemented")
         valid_required = {name: name in tables and required.issubset(_columns(connection, name)) for name, required in SOURCE_REQUIRED.items()}

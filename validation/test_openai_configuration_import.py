@@ -102,6 +102,10 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
             "openai_configuration_prototype",
             {item["code"] for item in preview_report["blockers"]},
         )
+        self.assertNotIn(
+            "unsupported_nonempty_domain_config",
+            {item["code"] for item in preview_report["blockers"]},
+        )
         self.assertFalse(preview_report["cutover_eligible"])
         self.assertNotIn(SYNTHETIC_API_KEY, preview_result.stdout)
 
@@ -209,6 +213,10 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
         )
         self.assertFalse(report["fatal"])
         self.assertEqual(report["openai_configuration"]["selected_key_count"], 4)
+        self.assertNotIn(
+            "unsupported_nonempty_domain_config",
+            {item["code"] for item in report["blockers"]},
+        )
         for private_value in (SYNTHETIC_API_KEY, "community-qwen", model_ids[0], "sk-second-synthetic-key"):
             self.assertNotIn(private_value, json.dumps(report))
 
@@ -420,6 +428,10 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
         )
         self.assertFalse(report["fatal"])
         self.assertEqual(report["openai_configuration"]["remaining_config_rows"], 1)
+        blocker = next(
+            item for item in report["blockers"] if item["code"] == "unsupported_nonempty_domain_config"
+        )
+        self.assertEqual(blocker["count"], 1)
         self.assertNotIn(SYNTHETIC_API_KEY, json.dumps(report))
 
     def test_actual_cli_refuses_unsupported_key_without_echoing_it(self):
