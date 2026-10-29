@@ -32,7 +32,7 @@ def _python(path):
     check = subprocess.run([str(path), "-c", "import sys; raise SystemExit(0 if (3, 11) <= sys.version_info[:2] < (3, 13) else 1)"], capture_output=True, timeout=10)
     if check.returncode:
         raise shared.InstanceError("unsupported_python", "virtual environment must use Python 3.11 or 3.12")
-    return str(path.resolve())
+    return os.path.abspath(path)
 
 
 def _available(port):

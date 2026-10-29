@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
-import contextlib, io, json, socket, sqlite3, subprocess, sys, tempfile, unittest
+import contextlib, io, json, os, socket, sqlite3, subprocess, sys, tempfile, unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -55,6 +55,7 @@ class NativeLauncherTests(unittest.TestCase):
         with mock.patch.object(native, "_available"), mock.patch.object(native.subprocess, "run", side_effect=run), contextlib.redirect_stdout(output):
             self.assertEqual(native.start(self.args), 0)
         command, options = calls[-1]
+        self.assertEqual(command[0], str(self.python.absolute()))
         self.assertIn("--host", command); self.assertEqual(command[command.index("--host") + 1], "127.0.0.1")
         self.assertEqual(command[-1], "1"); self.assertEqual(options["cwd"], self.backend)
         env = options["env"]
@@ -112,6 +113,11 @@ class NativeLauncherTests(unittest.TestCase):
         with mock.patch.object(native.socket, "socket", return_value=Busy()) as factory:
             with self.assertRaises(shared.InstanceError): native._available(38171)
         self.assertEqual(factory.return_value.address, ("127.0.0.1", 38171)); self.assertTrue(factory.return_value.closed)
+
+    def test_python_relative_path_keeps_venv_symlink(self):
+        relative = os.path.relpath(self.python, Path.cwd())
+        with mock.patch.object(native.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
+            self.assertEqual(native._python(relative), os.path.abspath(relative))
 
 
 if __name__ == "__main__": unittest.main()
