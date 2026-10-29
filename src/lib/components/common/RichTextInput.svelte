@@ -35,6 +35,7 @@
 
 	export let className = 'input-prose';
 	export let placeholder = 'Type here...';
+	export let ariaLabel = '';
 	export let value = '';
 	export let id = '';
 
@@ -227,7 +228,7 @@
 				}
 			},
 			editorProps: {
-				attributes: { id },
+				attributes: { id, ...(ariaLabel ? { 'aria-label': ariaLabel } : {}) },
 				handleDOMEvents: {
 					compositionstart: (view, event) => {
 						oncompositionstart(event);
