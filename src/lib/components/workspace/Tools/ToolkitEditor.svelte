@@ -10,7 +10,8 @@
 	import ChevronLeft from '$lib/components/icons/ChevronLeft.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import LockClosed from '$lib/components/icons/LockClosed.svelte';
-	import { buildResourceReadGrants, parseResourceReadGrants } from '$lib/apis/models/sharing.js';
+	import { buildResourceAccessReadGrants, parseResourceReadGrants } from '$lib/apis/models/sharing.js';
+	import AccessControl from '../common/AccessControl.svelte';
 	import { user } from '$lib/stores';
 
 	let formElement = null;
@@ -33,20 +34,21 @@
 	export let existingTool = null;
 
 	let _content = '';
-	let sharingVisibility = 'private';
-	let originalSharingVisibility = 'private';
+	let sharingAccessControl = { read: { group_ids: [], user_ids: [] }, write: { group_ids: [], user_ids: [] } };
+	let originalPublicSharing = false;
 	let sharingUserIds = '';
 	let sharingSupported = true;
 	let sharingMessage = '';
 	$: allowPublicSharing = $user?.permissions?.sharing?.public_tools || $user?.role === 'admin';
+	$: allowPublicControl = allowPublicSharing || originalPublicSharing;
 
 	onMount(() => {
-		const parsed = parseResourceReadGrants(existingTool ?? { id, access_grants: [] }, 'tool');
+		const parsed = parseResourceReadGrants(existingTool ?? { id, access_grants: [] }, 'tool', true);
 		sharingSupported = parsed.supported;
 		sharingMessage = parsed.supported ? '' : parsed.reason;
 		if (parsed.supported) {
-			sharingVisibility = parsed.visibility;
-			originalSharingVisibility = parsed.visibility;
+			sharingAccessControl = parsed.accessControl;
+			originalPublicSharing = parsed.visibility === 'public';
 			sharingUserIds = parsed.userIds.join('\n');
 		}
 	});
@@ -176,10 +178,10 @@ class Tools:
 		try {
 			const data = { id, name, meta, content };
 			if (sharingSupported) {
-				if (sharingVisibility === 'public' && !allowPublicSharing && originalSharingVisibility !== 'public') {
+				if (sharingAccessControl === null && !allowPublicSharing && !originalPublicSharing) {
 					throw new Error('Public tool access is not enabled for this account.');
 				}
-				data.access_grants = buildResourceReadGrants(sharingVisibility, sharingUserIds);
+				data.access_grants = buildResourceAccessReadGrants(sharingAccessControl, sharingUserIds);
 			}
 			await onSave(data);
 		} catch (error) {
@@ -273,19 +275,15 @@ class Tools:
 					{#if showAccessPanel}
 						<div id="tool-sharing-panel" class="my-2 rounded-lg bg-gray-50 p-3 text-sm dark:bg-gray-950">
 							{#if sharingSupported}
-								<label class="block space-y-1">
-									<span>Who can read this tool?</span>
-									<select class="w-full rounded-lg bg-transparent p-2" bind:value={sharingVisibility}>
-										<option value="private">Private</option>
-										<option value="public" disabled={!allowPublicSharing && originalSharingVisibility !== 'public'}>Public read access</option>
-										<option value="users">Selected users</option>
-									</select>
-								</label>
-								{#if sharingVisibility === 'users'}
-									<label class="mt-2 block space-y-1">
-										<span>User IDs, one per line</span>
-										<textarea class="w-full rounded-lg bg-transparent p-2" rows="3" bind:value={sharingUserIds} />
-									</label>
+								<AccessControl bind:accessControl={sharingAccessControl} accessRoles={['read']} allowPublic={allowPublicControl} />
+								{#if sharingAccessControl !== null}
+									<details class="mt-2">
+										<summary class="cursor-pointer">Additional user IDs (advanced)</summary>
+										<label class="mt-2 block space-y-1">
+											<span>User IDs, one per line</span>
+											<textarea class="w-full rounded-lg bg-transparent p-2" rows="3" bind:value={sharingUserIds} />
+										</label>
+									</details>
 								{/if}
 								<p class="mt-2 text-xs text-gray-500">Read access only. Code execution rules are unchanged.</p>
 							{:else}

@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { getToolById, getTools, updateToolById, updateToolAccessById } from '$lib/apis/tools';
-	import { buildResourceReadGrants, parseResourceReadGrants, saveResourceWithSharing } from '$lib/apis/models/sharing.js';
+	import { buildReadGrantsFromParsed, parseResourceReadGrants, saveResourceWithSharing } from '$lib/apis/models/sharing.js';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import ToolkitEditor from '$lib/components/workspace/Tools/ToolkitEditor.svelte';
 	import { WEBUI_VERSION } from '$lib/constants';
@@ -33,9 +33,9 @@
 			return;
 		}
 
-		const parsed = parseResourceReadGrants(tool, 'tool');
+		const parsed = parseResourceReadGrants(tool, 'tool', true);
 		const existingGrants = parsed.supported
-			? buildResourceReadGrants(parsed.visibility, parsed.userIds.join('\n'))
+			? buildReadGrantsFromParsed(parsed)
 			: undefined;
 		const result = await saveResourceWithSharing(data.id, data, existingGrants,
 			(id, details) => updateToolById(localStorage.token, id, details),
@@ -51,6 +51,7 @@
 		}
 
 		if (result.model) {
+			tool = result.model;
 			toast.success($i18n.t('Tool updated successfully'));
 			tools.set(await getTools(localStorage.token));
 

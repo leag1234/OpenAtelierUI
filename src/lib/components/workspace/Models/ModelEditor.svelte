@@ -563,15 +563,20 @@
 										accessRoles={['read']}
 										allowPublic={allowPublicControl}
 									/>
-									<label class="block space-y-1">
-										<span>Additional user IDs (advanced), one per line</span>
-										<textarea
-											class="w-full rounded-lg bg-transparent p-2 text-sm"
-											rows="3"
-											bind:value={sharingUserIds}
-											placeholder="user-id"
-										/>
-									</label>
+									{#if sharingAccessControl !== null}
+										<details class="mt-2">
+											<summary class="cursor-pointer">Additional user IDs (advanced)</summary>
+											<label class="mt-2 block space-y-1">
+												<span>User IDs, one per line</span>
+												<textarea
+													class="w-full rounded-lg bg-transparent p-2 text-sm"
+													rows="3"
+													bind:value={sharingUserIds}
+													placeholder="user-id"
+												/>
+											</label>
+										</details>
+									{/if}
 									<p class="text-xs text-gray-500">Sharing grants read access only.</p>
 								</div>
 							{:else}

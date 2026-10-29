@@ -64,14 +64,11 @@ const validIds = (ids) => Array.isArray(ids) && ids.every((id) => typeof id === 
 	id.length > 0 && id.length <= 256 && !/[\u0000-\u001f\u007f-\u009f]/u.test(id)) && new Set(ids).size === ids.length;
 
 export const buildModelAccessReadGrants = (accessControl, userIdsText = '') => {
+	if (accessControl === null) return [{ principal_type: 'user', principal_id: '*', permission: 'read' }];
 	const userIds = typeof userIdsText === 'string'
 		? userIdsText.split(/\r?\n/).map((id) => id.trim()).filter(Boolean)
 		: null;
 	if (!validIds(userIds ?? []) || userIds?.includes('*')) throw new Error('Enter distinct user IDs, one per line.');
-	if (accessControl === null) {
-		if (userIds.length) throw new Error('Public access cannot be combined with selected users.');
-		return [{ principal_type: 'user', principal_id: '*', permission: 'read' }];
-	}
 	const read = accessControl?.read;
 	const write = accessControl?.write;
 	const groupIds = read?.group_ids;
@@ -87,6 +84,8 @@ export const buildModelAccessReadGrants = (accessControl, userIdsText = '') => {
 		...userIds.map((principal_id) => ({ principal_type: 'user', principal_id, permission: 'read' }))
 	];
 };
+
+export const buildResourceAccessReadGrants = buildModelAccessReadGrants;
 
 export const buildReadGrantsFromParsed = (parsed) => parsed.visibility === 'public'
 	? [{ principal_type: 'user', principal_id: '*', permission: 'read' }]
@@ -110,15 +109,17 @@ export const saveResourceWithSharing = async (id, info, existingGrants, updateDe
 	let saved;
 	try { saved = await updateDetails(id, details); } catch { return { status: 'details_failed' }; }
 	if (!saved) return { status: 'details_failed' };
+	let updated = saved;
 	if (Array.isArray(access_grants) && !sameModelReadGrants(access_grants, existingGrants)) {
 		try {
 			const accessResult = await updateAccess(id, access_grants);
 			if (!accessResult) return { status: 'sharing_failed', model: saved };
+			updated = accessResult;
 		} catch {
 			return { status: 'sharing_failed', model: saved };
 		}
 	}
-	return { status: 'saved', model: saved };
+	return { status: 'saved', model: updated };
 };
 
 export const saveModelWithSharing = saveResourceWithSharing;
