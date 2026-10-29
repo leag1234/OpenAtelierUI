@@ -2179,7 +2179,7 @@
 							</div>
 						</div>
 
-						<div class=" pb-[1rem]">
+						<div id="message-input-container" class=" pb-[1rem]">
 							<MessageInput
 								{history}
 								{taskIds}
