@@ -123,9 +123,14 @@ class OpenAtelierUIInstanceTests(unittest.TestCase):
         original_db = (self.source / "webui.db").read_bytes()
         with self._patch():
             result = instance.start(self.args)
-            self.assertEqual(instance.operate(self.args.workspace, "status")["status"], "running")
+            self.assertEqual(result["url"], f"http://127.0.0.1:{self.args.host_port}")
+            status = instance.operate(self.args.workspace, "status")
+            self.assertEqual(status["status"], "running")
+            self.assertEqual(status["url"], result["url"])
             self.assertEqual(instance.operate(self.args.workspace, "stop")["status"], "stopped")
-            self.assertEqual(instance.operate(self.args.workspace, "restart")["status"], "running")
+            restarted = instance.operate(self.args.workspace, "restart")
+            self.assertEqual(restarted["status"], "running")
+            self.assertEqual(restarted["url"], result["url"])
         workspace = Path(self.args.workspace)
         manifest = json.loads((workspace / "instance.json").read_text())
         self.assertEqual(result["image_id"], IMAGE)
@@ -282,6 +287,7 @@ class OpenAtelierUIInstanceTests(unittest.TestCase):
             self.assertEqual(instance.main(argv), 0)
         self.assertNotIn("synthetic-secret-not-for-output", output.getvalue())
         self.assertIn('"status": "running"', output.getvalue())
+        self.assertIn('"url": "http://127.0.0.1:18080"', output.getvalue())
         from validation import atlas_instance as legacy
         self.assertIs(legacy.main, instance.main)
 

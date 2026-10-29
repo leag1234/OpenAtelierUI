@@ -226,6 +226,12 @@ def _health(host_port, timeout):
     raise InstanceError("health_timeout", "application did not become healthy within the bounded wait")
 
 
+def _loopback_url(host_port):
+    if type(host_port) is not int or not 1 <= host_port <= 65535:
+        raise InstanceError("manifest_invalid", "lifecycle host port is invalid")
+    return f"http://127.0.0.1:{host_port}"
+
+
 def _stop_failed(workspace, manifest):
     try:
         owned = _container(manifest)
@@ -327,7 +333,8 @@ def start(args):
         _container(manifest)
         _health(args.host_port, args.health_timeout)
         manifest["state"] = "running"; _save_manifest(workspace, manifest)
-        return {"status": "running", "workspace": str(workspace.resolve()), "image_id": image_id,
+        return {"status": "running", "url": _loopback_url(args.host_port),
+                "workspace": str(workspace.resolve()), "image_id": image_id,
                 "profile_fields_enabled": profile_fields_enabled}
     except Exception: _stop_failed(workspace, manifest); raise
 
@@ -337,7 +344,7 @@ def operate(workspace, action):
     data = _container(manifest)
     state = data.get("State", {}).get("Status", "unknown")
     cid = data.get("Id")
-    if action == "status": return {"status": state, "image_id": manifest["image_id"], "workspace": str(root)}
+    if action == "status": return {"status": state, "url": _loopback_url(manifest["host_port"]), "image_id": manifest["image_id"], "workspace": str(root)}
     if action == "stop":
         if state == "running": _run(["docker", "stop", "--time", "10", cid], timeout=20)
         manifest["state"] = "stopped"; _save_manifest(root, manifest)
@@ -349,7 +356,7 @@ def operate(workspace, action):
             _health(manifest["host_port"], manifest.get("health_timeout", 240))
         except Exception: _stop_failed(root, manifest); raise
         manifest["state"] = "running"; _save_manifest(root, manifest)
-        return {"status": "running", "workspace": str(root)}
+        return {"status": "running", "url": _loopback_url(manifest["host_port"]), "workspace": str(root)}
     raise InstanceError("unknown_action", "unsupported lifecycle action")
 
 
