@@ -1172,6 +1172,9 @@ async def chat_completion(
                     status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found"
                 )
 
+    if "files" in form_data:
+        form_data["files"] = retrieval.authorize_chat_files(form_data["files"], user)
+
     if not request.app.state.MODELS:
         await get_all_models(request, user=user)
 

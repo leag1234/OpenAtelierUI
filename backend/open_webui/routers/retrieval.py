@@ -125,6 +125,107 @@ def _require_collection(name: str, user, permission: str = "read"):
     if not _authorized_collection(name, user, permission):
         raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
 
+
+def authorize_chat_files(files, user):
+    """Validate client resource references and replace persisted file claims."""
+    if files is None:
+        return None
+    if not isinstance(files, list) or len(files) > 64:
+        raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+    validated, inline_bytes = [], 0
+    def content_size(value):
+        try:
+            return len(value.encode("utf-8"))
+        except UnicodeError:
+            raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+    for original in files:
+        if not isinstance(original, dict):
+            raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+        item = dict(original)
+        kind = item.get("type")
+        names = []
+        single = item.get("collection_name")
+        many = item.get("collection_names", [])
+        if single is not None:
+            if not isinstance(single, str) or not single:
+                raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+            names.append(single)
+        if not isinstance(many, list) or len(many) > 64 or any(not isinstance(n, str) or not n for n in many):
+            raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+        names.extend(many)
+        if kind == "collection" and "id" in item:
+            if not isinstance(item["id"], str) or not item["id"]:
+                raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+            names.append(item["id"])
+
+        nested = item.get("file")
+        if "file" in item and not isinstance(nested, dict):
+            raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+        nested_id = nested.get("id") if isinstance(nested, dict) else None
+        root_id = item.get("id") if kind in ("file", "image") or not kind else None
+        if root_id is not None and not isinstance(root_id, str):
+            raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+        if nested_id is not None and not isinstance(nested_id, str):
+            raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+        if root_id is not None and (not root_id or (nested_id is not None and root_id != nested_id)):
+            raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+        file_id = nested_id or root_id
+        persisted = None
+        if file_id:
+            persisted = Files.get_file_by_id(file_id)
+            if not persisted or not _authorized_collection(f"file-{file_id}", user):
+                raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+            names.append(f"file-{file_id}")
+        if kind in ("file", "image") and not persisted:
+            raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+
+        data = item.get("data")
+        if kind == "collection" and isinstance(data, dict) and data.get("file_ids") is not None:
+            ids = data["file_ids"]
+            if not isinstance(ids, list) or len(ids) > 64:
+                raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+            for linked_id in ids:
+                linked = Files.get_file_by_id(linked_id) if isinstance(linked_id, str) else None
+                if not linked or not _authorized_collection(f"file-{linked_id}", user):
+                    raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+
+        for name in names:
+            _require_collection(name, user)
+        inline = item.get("docs")
+        if inline is not None:
+            if not isinstance(inline, list) or len(inline) > 64:
+                raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+            for doc in inline:
+                content = doc.get("content") if isinstance(doc, dict) else None
+                if not isinstance(content, str):
+                    raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+                inline_bytes += content_size(content)
+        if kind == "text":
+            content = item.get("content")
+            if not isinstance(content, str):
+                raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+            inline_bytes += content_size(content)
+        if item.get("context") == "full" and not persisted:
+            nested_data = nested.get("data") if isinstance(nested, dict) else None
+            content = nested_data.get("content") if isinstance(nested_data, dict) else None
+            if not isinstance(content, str):
+                raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+            inline_bytes += content_size(content)
+        if inline_bytes > 65536:
+            raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+        if not persisted and not names and not inline and item.get("context") != "full" and kind not in ("text", "web_search", "web_search_result"):
+            raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+        if persisted:
+            canonical = persisted.model_dump()
+            item["file"] = {**(nested or {}), **canonical}
+            item.update({key: value for key, value in canonical.items() if key in item})
+            item["name"] = persisted.filename
+            item["id"] = persisted.id
+            item.pop("docs", None)
+            item.pop("content", None)
+        validated.append(item)
+    return validated
+
 ##########################################
 #
 # Utility functions
