@@ -1,5 +1,61 @@
 const originalResponses = new WeakMap();
 const MAX_RETAINED_RESPONSE_BYTES = 65536;
+const MAX_NOTE_READER_BYTES = 65536;
+const MAX_NOTE_READER_PAGES = 32;
+const MAX_NOTE_PAGE_TITLE_BYTES = 512;
+
+const validUnicode = (value) => {
+	for (let index = 0; index < value.length; index++) {
+		const unit = value.charCodeAt(index);
+		if (unit >= 0xd800 && unit <= 0xdbff) {
+			const next = value.charCodeAt(++index);
+			if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
+		} else if (unit >= 0xdc00 && unit <= 0xdfff) return false;
+	}
+	return true;
+};
+
+const boundedText = (value) => {
+	if (typeof value !== 'string' || value.length > MAX_NOTE_READER_BYTES || !validUnicode(value)) return false;
+	return new TextEncoder().encode(value).byteLength <= MAX_NOTE_READER_BYTES;
+};
+
+// Read only saved Markdown text. Rich HTML, JSON editor trees, metadata, and
+// revision data are deliberately ignored and remain available in the original.
+export const readableNotePages = (note) => {
+	const unavailable = () => { throw new Error('This note has no supported text preview. Download the original JSON to preserve all content.'); };
+	const data = note?.data;
+	if (!data || typeof data !== 'object' || Array.isArray(data)) return unavailable();
+	const pages = [];
+	if (Object.hasOwn(data, 'pages')) {
+		if (!Array.isArray(data.pages) || data.pages.length < 1 || data.pages.length > MAX_NOTE_READER_PAGES) return unavailable();
+		let totalBytes = 0;
+		for (const page of data.pages) {
+			const pageTitle = page?.title;
+			const markdown = page?.content?.md;
+			if (typeof pageTitle !== 'string' || pageTitle.length > MAX_NOTE_PAGE_TITLE_BYTES || !pageTitle.trim() || !boundedText(pageTitle) || new TextEncoder().encode(pageTitle).byteLength > MAX_NOTE_PAGE_TITLE_BYTES || !boundedText(markdown)) return unavailable();
+			totalBytes += new TextEncoder().encode(pageTitle).byteLength + new TextEncoder().encode(markdown).byteLength;
+			if (totalBytes > MAX_NOTE_READER_BYTES) return unavailable();
+			pages.push({ title: pageTitle, text: markdown });
+		}
+		return pages;
+	}
+	const markdown = data.content?.md;
+	if (!boundedText(markdown)) return unavailable();
+	return [{ title: typeof note.title === 'string' && note.title.trim() ? note.title : 'Note', text: markdown }];
+};
+
+export const plainTextCopyDraft = (note) => {
+	const pages = readableNotePages(note);
+	const text = pages.length === 1
+		? pages[0].text
+		: pages.map((page) => `## ${page.title}\n\n${page.text}`).join('\n\n---\n\n');
+	if (!boundedText(text)) throw new Error('This note is too large for a plain-text copy.');
+	const originalTitle = typeof note?.title === 'string' && note.title.trim() ? note.title : 'Untitled note';
+	const title = `Copy of ${originalTitle}`;
+	if (!boundedText(title) || new TextEncoder().encode(title).byteLength > MAX_NOTE_PAGE_TITLE_BYTES) throw new Error('This note title is too long to make a plain-text copy.');
+	return { title, text };
+};
 
 export const parseRetainedNoteResponse = (raw) => {
 	const value = JSON.parse(raw);

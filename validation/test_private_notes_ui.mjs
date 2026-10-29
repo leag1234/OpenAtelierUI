@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { actionsBlocked, editableNote, editableText, focusTrapTargetIndex, formatNoteDate, isDirty, notePayload, originalNoteResponse, parseRetainedNoteResponse, resolveSave, safeNoteFilename, saveStatus } from '../src/lib/apis/notes/state.js';
+import { actionsBlocked, editableNote, editableText, focusTrapTargetIndex, formatNoteDate, isDirty, notePayload, originalNoteResponse, parseRetainedNoteResponse, plainTextCopyDraft, readableNotePages, resolveSave, safeNoteFilename, saveStatus } from '../src/lib/apis/notes/state.js';
 
 test('note dates support measured nanoseconds and historical seconds only', () => {
 	const seconds = 1792949159;
@@ -81,6 +81,72 @@ test('parsed note responses retain exact bounded JSON text for lossless download
 	assert.equal(originalNoteResponse({ ...parsed }), null);
 	const large = `{"data":{"content":{"md":"${'x'.repeat(65536)}"}}}`;
 	assert.equal(originalNoteResponse(parseRetainedNoteResponse(large)), null);
+});
+
+test('rich note preview reads ordered Markdown pages as text and ignores HTML and editor JSON', () => {
+	const raw = JSON.stringify({
+		id: 'opaque-note', title: 'Community workshop plan', meta: null, access_grants: [],
+		data: {
+			content: { md: 'Root text is not duplicated.', html: '<script>bad()</script>', json: { type: 'doc' } },
+			pages: [
+				{ id: 'first', title: 'Prepare', content: { md: 'Synthetic note. Prepare twenty seats for Saturday.', html: '<img src=x onerror=bad()>', json: { type: 'doc' } }, versions: [], revision: 4, generation: 0, parent_id: null },
+				{ id: 'second', title: 'Bring', content: { md: 'Bring the printed schedule and a sign-in sheet.', html: '<b>unsafe renderer input</b>', json: { type: 'doc' } }, versions: [], revision: 4, generation: 0, parent_id: 'first' }
+			],
+			pages_revision: 0, search_text: 'private index text'
+		}
+	});
+	const original = parseRetainedNoteResponse(raw);
+	assert.equal(editableNote(original).editable, false);
+	const pages = readableNotePages(original);
+	assert.deepEqual(pages.map(({ title }) => title), ['Prepare', 'Bring']);
+	assert.deepEqual(pages.map(({ text }) => text), [
+		'Synthetic note. Prepare twenty seats for Saturday.',
+		'Bring the printed schedule and a sign-in sheet.'
+	]);
+	assert.equal(JSON.stringify(pages).includes('<script>'), false);
+	assert.equal(originalNoteResponse(original), raw);
+	assert.equal(JSON.stringify(original), raw);
+});
+
+test('plain-text copy is a distinct draft and leaves the rich source byte-for-byte intact', () => {
+	const raw = JSON.stringify({
+		id: 'source-note', title: 'Workshop plan', data: {
+			content: { md: 'ignored root', html: '<script>not copied</script>' },
+			pages: [
+				{ title: 'Room', content: { md: 'Book the room.' }, versions: [{ body: 'old' }] },
+				{ title: 'Materials', content: { md: 'Bring markers.' } }
+			],
+			search_text: 'do not copy'
+		}, meta: { retained: true }, access_grants: [], revision: 9
+	});
+	const source = parseRetainedNoteResponse(raw);
+	const draft = plainTextCopyDraft(source);
+	assert.deepEqual(draft, {
+		title: 'Copy of Workshop plan',
+		text: '## Room\n\nBook the room.\n\n---\n\n## Materials\n\nBring markers.'
+	});
+	assert.equal(source.id, 'source-note');
+	assert.equal(source.meta.retained, true);
+	assert.equal(source.data.search_text, 'do not copy');
+	assert.equal(originalNoteResponse(source), raw);
+	assert.equal(JSON.stringify(source), raw);
+	assert.deepEqual(notePayload(draft.title, draft.text), {
+		title: draft.title, data: { content: { md: draft.text } }, meta: null, access_grants: []
+	});
+});
+
+test('unsupported, malformed, and excessive rich text refuses a partial preview or copy', () => {
+	for (const note of [
+		{ data: { content: { html: '<p>no markdown</p>' } } },
+		{ data: { pages: [] } },
+		{ data: { pages: [{ title: 'Untitled', content: { md: 'text' } }, { title: '', content: { md: 'more' } }] } },
+		{ data: { pages: [{ title: 'Page', content: { md: '\ud800' } }] } },
+		{ title: 'Long', data: { content: { md: 'x'.repeat(65537) } } },
+		{ title: 'Long', data: { pages: Array.from({ length: 33 }, (_, index) => ({ title: `Page ${index}`, content: { md: 'x' } })) } }
+	]) {
+		assert.throws(() => readableNotePages(note));
+		assert.throws(() => plainTextCopyDraft(note));
+	}
 });
 
 test('failed save retains the entire draft while success advances its baseline', () => {

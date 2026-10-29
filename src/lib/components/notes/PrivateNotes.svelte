@@ -5,7 +5,7 @@
 	import MenuLines from '$lib/components/icons/MenuLines.svelte';
 	import fileSaver from 'file-saver';
 	import { listNotes, searchNotes, getNote, createNote, updateNote, toggleNotePin } from '$lib/apis/notes';
-	import { actionsBlocked, editableNote, focusTrapTargetIndex, formatNoteDate, isDirty, notePayload, originalNoteResponse, resolveSave, safeNoteFilename, saveStatus } from '$lib/apis/notes/state.js';
+	import { actionsBlocked, editableNote, focusTrapTargetIndex, formatNoteDate, isDirty, notePayload, originalNoteResponse, plainTextCopyDraft, readableNotePages, resolveSave, safeNoteFilename, saveStatus } from '$lib/apis/notes/state.js';
 
 	let notes = [];
 	let total = null;
@@ -13,6 +13,7 @@
 	let query = '';
 	let appliedQuery = '';
 	let selected = null;
+	let copySource = null;
 	let newNoteMode = false;
 	let baseline = { title: '', text: '' };
 	let title = '';
@@ -31,6 +32,10 @@
 	let listVersion = 0;
 	let accountRefused = false;
 	$: dirty = isDirty({ title, text }, baseline);
+	$: preview = selected && !editable ? (() => {
+		try { return { pages: readableNotePages(selected), error: '' }; }
+		catch (error) { return { pages: [], error: error.message }; }
+	})() : { pages: [], error: '' };
 
 	const token = () => localStorage.token;
 	const setFailure = (error) => {
@@ -74,6 +79,7 @@
 			if (version !== selectionVersion) return;
 			const parsed = editableNote(note);
 			selected = note;
+			copySource = null;
 			newNoteMode = false;
 			editable = parsed.editable;
 			title = note.title ?? '';
@@ -91,12 +97,44 @@
 		selectionVersion++;
 		opening = false;
 		selected = null;
+		copySource = null;
 		newNoteMode = true;
 		title = '';
 		text = '';
 		baseline = { title: '', text: '' };
 		editable = true;
 		status = '';
+	};
+
+	const startPlainTextCopy = (note) => {
+		if (actionsBlocked({ saving, opening, pinning })) return;
+		try {
+			const draft = plainTextCopyDraft(note);
+			selectionVersion++;
+			copySource = note;
+			selected = null;
+			newNoteMode = true;
+			editable = true;
+			title = draft.title;
+			text = draft.text;
+			baseline = { title: '', text: '' };
+			status = '';
+		} catch (error) {
+			status = error.message;
+		}
+	};
+
+	const cancelPlainTextCopy = () => {
+		if (!copySource || saving || opening || pinning) return;
+		selectionVersion++;
+		selected = copySource;
+		copySource = null;
+		newNoteMode = false;
+		editable = false;
+		title = selected.title ?? '';
+		text = '';
+		baseline = { title, text };
+		status = 'The original note was not changed.';
 	};
 
 	const requestAction = (action) => {
@@ -152,6 +190,7 @@
 		saving = true;
 		status = 'Saving…';
 		const version = selectionVersion;
+		const isPlainTextCopy = Boolean(copySource);
 		const draft = { selected, title, text, baseline, editable };
 		try {
 			const payload = notePayload(title, text, selected, !selected || text !== baseline.text);
@@ -161,10 +200,13 @@
 			if (version !== selectionVersion) return false;
 			const result = resolveSave(draft, saved);
 			selected = result.selected;
+			copySource = null;
 			baseline = result.baseline;
 			title = result.baseline.title;
 			const listRefreshed = await refreshList(1, appliedQuery);
-			status = saveStatus(listRefreshed);
+			status = isPlainTextCopy
+				? listRefreshed ? 'Private plain-text copy saved. The original note is unchanged.' : 'Private plain-text copy saved; the original is unchanged, but the note list could not be refreshed.'
+				: saveStatus(listRefreshed);
 			return true;
 		} catch (error) {
 			const retained = resolveSave(draft, null, true);
@@ -278,8 +320,25 @@
 					{#if selected && !editable}
 						<div class="flex flex-wrap items-center justify-between gap-3"><div><p class="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">Read-only note data</p><h2 class="mt-1 text-xl font-semibold">{selected.title}</h2></div><button class="rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-900" on:click={downloadOriginal} disabled={opening}>Download note JSON</button></div>
 						<p class="mt-3 max-w-prose text-sm leading-6 text-gray-600 dark:text-gray-300">This note has content the plain-text editor cannot safely preserve. Nothing has been changed. Download the original JSON if you need to inspect or keep every field.</p>
+						{#if preview.pages.length}
+							<div class="mt-5 space-y-5" aria-label="Read-only note text">
+								{#each preview.pages as notePage, index}
+									<article class="max-w-prose rounded-lg border border-gray-200 p-4 dark:border-gray-800">
+										<h3 class="font-semibold">Page {index + 1}: {notePage.title}</h3>
+										<pre class="mt-3 whitespace-pre-wrap break-words font-sans text-sm leading-6">{notePage.text}</pre>
+									</article>
+								{/each}
+							</div>
+							<div class="mt-5 rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950/40">
+								<p class="text-sm leading-6">You can make a separate private plain-text copy to edit. The original stays unchanged; rich formatting, embedded editor structures, page history, metadata, and sharing settings are not copied.</p>
+								<button class="mt-3 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900" on:click={() => startPlainTextCopy(selected)} disabled={actionsBlocked({ saving, opening, pinning })}>Make editable plain-text copy</button>
+							</div>
+						{:else}
+							<p class="mt-5 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm leading-6 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100" role="status">{preview.error || 'No supported text preview is available. The original JSON remains downloadable.'}</p>
+						{/if}
 					{:else if selected || newNoteMode}
-						<div class="flex flex-wrap items-center justify-between gap-3"><div><p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Private note</p><h2 class="mt-1 text-lg font-semibold">{selected ? 'Edit note' : 'New note'}</h2></div>{#if selected}<div class="flex flex-wrap gap-2"><button class="rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-900" on:click={downloadOriginal} disabled={dirty || actionsBlocked({ saving, opening, pinning })}>Download saved JSON</button><button class="rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900" on:click={pin} disabled={actionsBlocked({ saving, opening, pinning })}>{pinning ? 'Updating…' : selected.is_pinned ? 'Unpin' : 'Pin'}</button></div>{/if}</div>
+						<div class="flex flex-wrap items-center justify-between gap-3"><div><p class="text-xs font-semibold uppercase tracking-wide text-gray-500">{copySource ? 'Separate private copy' : 'Private note'}</p><h2 class="mt-1 text-lg font-semibold">{selected ? 'Edit note' : 'New note'}</h2></div>{#if selected}<div class="flex flex-wrap gap-2"><button class="rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-900" on:click={downloadOriginal} disabled={dirty || actionsBlocked({ saving, opening, pinning })}>Download saved JSON</button><button class="rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-900" on:click={pin} disabled={actionsBlocked({ saving, opening, pinning })}>{pinning ? 'Updating…' : selected.is_pinned ? 'Unpin' : 'Pin'}</button></div>{/if}</div>
+						{#if copySource}<p class="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm leading-6 dark:border-blue-900 dark:bg-blue-950/40">This is a new private text note. The rich original stays unchanged; its metadata and sharing settings are not copied.</p><button class="mt-2 self-start text-sm underline" on:click={() => requestAction(cancelPlainTextCopy)} disabled={actionsBlocked({ saving, opening, pinning })}>Cancel plain-text copy</button>{/if}
 						<label class="mt-5 text-sm font-medium" for="note-title">Title</label><input id="note-title" bind:value={title} disabled={actionsBlocked({ saving, opening, pinning })} class="mt-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-base dark:border-gray-700 dark:bg-gray-950" placeholder="A title for this note"/>
 						<label class="mt-4 text-sm font-medium" for="note-text">Note</label><textarea id="note-text" bind:value={text} disabled={actionsBlocked({ saving, opening, pinning })} class="mt-1 min-h-64 flex-1 resize-y rounded-lg border border-gray-300 bg-white px-3 py-3 text-sm leading-6 dark:border-gray-700 dark:bg-gray-950" placeholder="Write a plan, reminder, or idea…" spellcheck="true"></textarea>
 						<div class="mt-4 flex flex-wrap items-center justify-between gap-3"><span class="text-sm text-gray-500" aria-live="polite">{dirty ? 'Unsaved changes' : newNoteMode && !selected ? 'Not saved yet' : status || 'Saved'}</span><button class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900" on:click={save} disabled={!dirty || actionsBlocked({ saving, opening, pinning }) || !title.trim()}>{saving ? 'Saving…' : 'Save note'}</button></div>
