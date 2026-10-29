@@ -51,6 +51,11 @@
 	let element;
 	let editor;
 
+	$: if (editor) {
+		if (ariaLabel) editor.view.dom.setAttribute('aria-label', ariaLabel);
+		else editor.view.dom.removeAttribute('aria-label');
+	}
+
 	const options = {
 		throwOnError: false
 	};

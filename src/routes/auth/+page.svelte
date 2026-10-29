@@ -254,10 +254,9 @@
 
 								{#if $config?.onboarding ?? false}
 									<div class=" mt-1 text-xs font-medium text-gray-500">
-										ⓘ {$WEBUI_NAME}
-										{$i18n.t(
-											'does not make any external connections, and your data stays securely on your locally hosted server.'
-										)}
+						ⓘ {$i18n.t(
+							'Available models and services depend on server configuration. Requests may be sent to external providers configured by the server administrator; check provider settings before sharing sensitive information.'
+						)}
 									</div>
 								{/if}
 							</div>
