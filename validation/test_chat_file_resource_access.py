@@ -19,7 +19,7 @@ class ChatFileResourceAccessTests(unittest.TestCase):
         self.ns['status'].HTTP_404_NOT_FOUND=404
         async def model_load(*a,**kw):self.effects.append(('model-load',));raise RuntimeError('authorized model loading reached')
         self.ns.update(retrieval=NS(authorize_chat_files=self.ns['authorize_chat_files']),get_all_models=model_load,Chats=NS(get_chat_by_id=lambda _:NS(user_id='someone-else')))
-        load_functions(ROOT/'backend/open_webui/main.py',['chat_completion'],self.ns)
+        load_functions(ROOT/'backend/open_webui/main.py',['_authorize_direct_model','chat_completion'],self.ns)
     def authorize(self,files,user=None):return self.ns['authorize_chat_files'](files,user or self.owner)
     def refuses(self,files,user=None):
         with self.assertRaises(HTTPError) as error:self.authorize(files,user)

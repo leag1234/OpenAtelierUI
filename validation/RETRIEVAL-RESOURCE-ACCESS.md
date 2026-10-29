@@ -21,3 +21,10 @@ Nine further primary actual-function regression groups verify native and legacy 
 Generated text, web, video and search indexes now use a stable authenticated-user namespace, `oa-<32 hexadecimal owner-hash characters>-<24 hexadecimal resource-hash characters>` (60 characters). They remain opaque client identifiers. Existing file/knowledge records are resolved first, so a matching-looking name cannot override another persisted resource's ACL. Explicit destinations are authorized before page loading or vector writes. Search result URLs are checked after the authorized search returns and before page loading, then resolved document destinations are checked again before writes.
 
 The primary eight additional regression groups verify stable ownership/domain separation, known-resource collisions, original explicit IDs, invalid input refusal, no forbidden ingestion effects, successful owner text/web flow and search loading/write boundaries. All 26 access/descriptor/namespace groups pass with inert doubles. Actual HTTP and migrated-document reindex/reuse remain required.
+
+
+### Direct-provider metadata boundary
+
+Client-supplied direct model metadata now obeys the existing direct-connection setting. Its knowledge references pass the same persisted-resource authorization before model loading or callbacks, and client local filter/action/tool bindings are refused, including nested metadata. Non-direct server presets retain their existing metadata. Optional null metadata is normalized on copies, preserving submitted objects and ordinary provider parameters. This is independently authored from the own BSD implementation; no newer upstream implementation was supplied to the author.
+
+The primary executed 33 actual-function regression groups across retrieval, chat descriptors, owner namespaces and direct completion/callback boundaries with inert doubles (0.755 seconds). These checks do not establish HTTP qualification, migrated document reuse, complete plugin compatibility or a comprehensive security audit. The first primary callback fixture omitted an existing helper dependency and was corrected without a runtime change.
