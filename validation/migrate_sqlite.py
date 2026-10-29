@@ -138,6 +138,9 @@ MAX_OPENAI_ENDPOINTS = 8
 MAX_OPENAI_HEADER_COUNT = 32
 MAX_OPENAI_HEADER_VALUE_BYTES = 4096
 MAX_OPENAI_HEADER_TOTAL_BYTES = 16 * 1024
+MAX_OPENAI_MODEL_IDS = 64
+MAX_OPENAI_MODEL_ID_BYTES = 256
+MAX_OPENAI_MODEL_IDS_TOTAL_BYTES = 8192
 CHAT_UNSUPPORTED = {"tasks", "summary", "last_read_at", "current_message_id", "variables", "timer_at"}
 PRIVATE_CHAT_META_KEY = "_mdk_private_saved_work"
 PRIVATE_CHAT_META_VERSION = 1
@@ -666,12 +669,13 @@ def _parse_openai_configuration(connection: sqlite3.Connection) -> dict[str, obj
                 "openai_configuration_value_unsupported",
                 "only a complete canonical endpoint-index map with a boolean enable field is supported",
             )
+        seen_model_ids = set()
         for index in expected_indexes:
             entry = configs[index]
             if (
                 type(entry) is not dict
                 or "enable" not in entry
-                or set(entry) - {"enable", "headers"}
+                or set(entry) - {"enable", "headers", "model_ids", "prefix_id"}
                 or type(entry["enable"]) is not bool
             ):
                 raise MigrationError(
@@ -680,6 +684,48 @@ def _parse_openai_configuration(connection: sqlite3.Connection) -> dict[str, obj
                 )
             if "headers" in entry:
                 _validate_openai_static_headers(entry["headers"])
+            if "prefix_id" in entry and (type(entry["prefix_id"]) is not str or entry["prefix_id"] != ""):
+                raise MigrationError(
+                    "openai_configuration_value_unsupported",
+                    "only an empty model prefix is supported",
+                )
+            if "model_ids" in entry:
+                model_ids = entry["model_ids"]
+                if type(model_ids) is not list or not 1 <= len(model_ids) <= MAX_OPENAI_MODEL_IDS:
+                    raise MigrationError(
+                        "openai_configuration_value_unsupported",
+                        "model identifiers must be a bounded nonempty string list",
+                    )
+                total_bytes = 0
+                for model_id in model_ids:
+                    if type(model_id) is not str or not model_id:
+                        raise MigrationError(
+                            "openai_configuration_value_unsupported",
+                            "model identifiers must be bounded unique strings",
+                        )
+                    try:
+                        model_id_bytes = len(model_id.encode("utf-8", errors="strict"))
+                    except UnicodeError:
+                        raise MigrationError(
+                            "openai_configuration_value_unsupported",
+                            "model identifiers must be bounded unique strings",
+                        ) from None
+                    if (
+                        model_id_bytes > MAX_OPENAI_MODEL_ID_BYTES
+                        or any(character.isspace() or ord(character) < 32 or 127 <= ord(character) <= 159 for character in model_id)
+                        or model_id in seen_model_ids
+                    ):
+                        raise MigrationError(
+                            "openai_configuration_value_unsupported",
+                            "model identifiers must be bounded unique strings",
+                        )
+                    total_bytes += model_id_bytes
+                    seen_model_ids.add(model_id)
+                if total_bytes > MAX_OPENAI_MODEL_IDS_TOTAL_BYTES:
+                    raise MigrationError(
+                        "openai_configuration_value_unsupported",
+                        "model identifiers exceed the supported endpoint bound",
+                    )
     return {
         "enable": enable,
         "api_base_urls": urls,

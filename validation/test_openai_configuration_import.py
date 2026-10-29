@@ -188,6 +188,97 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
             self.target_config(target)["openai"]["api_keys"], values["openai.api_keys"]
         )
 
+    def test_model_ids_and_empty_prefix_preserve_exact_selected_options(self):
+        model_ids = [f"{index:02d}" + "x" * 126 for index in range(64)]
+        values = {
+            **OPENAI_SETTINGS,
+            "openai.api_base_urls": [
+                "http://127.0.0.1:18081/v1",
+                "http://127.0.0.1:18082/v1",
+            ],
+            "openai.api_keys": [SYNTHETIC_API_KEY, "sk-second-synthetic-key"],
+            "openai.api_configs": {
+                "0": {"enable": True, "model_ids": ["community-qwen"], "prefix_id": ""},
+                "1": {"enable": False, "model_ids": model_ids, "prefix_id": ""},
+            },
+        }
+        add_openai_settings(self.source, values)
+        before = digest(self.source)
+        report = preview(
+            self.source, self.uploads, self.template, include_openai_configuration=True
+        )
+        self.assertFalse(report["fatal"])
+        self.assertEqual(report["openai_configuration"]["selected_key_count"], 4)
+        for private_value in (SYNTHETIC_API_KEY, "community-qwen", model_ids[0], "sk-second-synthetic-key"):
+            self.assertNotIn(private_value, json.dumps(report))
+
+        target = self.root / "model-options"
+        convert(
+            self.source, self.uploads, self.template, target,
+            include_openai_configuration=True,
+        )
+        imported = self.target_config(target)["openai"]
+        self.assertEqual(imported["api_configs"], values["openai.api_configs"])
+        self.assertEqual(imported["api_base_urls"], values["openai.api_base_urls"])
+        self.assertEqual(imported["api_keys"], values["openai.api_keys"])
+        self.assertEqual(digest(self.source), before)
+
+    def test_invalid_model_options_refuse_before_target_without_echo(self):
+        too_many = [f"id-{index}" for index in range(65)]
+        too_many_bytes = [f"{index:02d}" + "x" * 254 for index in range(33)]
+        invalid_entries = (
+            {"enable": True, "model_ids": []},
+            {"enable": True, "model_ids": "one-string"},
+            {"enable": True, "model_ids": too_many},
+            {"enable": True, "model_ids": ["x" * 257]},
+            {"enable": True, "model_ids": too_many_bytes},
+            {"enable": True, "model_ids": ["has whitespace"]},
+            {"enable": True, "model_ids": ["control\x1f"]},
+            {"enable": True, "model_ids": ["control\x85"]},
+            {"enable": True, "model_ids": ["control\x7f"]},
+            {"enable": True, "model_ids": ["malformed\ud800"]},
+            {"enable": True, "model_ids": [True]},
+            {"enable": True, "model_ids": [{"id": "nested"}]},
+            {"enable": True, "model_ids": ["private-model-marker", "private-model-marker"]},
+            {"enable": True, "prefix_id": "nonempty"},
+            {"enable": True, "prefix_id": None},
+            {"enable": True, "tags": []},
+            {"enable": True, "model_ids": ["valid"], "unexpected": False},
+        )
+        for entry in invalid_entries:
+            with self.subTest(keys=sorted(entry)):
+                self.tearDown()
+                self.setUp()
+                values = {**OPENAI_SETTINGS, "openai.api_configs": {"0": entry}}
+                add_openai_settings(self.source, values)
+                before = digest(self.source)
+                target = self.root / "refused-model-options"
+                with self.assertRaises(MigrationError) as caught:
+                    convert(
+                        self.source, self.uploads, self.template, target,
+                        include_openai_configuration=True,
+                    )
+                self.assertEqual(caught.exception.code, "fatal_source_input")
+                report = json.dumps(caught.exception.report)
+                self.assertIn("openai_configuration_value_unsupported", report)
+                self.assertNotIn(SYNTHETIC_API_KEY, report)
+                self.assertNotIn("private-model-marker", report)
+                self.assertFalse(target.exists())
+                self.assertEqual(digest(self.source), before)
+
+    def test_duplicate_model_ids_across_endpoints_refuse(self):
+        values = {
+            **OPENAI_SETTINGS,
+            "openai.api_base_urls": ["http://127.0.0.1:18081/v1", "http://127.0.0.1:18082/v1"],
+            "openai.api_keys": [SYNTHETIC_API_KEY, "sk-second-synthetic-key"],
+            "openai.api_configs": {
+                "0": {"enable": True, "model_ids": ["duplicate-model"]},
+                "1": {"enable": True, "model_ids": ["duplicate-model"]},
+            },
+        }
+        add_openai_settings(self.source, values)
+        self.assert_refused_before_target("openai_configuration_value_unsupported")
+
     def test_composes_with_existing_named_api_key_and_permission_selectors(self):
         add_named_tool_configuration(self.source)
         add_api_key_settings(self.source)
