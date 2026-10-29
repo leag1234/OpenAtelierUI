@@ -24,7 +24,7 @@ MAX_UPLOAD_FILES = 4096
 CHUNK = 64 * 1024
 FLAGS = ("include_private_chat_metadata", "include_named_tool_configuration", "include_user_profile_fields",
          "include_api_keys", "include_api_key_configuration", "include_openai_configuration",
-         "include_user_permissions", "include_function_history")
+         "include_user_permissions", "include_identity_configuration", "include_function_history")
 
 
 class Refusal(Exception):

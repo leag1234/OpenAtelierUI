@@ -96,6 +96,20 @@ MAX_IMPORTED_USER_GENDER_BYTES = 128
 MAX_IMPORTED_API_KEY_ROWS = 1000
 MAX_API_KEY_CONFIG_VALUE_BYTES = 16 * 1024
 MAX_USER_PERMISSIONS_CONFIG_BYTES = 16 * 1024
+IDENTITY_CONFIG_SOURCE_KEYS = {
+    "ui.enable_signup",
+    "ui.enable_login_form",
+    "ui.default_user_role",
+    "auth.admin.show",
+}
+IDENTITY_CONFIG_OLD_ALIASES = {
+    "ENABLE_SIGNUP",
+    "ENABLE_LOGIN_FORM",
+    "DEFAULT_USER_ROLE",
+    "SHOW_ADMIN_DETAILS",
+    "ui.ENABLE_LOGIN_FORM",
+}
+MAX_IDENTITY_CONFIG_VALUE_BYTES = 4096
 API_KEY_COLUMNS = {
     "id", "user_id", "key", "data", "expires_at", "last_used_at", "created_at", "updated_at"
 }
@@ -842,6 +856,50 @@ def _parse_user_permissions(connection: sqlite3.Connection) -> dict[str, dict[st
             "selected user-permissions setting must include a boolean features.api_keys value",
         )
     return value
+
+
+def _parse_identity_configuration(connection: sqlite3.Connection) -> dict[str, object]:
+    """Read only the four bounded signup/login/default-role/admin-display settings."""
+    if "config" not in _tables(connection) or set(_columns(connection, "config")) != {"key", "value", "updated_at"}:
+        raise MigrationError("identity_configuration_source_schema_mismatch", "selected identity configuration schema is unsupported")
+    selected = {}
+    guarded = IDENTITY_CONFIG_SOURCE_KEYS
+    for row in connection.execute('SELECT "key","value" FROM "config"'):
+        key = row["key"]
+        if not isinstance(key, str):
+            continue
+        if key in IDENTITY_CONFIG_OLD_ALIASES or (
+            key.casefold() != key and key.casefold() in {value.casefold() for value in guarded}
+        ):
+            raise MigrationError("identity_configuration_ambiguous_override", "configuration contains an unsupported identity alias")
+        if key not in guarded and (
+            key in {"ui", "auth", "auth.admin"}
+            or any(key == path or key.startswith(path + ".") or path.startswith(key + ".") for path in guarded)
+        ):
+            raise MigrationError("identity_configuration_ambiguous_override", "configuration contains an identity parent or dotted override")
+        if key not in guarded:
+            continue
+        if key in selected:
+            raise MigrationError("identity_configuration_duplicate_key", "selected identity configuration contains duplicate settings")
+        raw = row["value"]
+        if not isinstance(raw, str):
+            raise MigrationError("identity_configuration_value_invalid", "selected identity setting must contain bounded JSON text")
+        try:
+            if len(raw.encode("utf-8", errors="strict")) > MAX_IDENTITY_CONFIG_VALUE_BYTES:
+                raise MigrationError("identity_configuration_value_invalid", "selected identity setting exceeds its size bound")
+            selected[key] = json.loads(raw, object_pairs_hook=_reject_duplicate_json_keys)
+        except MigrationError:
+            raise
+        except (UnicodeError, ValueError, TypeError, RecursionError):
+            raise MigrationError("identity_configuration_value_invalid", "selected identity setting is not supported JSON") from None
+    if set(selected) != guarded:
+        raise MigrationError("identity_configuration_missing_key", "all four selected identity settings are required")
+    for key in ("ui.enable_signup", "ui.enable_login_form", "auth.admin.show"):
+        if type(selected[key]) is not bool:
+            raise MigrationError("identity_configuration_value_invalid", "selected identity switches must be JSON booleans")
+    if type(selected["ui.default_user_role"]) is not str or selected["ui.default_user_role"] not in {"pending", "user"}:
+        raise MigrationError("identity_configuration_value_unsupported", "only pending or user default roles are supported")
+    return selected
 
 
 def _digest(path: Path) -> str:
@@ -2193,6 +2251,7 @@ def _inspect_source(
     include_api_key_configuration: bool = False,
     include_openai_configuration: bool = False,
     include_user_permissions: bool = False,
+    include_identity_configuration: bool = False,
     include_function_history: bool = False,
 ) -> dict:
     started = time.perf_counter()
@@ -2221,7 +2280,7 @@ def _inspect_source(
         template_info = _validate_template(
             template,
             require_named_tool_config=(
-                include_named_tool_configuration or include_api_key_configuration or include_openai_configuration or include_user_permissions
+                include_named_tool_configuration or include_api_key_configuration or include_openai_configuration or include_user_permissions or include_identity_configuration
             ),
             prepare_user_profile_fields=include_user_profile_fields,
         )
@@ -2266,6 +2325,7 @@ def _inspect_source(
                     or include_api_key_configuration
                     or include_openai_configuration
                     or include_user_permissions
+                    or include_identity_configuration
                 )
             ) and not (table == "function_history" and include_function_history):
                 _block(report, "unsupported_nonempty_domain_" + table, _count(connection, table), detail="full bytes are retained in the source archive; old target behavior is not implemented")
@@ -2436,7 +2496,7 @@ def _inspect_source(
             known_users = {row[0] for row in connection.execute('SELECT id FROM "user"')}
             if any(row[0] not in known_users for row in connection.execute('SELECT user_id FROM "chat"')):
                 _block(report, "chat_owner_missing", 1, fatal=True)
-        if include_named_tool_configuration or include_api_key_configuration or include_openai_configuration or include_user_permissions:
+        if include_named_tool_configuration or include_api_key_configuration or include_openai_configuration or include_user_permissions or include_identity_configuration:
             config_rows = report["table_counts"].get("config", 0)
             verified = False
             defaults_source_hash = None
@@ -2461,6 +2521,11 @@ def _inspect_source(
                     user_permissions = (
                         _parse_user_permissions(connection)
                         if include_user_permissions
+                        else None
+                    )
+                    identity_settings = (
+                        _parse_identity_configuration(connection)
+                        if include_identity_configuration
                         else None
                     )
                     defaults, defaults_source_hash, defaults_hash = _load_pinned_old_defaults()
@@ -2501,6 +2566,17 @@ def _inspect_source(
                                 "pinned old configuration defaults have an unsupported user shape",
                             )
                         user_config["permissions"] = user_permissions
+                    if identity_settings is not None:
+                        ui_config = target_config_data.setdefault("ui", {})
+                        auth_config = target_config_data.setdefault("auth", {})
+                        if not isinstance(ui_config, dict) or not isinstance(auth_config, dict):
+                            raise MigrationError("identity_configuration_old_defaults_invalid", "pinned old configuration has an unsupported identity shape")
+                        ui_config.update({
+                            "enable_signup": identity_settings["ui.enable_signup"],
+                            "ENABLE_LOGIN_FORM": identity_settings["ui.enable_login_form"],
+                            "default_user_role": identity_settings["ui.default_user_role"],
+                        })
+                        auth_config.setdefault("admin", {})["show"] = identity_settings["auth.admin.show"]
                     named_tool_config_data = {
                         "data": target_config_data,
                         "version": target_config_data["version"],
@@ -2515,6 +2591,7 @@ def _inspect_source(
                     + (3 if include_api_key_configuration else 0)
                     + (4 if include_openai_configuration else 0)
                     + (1 if include_user_permissions else 0)
+                    + (4 if include_identity_configuration else 0)
                 )
                 remaining_config_rows = max(config_rows - selected_config_rows, 0)
                 if remaining_config_rows:
@@ -2544,6 +2621,13 @@ def _inspect_source(
                         "user_permissions_prototype",
                         1,
                         detail="the selected boolean permission map is copied; only the API-key feature check is scoped, other permission semantics remain unqualified and cutover is disabled",
+                    )
+                if include_identity_configuration:
+                    _block(
+                        report,
+                        "identity_configuration_prototype",
+                        1,
+                        detail="four selected signup/login/default-role/admin-visibility settings are copied; trust, MFA, OAuth, LDAP and remaining settings stay archived and cutover is disabled",
                     )
             else:
                 remaining_config_rows = config_rows
@@ -2591,6 +2675,13 @@ def _inspect_source(
                     "remaining_config_rows": remaining_config_rows,
                     "semantics": "only explicit features.api_keys enforcement is in scope; other permission values are copied but unqualified",
                 }
+            if include_identity_configuration:
+                report["identity_configuration"] = {
+                    "opt_in": True,
+                    "selected_key_count": 4 if verified else 0,
+                    "old_defaults_verified": bool(verified),
+                    "remaining_config_rows": remaining_config_rows,
+                }
         group_memberships = _validate_group_domains(connection, report, user_ids, template)
         object_access = _validate_object_domains(connection, report, user_ids, set(group_memberships))
         for table in COPYABLE_TABLES & set(tables):
@@ -2620,6 +2711,7 @@ def inspect_source(
     include_api_key_configuration: bool = False,
     include_openai_configuration: bool = False,
     include_user_permissions: bool = False,
+    include_identity_configuration: bool = False,
     include_function_history: bool = False,
 ) -> tuple[dict, list, dict, dict, dict]:
     """Inspect source inputs while preserving the original five-value API."""
@@ -2634,6 +2726,7 @@ def inspect_source(
         include_api_key_configuration=include_api_key_configuration,
         include_openai_configuration=include_openai_configuration,
         include_user_permissions=include_user_permissions,
+        include_identity_configuration=include_identity_configuration,
         include_function_history=include_function_history,
     )[:5]
 
@@ -2650,6 +2743,7 @@ def preview(
     include_api_key_configuration: bool = False,
     include_openai_configuration: bool = False,
     include_user_permissions: bool = False,
+    include_identity_configuration: bool = False,
     include_function_history: bool = False,
 ) -> dict:
     report, _, _, _, _ = inspect_source(
@@ -2663,6 +2757,7 @@ def preview(
         include_api_key_configuration=include_api_key_configuration,
         include_openai_configuration=include_openai_configuration,
         include_user_permissions=include_user_permissions,
+        include_identity_configuration=include_identity_configuration,
         include_function_history=include_function_history,
     )
     return report
@@ -2820,6 +2915,7 @@ def convert(
     include_api_key_configuration: bool = False,
     include_openai_configuration: bool = False,
     include_user_permissions: bool = False,
+    include_identity_configuration: bool = False,
     include_function_history: bool = False,
     failpoint: Callable[[str], None] | None = None,
 ) -> dict:
@@ -2835,6 +2931,7 @@ def convert(
         include_api_key_configuration=include_api_key_configuration,
         include_openai_configuration=include_openai_configuration,
         include_user_permissions=include_user_permissions,
+        include_identity_configuration=include_identity_configuration,
         include_function_history=include_function_history,
     )
     source = Path(source_db).resolve(strict=True)
@@ -3086,6 +3183,7 @@ def main(argv: list[str] | None = None) -> int:
             action="store_true",
             help="map the exact measured nested boolean user-permissions setting into old configuration",
         )
+        command.add_argument("--include-identity-configuration", action="store_true")
         command.add_argument(
             "--include-function-history",
             action="store_true",
@@ -3105,6 +3203,7 @@ def main(argv: list[str] | None = None) -> int:
                 include_api_key_configuration=args.include_api_key_configuration,
                 include_openai_configuration=args.include_openai_configuration,
                 include_user_permissions=args.include_user_permissions,
+                include_identity_configuration=args.include_identity_configuration,
                 include_function_history=args.include_function_history,
             )
         else:
@@ -3122,6 +3221,7 @@ def main(argv: list[str] | None = None) -> int:
                 include_api_key_configuration=args.include_api_key_configuration,
                 include_openai_configuration=args.include_openai_configuration,
                 include_user_permissions=args.include_user_permissions,
+                include_identity_configuration=args.include_identity_configuration,
                 include_function_history=args.include_function_history,
             )
     except MigrationError as error:
