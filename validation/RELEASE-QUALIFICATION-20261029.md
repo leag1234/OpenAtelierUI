@@ -11,6 +11,8 @@ This is a development review record, not production, legal or complete compatibi
 - An unchanged external consumer plugin set loaded over the own core. Actual project UI document selection produced a factual local-model response; the saved response returned after a four-service restart, a follow-up completed, and both responses returned after page reload. This journey required a separately disclosed external request-schema correction, outside this BSD repository. It does not establish that every external stack works without configuration or upstream corrections.
 - Operator implementation `ad629db2e74625b55b52068793426e0721e6ef04` passed 21 primary-run lifecycle/coordinator tests, including exact conversion-target handoff, source/upload preservation and loopback URL receipts. These lifecycle tests use mocked Docker, not an actual named-network installation. Follow the [operator guide](OPENATELIERUI-INSTANCE-PROVENANCE.md).
 
+- The optional [native foreground prototype](OPENATELIERUI-NATIVE-PROVENANCE.md) actually started the ASGI application and compiled frontend in an existing isolated dependency environment, then passed imported synthetic account/history and source-preservation checks. Direct host installation, Ctrl-C and prepared-workspace resume are not qualified.
+
 ## Remaining limits
 
 General modern-version parity is incomplete. Multi-worker/Redis behavior, all migration domains, arbitrary plugins, groups and rights, external providers, connector/OAuth execution and production recovery are not qualified by these selected tests. Preview blockers remain authoritative; do not treat archived unsupported data as active migrated functionality.
