@@ -34,8 +34,12 @@ class RecordingSocket:
         return result
 
 
-def load_get_event_call(session_pool, socket):
+def load_get_event_call(session_pool, user_pool, socket):
     tree = ast.parse(SOURCE.read_text(encoding="utf-8"), filename=str(SOURCE))
+    guard = next(
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_session_identity"
+    )
     function = next(
         node
         for node in tree.body
@@ -47,8 +51,8 @@ def load_get_event_call(session_pool, socket):
         if isinstance(node, ast.Assign)
         and any(isinstance(target, ast.Name) and target.id == "get_event_caller" for target in node.targets)
     )
-    module = ast.Module(body=[function, alias], type_ignores=[])
-    namespace = {"SESSION_POOL": session_pool, "sio": socket, "os": os}
+    module = ast.Module(body=[guard, function, alias], type_ignores=[])
+    namespace = {"SESSION_POOL": session_pool, "USER_POOL": user_pool, "sio": socket, "os": os}
     exec(compile(ast.fix_missing_locations(module), str(SOURCE), "exec"), namespace)
     return namespace["get_event_call"], namespace["get_event_caller"]
 
@@ -56,10 +60,11 @@ def load_get_event_call(session_pool, socket):
 class PluginCallbackOwnershipTests(unittest.TestCase):
     def setUp(self):
         self.previous_flag = os.environ.pop("OPENATELIER_EVENT_CHANNEL_COMPAT", None)
-        self.sessions = CountingPool({"member-session": {"id": "member"}})
+        self.sessions = CountingPool({"member-session": {"id": "member", "role": "user"}})
+        self.users = {"member": ["member-session"]}
         self.socket = RecordingSocket()
         self.get_event_call, self.get_event_caller = load_get_event_call(
-            self.sessions, self.socket
+            self.sessions, self.users, self.socket
         )
 
     def tearDown(self):
@@ -119,7 +124,7 @@ class PluginCallbackOwnershipTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "^Callback session unavailable$"):
             asyncio.run(callback({"type": "callback"}))
         self.assertEqual(self.socket.calls, [])
-        self.assertEqual(self.sessions.lookups, ["member-session"])
+        self.assertEqual(self.sessions.lookups, ["member-session", "member-session"])
 
     def test_missing_foreign_and_malformed_identity_refuse_before_transport(self):
         cases = (
@@ -151,6 +156,13 @@ class PluginCallbackOwnershipTests(unittest.TestCase):
                     asyncio.run(callback({"type": "callback"}))
                 self.assertNotIn("member", str(raised.exception))
                 self.assertNotIn("member-session", str(raised.exception))
+        self.assertEqual(self.socket.calls, [])
+
+    def test_orphan_session_binding_cannot_receive_callback(self):
+        self.users.clear()
+        callback = self.get_event_call({"user_id": "member", "session_id": "member-session"})
+        with self.assertRaisesRegex(ValueError, "^Callback session unavailable$"):
+            asyncio.run(callback({"type": "callback"}))
         self.assertEqual(self.socket.calls, [])
 
 
