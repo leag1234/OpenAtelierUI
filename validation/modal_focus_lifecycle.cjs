@@ -6,9 +6,11 @@ const path = require('path');
 
 const helperPath = path.join(__dirname, '../src/lib/utils/modalFocus.js');
 const helperSource = fs.readFileSync(helperPath, 'utf8').replace('export function activateModalFocus', 'function activateModalFocus');
-const navigationSource = helperSource.replace('export function activateContainedNavigationFocus', 'function activateContainedNavigationFocus');
-const helpers = new Function(`${navigationSource}; return { activateModalFocus, activateContainedNavigationFocus };`)();
-const { activateModalFocus, activateContainedNavigationFocus } = helpers;
+const navigationSource = helperSource
+	.replace('export function activateContainedNavigationFocus', 'function activateContainedNavigationFocus')
+	.replace('export function scheduleContainedNavigationFocus', 'function scheduleContainedNavigationFocus');
+const helpers = new Function(`${navigationSource}; return { activateModalFocus, activateContainedNavigationFocus, scheduleContainedNavigationFocus };`)();
+const { activateModalFocus, activateContainedNavigationFocus, scheduleContainedNavigationFocus } = helpers;
 
 function element(doc, options = {}) {
 	const attributes = options.inert ? { inert: '' } : {};
@@ -128,4 +130,81 @@ assert.strictEqual(escaped && prevented, true, 'Escape requests closing the navi
 stopNavigation();
 assert.strictEqual(navDoc.activeElement, navOpener, 'closing restores the original visible toggle');
 assert.strictEqual(nav.listeners.keydown, undefined, 'close removes mobile keyboard handling');
-console.log('modal and mobile navigation focus lifecycle: 22 assertions passed');
+async function deferredNavigationLifecycle() {
+	const openDocument = { activeElement: null };
+	const opener = element(openDocument);
+	const navContainer = element(openDocument, { tabIndex: -1 });
+	const closeControl = element(openDocument);
+	navContainer.focusables = [closeControl];
+	navContainer.children = [closeControl];
+	openDocument.activeElement = opener;
+	let releaseFlush;
+	const flush = new Promise((resolve) => { releaseFlush = resolve; });
+	let active = true;
+	const cancel = scheduleContainedNavigationFocus(
+		navContainer,
+		closeControl,
+		() => {},
+		() => flush,
+		() => active
+	);
+	assert.strictEqual(openDocument.activeElement, opener, 'focus waits for the DOM flush');
+	assert.strictEqual(navContainer.listeners.keydown, undefined, 'no trap attaches before the flush');
+	releaseFlush();
+	await flush;
+	await Promise.resolve();
+	assert.strictEqual(openDocument.activeElement, closeControl, 'post-flush activation focuses close');
+	assert.strictEqual(typeof navContainer.listeners.keydown, 'function', 'post-flush trap attaches');
+	cancel();
+	assert.strictEqual(openDocument.activeElement, opener, 'close cleanup restores the opener');
+	assert.strictEqual(navContainer.listeners.keydown, undefined, 'close cleanup removes the trap');
+
+	const staleDocument = { activeElement: null };
+	const staleOpener = element(staleDocument);
+	const staleNav = element(staleDocument, { tabIndex: -1 });
+	const staleClose = element(staleDocument);
+	staleNav.focusables = [staleClose];
+	staleNav.children = [staleClose];
+	staleDocument.activeElement = staleOpener;
+	let releaseStale;
+	const staleFlush = new Promise((resolve) => { releaseStale = resolve; });
+	let stillMobileAndOpen = true;
+	scheduleContainedNavigationFocus(staleNav, staleClose, () => {}, () => staleFlush, () => stillMobileAndOpen);
+	stillMobileAndOpen = false;
+	releaseStale();
+	await staleFlush;
+	await Promise.resolve();
+	assert.strictEqual(staleDocument.activeElement, staleOpener, 'desktop transition fences stale focus');
+	assert.strictEqual(staleNav.listeners.keydown, undefined, 'stale activation attaches no handler');
+
+	const rapidDocument = { activeElement: null };
+	const rapidOpener = element(rapidDocument);
+	const rapidNav = element(rapidDocument, { tabIndex: -1 });
+	const rapidClose = element(rapidDocument);
+	rapidNav.focusables = [rapidClose];
+	rapidNav.children = [rapidClose];
+	rapidDocument.activeElement = rapidOpener;
+	let releaseOld;
+	let releaseNew;
+	const oldFlush = new Promise((resolve) => { releaseOld = resolve; });
+	const newFlush = new Promise((resolve) => { releaseNew = resolve; });
+	const cancelOld = scheduleContainedNavigationFocus(rapidNav, rapidClose, () => {}, () => oldFlush, () => true);
+	cancelOld(); // Close the first opening before its Svelte update commits.
+	const cancelNew = scheduleContainedNavigationFocus(rapidNav, rapidClose, () => {}, () => newFlush, () => true);
+	releaseOld();
+	await oldFlush;
+	await Promise.resolve();
+	assert.strictEqual(rapidDocument.activeElement, rapidOpener, 'closed opening cannot steal focus after reopen');
+	assert.strictEqual(rapidNav.listeners.keydown, undefined, 'cancelled opening adds no stale handler');
+	releaseNew();
+	await newFlush;
+	await Promise.resolve();
+	assert.strictEqual(rapidDocument.activeElement, rapidClose, 'current reopen receives focus after its flush');
+	cancelNew();
+	assert.strictEqual(rapidDocument.activeElement, rapidOpener, 'new opening cleanup restores its opener');
+}
+
+deferredNavigationLifecycle().then(
+	() => console.log('modal and mobile navigation focus lifecycle: 34 assertions passed'),
+	(error) => { console.error(error); process.exitCode = 1; }
+);

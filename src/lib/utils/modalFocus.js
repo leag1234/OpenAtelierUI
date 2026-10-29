@@ -41,6 +41,21 @@ export function activateContainedNavigationFocus(container, initialFocus, onEsca
 	};
 }
 
+export function scheduleContainedNavigationFocus(container, initialFocus, onEscape, nextTick, isCurrent) {
+	let cancelled = false;
+	let cleanup = null;
+	Promise.resolve(nextTick()).then(() => {
+		if (!cancelled && isCurrent()) {
+			cleanup = activateContainedNavigationFocus(container, initialFocus, onEscape);
+		}
+	});
+	return () => {
+		cancelled = true;
+		cleanup?.();
+		cleanup = null;
+	};
+}
+
 /**
  * Add a bounded focus boundary for an opt-in modal. The returned cleanup restores
  * every body's previous inert state and returns focus to the element that opened it.

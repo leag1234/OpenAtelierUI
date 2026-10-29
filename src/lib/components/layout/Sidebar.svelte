@@ -42,7 +42,7 @@
 	import { createNewFolder, getFolders, updateFolderParentIdById } from '$lib/apis/folders';
 	import { WEBUI_BASE_URL } from '$lib/constants';
 	import { sidebarStateMarker } from '$lib/utils/sidebarState';
-	import { activateContainedNavigationFocus } from '$lib/utils/modalFocus';
+	import { scheduleContainedNavigationFocus } from '$lib/utils/modalFocus';
 
 	import ArchivedChatsModal from './Sidebar/ArchivedChatsModal.svelte';
 	import UserMenu from './Sidebar/UserMenu.svelte';
@@ -362,8 +362,18 @@
 		closeNavigationButton &&
 		!mobileFocusCleanup
 	) {
-		mobileFocusCleanup = activateContainedNavigationFocus(navElement, closeNavigationButton, () =>
-			showSidebar.set(false)
+		const navigation = navElement;
+		mobileFocusCleanup = scheduleContainedNavigationFocus(
+			navigation,
+			closeNavigationButton,
+			() => showSidebar.set(false),
+			tick,
+			() =>
+				$mobile &&
+				$showSidebar &&
+				navElement === navigation &&
+				navigation.isConnected &&
+				closeNavigationButton?.isConnected
 		);
 	} else if ((!$mobile || !$showSidebar) && mobileFocusCleanup) {
 		const cleanup = mobileFocusCleanup;
@@ -431,7 +441,10 @@
 	});
 
 	onDestroy(() => {
-		if (mobileFocusCleanup) mobileFocusCleanup();
+		if (mobileFocusCleanup) {
+			mobileFocusCleanup();
+			mobileFocusCleanup = null;
+		}
 		window.removeEventListener('keydown', onKeyDown);
 		window.removeEventListener('keyup', onKeyUp);
 
