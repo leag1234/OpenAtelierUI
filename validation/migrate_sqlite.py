@@ -2348,13 +2348,6 @@ def _inspect_source(
                         1,
                         detail="three selected API-key settings are mapped; remaining configuration is archived and cutover is disabled",
                     )
-                if include_openai_configuration:
-                    _block(
-                        report,
-                        "openai_configuration_prototype",
-                        1,
-                        detail="four selected OpenAI-compatible endpoint settings are mapped; remaining configuration is archived and cutover is disabled",
-                    )
                 if include_user_permissions:
                     _block(
                         report,

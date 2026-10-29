@@ -74,6 +74,19 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
         blocker = next(item for item in report["blockers"] if item["code"] == "unsupported_nonempty_domain_config")
         self.assertEqual(blocker["count"], 4)
         self.assertFalse(report["cutover_eligible"])
+        result = subprocess.run(
+            [
+                sys.executable, str(Path(__file__).with_name("migrate_sqlite.py")), "preview",
+                "--source-db", str(self.source), "--uploads-root", str(self.uploads),
+                "--empty-old-target-template", str(self.template),
+            ],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertEqual(
+            next(item for item in json.loads(result.stdout)["blockers"] if item["code"] == "unsupported_nonempty_domain_config")["count"],
+            4,
+        )
         self.assertEqual(digest(self.source), before)
 
     def test_cli_preview_convert_and_secret_redaction(self):
@@ -94,19 +107,18 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
             text=True,
             check=False,
         )
-        self.assertEqual(preview_result.returncode, 3, preview_result.stderr)
+        self.assertEqual(preview_result.returncode, 0, preview_result.stderr)
         preview_report = json.loads(preview_result.stdout)
         self.assertEqual(preview_report["openai_configuration"]["selected_key_count"], 4)
         self.assertEqual(preview_report["openai_configuration"]["remaining_config_rows"], 0)
-        self.assertIn(
-            "openai_configuration_prototype",
-            {item["code"] for item in preview_report["blockers"]},
-        )
+        self.assertEqual(preview_report["status"], "eligible_for_review")
+        self.assertTrue(preview_report["cutover_eligible"])
+        self.assertFalse(preview_report.get("target_created", False))
+        self.assertNotIn("openai_configuration_prototype", {item["code"] for item in preview_report["blockers"]})
         self.assertNotIn(
             "unsupported_nonempty_domain_config",
             {item["code"] for item in preview_report["blockers"]},
         )
-        self.assertFalse(preview_report["cutover_eligible"])
         self.assertNotIn(SYNTHETIC_API_KEY, preview_result.stdout)
 
         target = self.root / "converted"
@@ -116,8 +128,9 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
             text=True,
             check=False,
         )
-        self.assertEqual(converted.returncode, 3, converted.stderr)
+        self.assertEqual(converted.returncode, 0, converted.stderr)
         self.assertNotIn(SYNTHETIC_API_KEY, converted.stdout + converted.stderr)
+        self.assertEqual(json.loads(converted.stdout)["status"], "prepared_for_independent_review")
         config = self.target_config(target)
         self.assertEqual(
             config["openai"],
@@ -433,6 +446,19 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
         )
         self.assertEqual(blocker["count"], 1)
         self.assertNotIn(SYNTHETIC_API_KEY, json.dumps(report))
+        cli = subprocess.run(
+            [
+                sys.executable, str(Path(__file__).with_name("migrate_sqlite.py")), "preview",
+                "--source-db", str(self.source), "--uploads-root", str(self.uploads),
+                "--empty-old-target-template", str(self.template), FLAG,
+            ],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(cli.returncode, 3, cli.stderr)
+        self.assertEqual(
+            next(item for item in json.loads(cli.stdout)["blockers"] if item["code"] == "unsupported_nonempty_domain_config")["count"],
+            1,
+        )
 
     def test_actual_cli_refuses_unsupported_key_without_echoing_it(self):
         values = dict(OPENAI_SETTINGS)
