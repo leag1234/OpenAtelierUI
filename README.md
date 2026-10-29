@@ -10,6 +10,7 @@ Development is in progress. This repository is not a declaration of production r
 - [Source identity](OPENATELIER-SOURCE.json)
 - [Development provenance and disclosed process incidents](PROVENANCE.md)
 - [Independent provenance audit procedure](audit/PROVENANCE-AUDIT.md)
+- [Portable development delivery](validation/DEVELOPMENT-DELIVERY-20261029.md)
 - [Validation tools and evidence](validation/)
 
 Third-party code and dependencies retain their own licenses. The BSD designation for this project does not relicense third-party components or establish license clearance for every complete container image.

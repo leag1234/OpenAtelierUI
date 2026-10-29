@@ -34,9 +34,9 @@ Categories:
 
 The 43-entry total is a blocker count, not 43 independent product gaps. It combines per-resource repeats with the 369 residual configuration rows represented by one blocker code. `whole-copy-05.json` demonstrates a partial copy and preservation checks, not that every nonfatal source value is active in the new application.
 
-## Smallest next user-facing slice
+## Remaining migration qualification
 
-Do not repeat the already-qualified endpoint matrix as the next milestone. The remaining material gap is **current-consumer integration and rendered use after the whole-copy conversion**. Boot the converted copy with its selected history sidecar and gates, open a resource in the current consumer, expose the active version and one prior snapshot in an understandable UI, then restart and repeat the read before continuing ordinary work. Verify that the active resource remains unchanged and that another owner cannot see the private snapshot. If the consumer has no revision UI, record that concrete gap instead of building a restoration path. This tests the user journey that the historical API comparison did not cover.
+Selected current-consumer chat, migrated identity, saved resources and restart journeys have since passed. The narrower revision-history gap remains **rendered revision use after whole-copy conversion**. Boot the converted copy with its selected history sidecar and gates, open a resource in the current consumer, expose the active version and one prior snapshot in an understandable UI, then restart and repeat the read before continuing ordinary work. Verify that the active resource remains unchanged and that another owner cannot see the private snapshot. If the consumer has no revision UI, record that concrete gap instead of building a restoration path. This tests the user journey that the historical API comparison did not cover.
 
 The existing qualification remains narrowly read-only: exact list/detail behavior and current-pointer DTOs are measured, but revision recording after edits, restore/delete/diff/activation, all metadata shapes, rendered comprehension, and full cutover are not. Keep those notices; do not infer them from passing read calls or remove blockers based on this inventory alone.
 
