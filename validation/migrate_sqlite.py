@@ -680,7 +680,7 @@ def _parse_openai_configuration(connection: sqlite3.Connection) -> dict[str, obj
             ):
                 raise MigrationError(
                     "openai_configuration_value_unsupported",
-                    "only endpoint enablement and bounded static headers are supported",
+                    "only endpoint enablement, bounded static headers, bounded model identifiers, and an empty model prefix are supported",
                 )
             if "headers" in entry:
                 _validate_openai_static_headers(entry["headers"])
