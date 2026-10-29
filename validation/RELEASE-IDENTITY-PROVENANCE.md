@@ -1,0 +1,7 @@
+# Release identity and translation navigation
+
+The previous modal rendered `WEBUI_VERSION` directly, although `src/lib/constants.ts` receives that value from Vite's `APP_VERSION` define and the define is populated from the build environment's `npm_package_version`. When that build value is absent, the UI displays an undefined version. The modal also fetched `/api/changelog`; `backend/open_webui/main.py` exposes entries parsed from the retained `CHANGELOG.md`. Those historical entries describe the inherited base and are not a release record for this project.
+
+The modal now presents a fixed “Development build” label and two concise project-authored notes: no published project release number is assigned, and account setup, saved work, integrations, and interface compatibility remain under validation. It no longer requests the inherited changelog. The package version, API compatibility values, backend changelog, and historical license/provenance files were not changed. The language settings link now points to this repository's locale-source directory and names this project.
+
+Focused checks: `python3 -m unittest validation.test_release_identity -v`; `git diff --check`. This is source-level verification only. Primary owns compile/render review. The local translation link depends on the repository's current `main` branch path; link availability was not checked over the network. No release number, feature qualification, or independent audit is claimed here.
