@@ -10,6 +10,8 @@ The application is experimental and unqualified for production. Do not expose th
 
 ## Independent work log
 
+- 2026-10-29: [Current development qualification](validation/RELEASE-QUALIFICATION-20261029.md) records the selected native realtime, imported-connection, private-copy, rendered navigation and unchanged-plugin journey results, with explicit external-schema, hardware and networking limits. New runtime changes were authored by the same separated implementation worker from the retained own BSD source and bounded behavior-only contracts; the exposed primary reviewed code and independently ran the synthetic validation. This does not erase the earlier exposure incident, claim formal clean-room separation, or establish legal clearance. External consumer code and its proposed correction remain outside the own BSD core. Original failures, rejected experiments and source/data preservation receipts remain in the parent workspace.
+
 - 2026-10-24: Source archive acquired/pinned and baseline imported. Current runtime acquisition and synthetic compatibility/migration/security/performance validation authorized. No newer upstream implementation consulted. Name clearance and complete artifact/dependency licensing remain open.
 
 - 2026-10-24: A primary-agent external-plugin search unexpectedly returned a newer upstream frontend source excerpt. No application patch had been authored. New application implementation by that agent is held; independent runtime validation continues. See the parent workspace evidence `TASK-OPENATELIER-VALIDATION-001/provenance-incident-01.md`. A genuinely non-exposed implementation workflow requires explicit review; no strict clean-room claim is made.
