@@ -1870,7 +1870,13 @@ def _validate_object_domains(
         if kind not in tables:
             continue
         cols = set(_columns(connection, kind))
-        if not required.issubset(cols) or cols - (required | {"version_id"}):
+        missing = required - cols
+        empty_legacy_version_schema = (
+            kind in {"tool", "model"}
+            and missing == {"version_id"}
+            and _count(connection, kind) == 0
+        )
+        if (missing and not empty_legacy_version_schema) or cols - (required | {"version_id"}):
             _block(report, "source_schema_mismatch_" + kind, 1, fatal=True)
             continue
         rows = [dict(row) for row in connection.execute(f'SELECT * FROM "{kind}" ORDER BY id')]
@@ -2102,9 +2108,19 @@ def _validate_template(
 def _validate_function_history(connection: sqlite3.Connection, tables: set[str]) -> bool:
     """Validate the measured function-history subset before target creation."""
     expected = {"id", "function_id", "parent_id", "snapshot", "user_id", "commit_message", "created_at"}
-    if "function_history" not in tables or set(_columns(connection, "function_history")) != expected:
+    if "function_history" not in tables:
+        if "function" in tables and _count(connection, "function") == 0:
+            return True
+        raise ValueError("function history is absent for a source with active functions")
+    if set(_columns(connection, "function_history")) != expected:
         raise ValueError("function history schema is outside the supported shape")
-    function_columns = set(_columns(connection, "function")) if "function" in tables else set()
+    if "function" not in tables:
+        raise ValueError("function history requires a known function table")
+    function_columns = set(_columns(connection, "function"))
+    if "version_id" not in function_columns:
+        if _count(connection, "function") == 0 and _count(connection, "function_history") == 0:
+            return True
+        raise ValueError("function history requires known active function links")
     if not {"id", "user_id", "version_id", "meta"}.issubset(function_columns):
         raise ValueError("function history requires known active function links")
     if "user" not in tables or "id" not in _columns(connection, "user"):
@@ -2301,7 +2317,13 @@ def _inspect_source(
         if unknown_tables:
             _block(report, "unknown_source_tables", len(unknown_tables), fatal=True)
         for table, required in SOURCE_REQUIRED.items():
-            if table not in tables or not required.issubset(_columns(connection, table)):
+            missing = required - set(_columns(connection, table)) if table in tables else required
+            empty_legacy_version_schema = (
+                table in {"tool", "model"}
+                and missing == {"version_id"}
+                and _count(connection, table) == 0
+            )
+            if table not in tables or (missing and not empty_legacy_version_schema):
                 _block(report, "source_schema_mismatch_" + table, 1, fatal=True)
         object_counts = connection.execute("SELECT type,COUNT(*) FROM sqlite_master WHERE type IN ('trigger','view') GROUP BY type").fetchall()
         if object_counts:
@@ -2329,7 +2351,18 @@ def _inspect_source(
                 )
             ) and not (table == "function_history" and include_function_history):
                 _block(report, "unsupported_nonempty_domain_" + table, _count(connection, table), detail="full bytes are retained in the source archive; old target behavior is not implemented")
-        valid_required = {name: name in tables and required.issubset(_columns(connection, name)) for name, required in SOURCE_REQUIRED.items()}
+        valid_required = {}
+        for name, required in SOURCE_REQUIRED.items():
+            columns = set(_columns(connection, name)) if name in tables else set()
+            missing = required - columns
+            valid_required[name] = name in tables and (
+                not missing
+                or (
+                    name in {"tool", "model"}
+                    and missing == {"version_id"}
+                    and _count(connection, name) == 0
+                )
+            )
         profile_fields_verified = False
         if valid_required.get("auth"):
             columns = _columns(connection, "auth")
@@ -2439,7 +2472,7 @@ def _inspect_source(
             except ValueError as error:
                 _block(report, "invalid_function_history", 1, fatal=True, detail=str(error))
             if function_history_selected:
-                history_count = _count(connection, "function_history")
+                history_count = _count(connection, "function_history") if "function_history" in tables else 0
                 _block(
                     report,
                     "function_history_prototype",
@@ -2452,7 +2485,7 @@ def _inspect_source(
                     "revision_count": history_count,
                     "resource_count": connection.execute(
                         'SELECT COUNT(DISTINCT function_id) FROM "function_history"'
-                    ).fetchone()[0],
+                    ).fetchone()[0] if "function_history" in tables else 0,
                 }
             else:
                 report["function_history"] = {"opt_in": True, "prepared": False, "revision_count": 0, "resource_count": 0}

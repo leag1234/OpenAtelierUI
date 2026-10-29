@@ -1014,6 +1014,93 @@ class ImporterTests(unittest.TestCase):
         self.assertEqual(db.execute("SELECT id,base_model_id FROM model WHERE id='model-private'").fetchone(), ('model-private','portable_pipe'))
         db.close()
 
+    def test_empty_legacy_object_tables_and_absent_optional_function_history_are_allowed(self):
+        db = sqlite3.connect(self.source)
+        db.execute("DELETE FROM tool")
+        db.execute("DELETE FROM model")
+        db.execute("DELETE FROM function")
+        db.execute("ALTER TABLE tool DROP COLUMN version_id")
+        db.execute("ALTER TABLE model DROP COLUMN version_id")
+        db.execute("ALTER TABLE function DROP COLUMN version_id")
+        db.execute("DROP TABLE function_history")
+        db.execute("DROP TABLE tool_history")
+        db.execute("DROP TABLE model_history")
+        db.commit()
+        db.close()
+        source_hash = digest(self.source)
+
+        report = convert(
+            self.source,
+            self.uploads,
+            self.template,
+            self.root / "legacy-empty-objects",
+            include_history_sidecar=True,
+            include_function_history=True,
+        )
+
+        codes = {item["code"] for item in report["blockers"]}
+        self.assertNotIn("source_schema_mismatch_tool", codes)
+        self.assertNotIn("source_schema_mismatch_model", codes)
+        self.assertNotIn("invalid_function_history", codes)
+        self.assertEqual(report["imported_history_sidecar"]["rows"], 0)
+        self.assertTrue(report["imported_history_sidecar"]["function_history_enabled"])
+        self.assertFalse(report["cutover_eligible"])
+        self.assertEqual(digest(self.source), source_hash)
+        self.assertEqual(digest(Path(report["archive"]["path"]) / "source.sqlite"), source_hash)
+        target_db = sqlite3.connect(Path(report["target_dir"]) / "webui.db")
+        try:
+            self.assertEqual(target_db.execute('SELECT COUNT(*) FROM "tool"').fetchone()[0], 0)
+            self.assertEqual(target_db.execute('SELECT COUNT(*) FROM "model"').fetchone()[0], 0)
+            self.assertEqual(target_db.execute('SELECT COUNT(*) FROM "function"').fetchone()[0], 0)
+        finally:
+            target_db.close()
+
+    def test_missing_version_column_is_still_refused_for_nonempty_objects_and_functions(self):
+        db = sqlite3.connect(self.source)
+        db.execute("ALTER TABLE tool DROP COLUMN version_id")
+        db.execute("ALTER TABLE model DROP COLUMN version_id")
+        db.execute("DROP TABLE function_history")
+        db.commit()
+        db.close()
+        before = digest(self.source)
+        report = preview(self.source, self.uploads, self.template, include_function_history=True)
+        codes = {item["code"] for item in report["blockers"]}
+        self.assertTrue(report["fatal"])
+        self.assertIn("source_schema_mismatch_tool", codes)
+        self.assertIn("source_schema_mismatch_model", codes)
+        self.assertIn("invalid_function_history", codes)
+        target = self.root / "legacy-nonempty-objects"
+        with self.assertRaises(MigrationError):
+            convert(self.source, self.uploads, self.template, target, include_function_history=True)
+        self.assertFalse(target.exists())
+        self.assertEqual(digest(self.source), before)
+
+    def test_function_history_refuses_missing_function_table_before_querying(self):
+        db = sqlite3.connect(self.source)
+        db.execute("DROP TABLE function")
+        db.execute("DROP TABLE function_history")
+        db.execute("""
+          CREATE TABLE function_history(
+            id TEXT, function_id TEXT, parent_id TEXT, snapshot TEXT,
+            user_id TEXT, commit_message TEXT, created_at INTEGER
+          )
+        """)
+        db.commit()
+        db.close()
+        before = digest(self.source)
+
+        report = preview(self.source, self.uploads, self.template, include_function_history=True)
+
+        codes = {item["code"] for item in report["blockers"]}
+        self.assertTrue(report["fatal"])
+        self.assertIn("source_schema_mismatch_function", codes)
+        self.assertIn("invalid_function_history", codes)
+        self.assertEqual(digest(self.source), before)
+        target = self.root / "missing-function-table"
+        with self.assertRaises(MigrationError):
+            convert(self.source, self.uploads, self.template, target, include_function_history=True)
+        self.assertFalse(target.exists())
+
     def test_known_history_author_may_differ_from_active_resource_owner(self):
         self._add_admin_author()
         self._add_history("tool", "tool-private", "tool-admin-version", "admin")
