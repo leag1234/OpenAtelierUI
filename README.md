@@ -10,6 +10,8 @@ Development is in progress. This repository is not a declaration of production r
 - [Source identity](OPENATELIER-SOURCE.json)
 - [Development provenance and disclosed process incidents](PROVENANCE.md)
 - [Independent provenance audit procedure](audit/PROVENANCE-AUDIT.md)
+- [Installation, backup and rollback](INSTALLATION.md)
+- [Release-candidate checklist](RELEASE-CANDIDATE.md)
 - [Portable development delivery](validation/DEVELOPMENT-DELIVERY-20261029.md)
 - [Validation tools and evidence](validation/)
 
