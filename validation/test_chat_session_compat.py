@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Focused behavior checks for the bundled chat-session compatibility helper."""
 
 from __future__ import annotations

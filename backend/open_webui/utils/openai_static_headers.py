@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Bounded validation and merging for operator-owned OpenAI connection headers."""
 
 import re

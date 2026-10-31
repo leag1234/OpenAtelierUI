@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Run the actual ToolForm and ModelForm definitions without app dependencies."""
 
 import ast

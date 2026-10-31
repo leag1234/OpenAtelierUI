@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Narrow sync/async bridges for legacy plugin imports of ``Users``.
 
 Only exact imported ``Users`` bindings in dynamically loaded ``Pipe`` or

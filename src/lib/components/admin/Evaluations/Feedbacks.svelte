@@ -15,7 +15,6 @@
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import ArrowDownTray from '$lib/components/icons/ArrowDownTray.svelte';
 	import Badge from '$lib/components/common/Badge.svelte';
-	import CloudArrowUp from '$lib/components/icons/CloudArrowUp.svelte';
 	import Pagination from '$lib/components/common/Pagination.svelte';
 	import FeedbackMenu from './FeedbackMenu.svelte';
 	import EllipsisHorizontal from '$lib/components/icons/EllipsisHorizontal.svelte';
@@ -62,33 +61,6 @@
 		if (response) {
 			feedbacks = feedbacks.filter((f) => f.id !== feedbackId);
 		}
-	};
-
-	const shareHandler = async () => {
-		toast.success($i18n.t('Redirecting you to Open WebUI Community'));
-
-		// remove snapshot from feedbacks
-		const feedbacksToShare = feedbacks.map((f) => {
-			const { snapshot, user, ...rest } = f;
-			return rest;
-		});
-		console.log(feedbacksToShare);
-
-		const url = 'https://openwebui.com';
-		const tab = await window.open(`${url}/leaderboard`, '_blank');
-
-		// Define the event handler function
-		const messageHandler = (event) => {
-			if (event.origin !== url) return;
-			if (event.data === 'loaded') {
-				tab.postMessage(JSON.stringify(feedbacksToShare), '*');
-
-				// Remove the event listener after handling the message
-				window.removeEventListener('message', messageHandler);
-			}
-		};
-
-		window.addEventListener('message', messageHandler, false);
 	};
 
 	const exportHandler = async () => {
@@ -248,37 +220,6 @@
 		</table>
 	{/if}
 </div>
-
-{#if feedbacks.length > 0}
-	<div class=" flex flex-col justify-end w-full text-right gap-1">
-		<div class="line-clamp-1 text-gray-500 text-xs">
-			{$i18n.t('Help us create the best community leaderboard by sharing your feedback history!')}
-		</div>
-
-		<div class="flex space-x-1 ml-auto">
-			<Tooltip
-				content={$i18n.t(
-					'To protect your privacy, only ratings, model IDs, tags, and metadata are shared from your feedback—your chat logs remain private and are not included.'
-				)}
-			>
-				<button
-					class="flex text-xs items-center px-3 py-1.5 rounded-xl bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 dark:text-gray-200 transition"
-					on:click={async () => {
-						shareHandler();
-					}}
-				>
-					<div class=" self-center mr-2 font-medium line-clamp-1">
-						{$i18n.t('Share to Open WebUI Community')}
-					</div>
-
-					<div class=" self-center">
-						<CloudArrowUp className="size-3" strokeWidth="3" />
-					</div>
-				</button>
-			</Tooltip>
-		</div>
-	</div>
-{/if}
 
 {#if feedbacks.length > 10}
 	<Pagination bind:page count={feedbacks.length} perPage={10} />

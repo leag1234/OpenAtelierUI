@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Run the actual trusted signin branch with isolated in-memory account stubs."""
 
 import ast

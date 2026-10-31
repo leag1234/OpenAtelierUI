@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Actual client descriptor and pre-provider entry regression fixtures."""
 import asyncio
 import copy

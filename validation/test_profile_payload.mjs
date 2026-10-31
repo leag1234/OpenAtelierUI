@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) 2026 Gaël Duval
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';

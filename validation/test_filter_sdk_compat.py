@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Focused tests for the bounded direct-Users Filter SDK bridge."""
 
 import ast

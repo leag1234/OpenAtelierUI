@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Source-extracted tests for the old tool-server verify route behavior."""
 
 import ast

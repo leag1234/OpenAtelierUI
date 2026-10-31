@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Source-bound tests for authenticated realtime identity and revocation."""
 
 from __future__ import annotations

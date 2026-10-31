@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Primary regression fixtures for observed synthetic identity-policy migration."""
 import hashlib
 import json

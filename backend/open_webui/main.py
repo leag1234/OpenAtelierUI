@@ -106,7 +106,6 @@ from open_webui.models.users import UserModel, Users
 from open_webui.models.chats import Chats
 
 from open_webui.config import (
-    LICENSE_KEY,
     # Ollama
     ENABLE_OLLAMA_API,
     OLLAMA_BASE_URLS,
@@ -383,7 +382,6 @@ from open_webui.utils.provider_errors import ProviderErrorResponse
 from open_webui.utils.access_control import has_access
 
 from open_webui.utils.auth import (
-    get_license_data,
     get_http_authorization_cred,
     decode_token,
     get_admin_user,
@@ -439,9 +437,9 @@ print(
  ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝     ╚══╝╚══╝ ╚══════╝╚═════╝  ╚═════╝ ╚═╝
 
 
-v{VERSION} - building the best open-source AI user interface.
+OpenAtelierUI v{VERSION}
 {f"Commit: {WEBUI_BUILD_HASH}" if WEBUI_BUILD_HASH != "dev-build" else ""}
-https://github.com/open-webui/open-webui
+https://github.com/leag1234/OpenAtelierUI
 """
 )
 
@@ -454,20 +452,18 @@ async def lifespan(app: FastAPI):
     if RESET_CONFIG_ON_START:
         reset_config()
 
-    if LICENSE_KEY:
-        get_license_data(app, LICENSE_KEY)
-
     asyncio.create_task(periodic_usage_pool_cleanup())
     yield
 
 
-DEFAULT_WEBUI_NAME = "Open WebUI"
+DEFAULT_WEBUI_NAME = "OpenAtelierUI"
+LEGACY_DEFAULT_WEBUI_NAME = "Open WebUI"
 PROJECT_WEBUI_NAME = "OpenAtelierUI"
 
 
 def resolve_public_webui_name(configured_name: str, custom_name: str = "") -> str:
     """Use the project identity for the inherited default, retaining overrides."""
-    if configured_name == DEFAULT_WEBUI_NAME and not custom_name:
+    if configured_name in {DEFAULT_WEBUI_NAME, LEGACY_DEFAULT_WEBUI_NAME} and not custom_name:
         return PROJECT_WEBUI_NAME
     return configured_name
 
@@ -1621,16 +1617,17 @@ async def get_app_version():
 
 @app.get("/api/version/updates")
 async def get_app_latest_release_version(user=Depends(get_verified_user)):
-    if OFFLINE_MODE:
-        log.debug(
-            f"Offline mode is enabled, returning current version as latest version"
-        )
+    release_check_enabled = os.environ.get(
+        "OPENATELIERUI_ENABLE_RELEASE_CHECK", "false"
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    if OFFLINE_MODE or not release_check_enabled:
+        log.debug("Release checks are disabled; returning the current version")
         return {"current": VERSION, "latest": VERSION}
     try:
         timeout = aiohttp.ClientTimeout(total=1)
         async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
             async with session.get(
-                "https://api.github.com/repos/open-webui/open-webui/releases/latest"
+                "https://api.github.com/repos/leag1234/OpenAtelierUI/releases/latest"
             ) as response:
                 response.raise_for_status()
                 data = await response.json()

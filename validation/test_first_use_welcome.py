@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Check first-use welcome action and auth focus isolation in own UI source."""
 
 from __future__ import annotations

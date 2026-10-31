@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Bounded source and asset checks for the supplied UI identity integration."""
 
 import ast
@@ -22,7 +23,8 @@ class UiIdentitySourceTests(unittest.TestCase):
             and node.name == "resolve_public_webui_name"
         )
         namespace = {
-            "DEFAULT_WEBUI_NAME": "Open WebUI",
+            "DEFAULT_WEBUI_NAME": "OpenAtelierUI",
+            "LEGACY_DEFAULT_WEBUI_NAME": "Open WebUI",
             "PROJECT_WEBUI_NAME": "OpenAtelierUI",
         }
         exec(compile(ast.Module(body=[function], type_ignores=[]), "main.py", "exec"), namespace)
@@ -149,12 +151,13 @@ class UiIdentitySourceTests(unittest.TestCase):
         supplied = ASSETS / "png/openatelierui-symbol-512.png"
         self.assertEqual(logo.read_bytes(), supplied.read_bytes())
 
-    def test_pinned_config_source_remains_unchanged(self):
-        digest = hashlib.sha256((ROOT / "backend/open_webui/config.py").read_bytes()).hexdigest()
-        self.assertEqual(
-            digest,
-            "e86c2da3487ddf9d9ee9fe5bafc81f5e96d8bc8a800a5632e3387bec6e57d694",
-        )
+    def test_inherited_branding_services_are_not_contacted(self):
+        config = (ROOT / "backend/open_webui/config.py").read_text()
+        auth = (ROOT / "backend/open_webui/utils/auth.py").read_text()
+        main = (ROOT / "backend/open_webui/main.py").read_text()
+        self.assertNotIn("api.openwebui.com", config)
+        self.assertNotIn("api.openwebui.com", auth)
+        self.assertIn('OPENATELIERUI_ENABLE_RELEASE_CHECK", "false"', main)
 
 
 if __name__ == "__main__":

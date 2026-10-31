@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 from __future__ import annotations
 
 import argparse, hashlib, json, os, re, shutil, sqlite3, subprocess, tempfile, time, uuid

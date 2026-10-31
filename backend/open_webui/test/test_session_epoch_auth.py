@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Source-bound tests for the default-off session epoch auth integration."""
 
 from __future__ import annotations

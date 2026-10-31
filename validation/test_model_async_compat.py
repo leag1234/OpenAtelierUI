@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Isolated tests for explicit model bootstrap and plugin lookup adapters."""
 
 import asyncio

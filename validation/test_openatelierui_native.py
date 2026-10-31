@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 import contextlib, io, json, os, socket, sqlite3, subprocess, sys, tempfile, unittest
 from pathlib import Path
 from types import SimpleNamespace

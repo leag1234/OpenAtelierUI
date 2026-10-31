@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Generic, Optional, TypeVar
 from urllib.parse import urlparse
 
-import requests
 from pydantic import BaseModel
 from sqlalchemy import JSON, Column, DateTime, Integer, func
 
@@ -691,42 +690,11 @@ if frontend_loader.exists():
 ####################################
 
 CUSTOM_NAME = os.environ.get("CUSTOM_NAME", "")
-
 if CUSTOM_NAME:
-    try:
-        r = requests.get(f"https://api.openwebui.com/api/v1/custom/{CUSTOM_NAME}")
-        data = r.json()
-        if r.ok:
-            if "logo" in data:
-                WEBUI_FAVICON_URL = url = (
-                    f"https://api.openwebui.com{data['logo']}"
-                    if data["logo"][0] == "/"
-                    else data["logo"]
-                )
-
-                r = requests.get(url, stream=True)
-                if r.status_code == 200:
-                    with open(f"{STATIC_DIR}/favicon.png", "wb") as f:
-                        r.raw.decode_content = True
-                        shutil.copyfileobj(r.raw, f)
-
-            if "splash" in data:
-                url = (
-                    f"https://api.openwebui.com{data['splash']}"
-                    if data["splash"][0] == "/"
-                    else data["splash"]
-                )
-
-                r = requests.get(url, stream=True)
-                if r.status_code == 200:
-                    with open(f"{STATIC_DIR}/splash.png", "wb") as f:
-                        r.raw.decode_content = True
-                        shutil.copyfileobj(r.raw, f)
-
-            WEBUI_NAME = data["name"]
-    except Exception as e:
-        log.exception(e)
-        pass
+    log.warning(
+        "CUSTOM_NAME no longer contacts an external branding service; "
+        "set WEBUI_NAME and WEBUI_FAVICON_URL directly"
+    )
 
 
 ####################################
@@ -822,7 +790,7 @@ if OLLAMA_BASE_URL == "" and OLLAMA_API_BASE_URL != "":
 if ENV == "prod":
     if OLLAMA_BASE_URL == "/ollama" and not K8S_FLAG:
         if USE_OLLAMA_DOCKER.lower() == "true":
-            # if you use all-in-one docker container (Open WebUI + Ollama)
+            # If an all-in-one OpenAtelierUI and Ollama container is used.
             # with the docker build arg USE_OLLAMA=true (--build-arg="USE_OLLAMA=true") this only works with http://localhost:11434
             OLLAMA_BASE_URL = "http://localhost:11434"
         else:

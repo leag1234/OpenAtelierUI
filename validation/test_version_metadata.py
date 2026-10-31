@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Extracted direct-GET route tests for imported current-version pointers."""
 
 from __future__ import annotations

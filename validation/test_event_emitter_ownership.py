@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Source-extracted controls for plugin event session ownership and aliasing."""
 
 from __future__ import annotations

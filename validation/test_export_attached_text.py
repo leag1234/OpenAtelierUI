@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Synthetic local tests for attached-text bundle export."""
 import contextlib
 import hashlib

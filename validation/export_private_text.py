@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Export one eligible private text chat as a separate import artifact."""
 import argparse
 import hashlib

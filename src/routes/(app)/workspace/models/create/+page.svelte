@@ -58,28 +58,6 @@
 	let model = null;
 
 	onMount(async () => {
-		window.addEventListener('message', async (event) => {
-			if (
-				!['https://openwebui.com', 'https://www.openwebui.com', 'http://localhost:5173'].includes(
-					event.origin
-				)
-			) {
-				return;
-			}
-
-			let data = JSON.parse(event.data);
-
-			if (data?.info) {
-				data = data.info;
-			}
-
-			model = data;
-		});
-
-		if (window.opener ?? false) {
-			window.opener.postMessage('loaded', '*');
-		}
-
 		if (sessionStorage.model) {
 			model = JSON.parse(sessionStorage.model);
 			sessionStorage.removeItem('model');

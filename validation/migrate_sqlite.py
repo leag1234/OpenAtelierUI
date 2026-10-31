@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Read-only preview and fresh-target SQLite migration experiment.
 
 This is a bounded synthetic-data prototype. It never executes source SQL or

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Named tests for the opt-in inert imported-history prototype."""
 
 from __future__ import annotations
@@ -316,7 +317,14 @@ class ImportedHistoryTests(unittest.TestCase):
     def test_extracted_routes_enforce_access_before_reader_and_match_missing_errors(self):
         for filename, kind, id_field, list_name, detail_name, expected_denial in (
             ("tools.py", "tool", "tool-private", "get_tool_history", "get_tool_history_version", 401),
-            ("models.py", "model", "model-private", "get_model_history", "get_model_history_version", 403),
+            (
+                "models.py",
+                "model",
+                "model-private",
+                "list_imported_model_versions",
+                "read_imported_model_version",
+                403,
+            ),
         ):
             resource = SimpleNamespace(id=id_field, user_id="u1")
             for function_name in (list_name, detail_name):

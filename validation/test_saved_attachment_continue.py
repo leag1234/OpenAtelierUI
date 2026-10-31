@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Exercise saved attachment forwarding through the selected chat branch."""
 
 from __future__ import annotations

@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Opt-in foreground launcher for an isolated prebuilt instance."""
 import argparse, json, os, shutil, socket, subprocess, sys
 from pathlib import Path

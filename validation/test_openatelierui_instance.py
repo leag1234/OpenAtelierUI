@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Mocked subprocess checks for the private OpenAtelierUI lifecycle helper."""
 import importlib.util
 import io

@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Translate the measured current read-grant subset into the legacy ACL."""
 
 from collections.abc import Mapping

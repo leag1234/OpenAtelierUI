@@ -1,8 +1,8 @@
 [project]
-name = "open-webui"
-description = "Open WebUI"
+name = "openatelierui"
+description = "A BSD-licensed AI interface focused on compatibility and local control"
 authors = [
-    { name = "Timothy Jaeryang Baek", email = "tim@openwebui.com" }
+    { name = "Gaël Duval" }
 ]
 license = { file = "LICENSE" }
 dependencies = [

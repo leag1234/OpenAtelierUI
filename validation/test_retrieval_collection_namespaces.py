@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Owner-bound ingestion and collection routing with no external services."""
 import asyncio
 from types import SimpleNamespace as NS

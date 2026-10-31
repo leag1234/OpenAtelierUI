@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Source-bound stored/read/invocation checks for imported Tool valves."""
 import ast
 import asyncio

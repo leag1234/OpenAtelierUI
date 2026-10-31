@@ -30,7 +30,6 @@
 	import GarbageBin from '../icons/GarbageBin.svelte';
 	import Search from '../icons/Search.svelte';
 	import Plus from '../icons/Plus.svelte';
-	import ChevronRight from '../icons/ChevronRight.svelte';
 	import Switch from '../common/Switch.svelte';
 	import Spinner from '../common/Spinner.svelte';
 	import { capitalizeFirstLetter } from '$lib/utils';
@@ -84,24 +83,6 @@
 			name: `${model.name} (Clone)`
 		});
 		goto('/workspace/models/create');
-	};
-
-	const shareModelHandler = async (model) => {
-		toast.success($i18n.t('Redirecting you to Open WebUI Community'));
-
-		const url = 'https://openwebui.com';
-
-		const tab = await window.open(`${url}/models/create`, '_blank');
-
-		const messageHandler = (event) => {
-			if (event.origin !== url) return;
-			if (event.data === 'loaded') {
-				tab.postMessage(JSON.stringify(model), '*');
-				window.removeEventListener('message', messageHandler);
-			}
-		};
-
-		window.addEventListener('message', messageHandler, false);
 	};
 
 	const hideModelHandler = async (model) => {
@@ -346,9 +327,6 @@
 							<ModelMenu
 								user={$user}
 								{model}
-								shareHandler={() => {
-									shareModelHandler(model);
-								}}
 								cloneHandler={() => {
 									cloneModelHandler(model);
 								}}
@@ -505,32 +483,6 @@
 		</div>
 	{/if}
 
-	{#if $config?.features.enable_community_sharing}
-		<div class=" my-16">
-			<div class=" text-xl font-medium mb-1 line-clamp-1">
-				{$i18n.t('Made by Open WebUI Community')}
-			</div>
-
-			<a
-				class=" flex cursor-pointer items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-850 w-full mb-2 px-3.5 py-1.5 rounded-xl transition"
-				href="https://openwebui.com/#open-webui-community"
-				target="_blank"
-			>
-				<div class=" self-center">
-					<div class=" font-semibold line-clamp-1">{$i18n.t('Discover a model')}</div>
-					<div class=" text-sm line-clamp-1">
-						{$i18n.t('Discover, download, and explore model presets')}
-					</div>
-				</div>
-
-				<div>
-					<div>
-						<ChevronRight />
-					</div>
-				</div>
-			</a>
-		</div>
-	{/if}
 {:else}
 	<div class="w-full h-full flex justify-center items-center">
 		<Spinner />

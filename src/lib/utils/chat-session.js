@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) 2026 Gaël Duval
 
 export function selectChatEventChannel(config) {
 	return config && config.event_call_channel === 'events' ? 'events' : 'chat-events';

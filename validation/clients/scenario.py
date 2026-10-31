@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Independent public-contract scenario; same client and plugins on each runtime.
 
 Synthetic data only. No provider endpoint is used: pipe functions are local.

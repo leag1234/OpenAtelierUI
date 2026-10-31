@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Opt-in reader for bounded imported Tool/Model/Function history.
 
 Snapshots are inert JSON. This module never imports or executes their content.

@@ -252,7 +252,7 @@ class PrivateNotesStoreTests(unittest.TestCase):
                 with self.assertRaises(router.HTTPException) as invalid_page:
                     router.list_notes(request, page, owner)
                 self.assertEqual(invalid_page.exception.status_code, 422)
-            result = router.search_notes(request, query="Private", page=1, user=owner)
+            result = router.query_private_notes(request, query="Private", page=1, user=owner)
             self.assertEqual(result["total"], 1)
             self.assertEqual(result["items"][0]["user"], {
                 "id": "owner", "name": "Workshop member", "role": "user",

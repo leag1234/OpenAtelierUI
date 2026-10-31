@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Exercise actual own retrieval guards with inert resource/effect doubles."""
 import ast
 import __future__

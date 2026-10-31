@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Focused tests for the opt-in inert imported function-history slice."""
 
 from __future__ import annotations

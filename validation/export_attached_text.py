@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Export one private chat and its owned text upload as a deterministic lab bundle."""
 import argparse
 import hashlib

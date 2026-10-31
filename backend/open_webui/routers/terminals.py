@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Opt-in, read-only proxy for one generated terminal attachment."""
 
 import asyncio

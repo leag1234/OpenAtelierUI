@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """SQLite tests for the inactive copy-only account epoch component."""
 
 from __future__ import annotations

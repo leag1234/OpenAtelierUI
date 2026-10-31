@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) 2026 Gaël Duval
 const grantFields = new Set(['principal_type', 'principal_id', 'permission', 'id', 'resource_type', 'resource_id', 'created_at']);
 
 export const parseResourceReadGrants = (model, resourceType, allowGroups = false) => {

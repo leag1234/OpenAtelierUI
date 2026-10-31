@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Focused source-contract checks for the truthful first-use notice and editor label."""
 
 from pathlib import Path

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """SQLite and CLI controls for the narrow OpenAI-compatible config import."""
 
 from __future__ import annotations
