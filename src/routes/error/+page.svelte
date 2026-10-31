@@ -34,7 +34,7 @@
 						<br class=" " />
 						<a
 							class=" font-semibold underline"
-							href="https://github.com/open-webui/open-webui#how-to-install-"
+							href="https://github.com/leag1234/OpenAtelierUI/blob/main/INSTALLATION.md"
 							target="_blank">{$i18n.t('See readme.md for instructions')}</a
 						>
 						{$i18n.t('or')}

@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Real-SQLite tests for the isolated private-notes import prototype."""
 
 import json

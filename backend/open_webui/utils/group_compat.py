@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Narrow current-style projections for the measured flat-group REST bridge."""
 
 from collections.abc import Mapping

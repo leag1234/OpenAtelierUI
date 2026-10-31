@@ -8,7 +8,8 @@
 	import { page } from '$app/stores';
 	import { config, models, settings } from '$lib/stores';
 
-	import { getModelById, updateModelById } from '$lib/apis/models';
+	import { getModelById, updateModelById, updateModelAccessById } from '$lib/apis/models';
+	import { buildReadGrantsFromParsed, parseModelReadGrants, saveModelWithSharing } from '$lib/apis/models/sharing.js';
 
 	import { getModels } from '$lib/apis';
 	import ModelEditor from '$lib/components/workspace/Models/ModelEditor.svelte';
@@ -31,9 +32,28 @@
 	});
 
 	const onSubmit = async (modelInfo) => {
-		const res = await updateModelById(localStorage.token, modelInfo.id, modelInfo);
+		const parsed = parseModelReadGrants(model);
+		const existingGrants = parsed.supported
+			? buildReadGrantsFromParsed(parsed)
+			: undefined;
+		const result = await saveModelWithSharing(
+			modelInfo.id,
+			modelInfo,
+			existingGrants,
+			(id, details) => updateModelById(localStorage.token, id, details),
+			(id, grants) => updateModelAccessById(localStorage.token, id, grants)
+		);
 
-		if (res) {
+		if (result.status === 'sharing_failed') {
+			toast.error('Model details were saved, but sharing was not updated. Retry the sharing change.');
+			return;
+		}
+		if (result.status !== 'saved') {
+			toast.error('The model details could not be saved. Review the form and try again.');
+			return;
+		}
+
+		if (result.model) {
 			await models.set(
 				await getModels(
 					localStorage.token,

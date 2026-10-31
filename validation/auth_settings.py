@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Stateless validator for the three explicitly allowlisted auth settings."""
 
 from __future__ import annotations

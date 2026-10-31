@@ -1,16 +1,21 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 import json
 from pathlib import Path
 import sqlite3
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import migrate_atlas_copy as coordinator
 from test_migrate_sqlite import build_source, build_template
+from test_openatelierui_instance import DockerDouble, IMAGE
+from validation import openatelierui_instance as instance
 
 
 def add_notes(source):
@@ -209,6 +214,40 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
         stage = sqlite3.connect(self.root / "no-notes-workspace" / "core-staging.sqlite")
         self.assertIsNone(stage.execute("SELECT 1 FROM sqlite_master WHERE name='note'").fetchone())
         stage.close()
+
+    def test_converted_target_can_be_started_as_the_direct_data_copy(self):
+        with sqlite3.connect(self.template) as db:
+            db.execute('DROP TABLE auth')
+            db.execute('CREATE TABLE auth(id TEXT NOT NULL PRIMARY KEY, email TEXT, password TEXT, active INTEGER)')
+        result = self._run("convert", "handoff")
+        target = self.root / "handoff-target"
+        self.assertTrue(result["ok"], result)
+        original_db = (target / "webui.db").read_bytes()
+        original_upload = (target / "uploads" / "f1_synthetic.html").read_bytes()
+        old_static, frontend = self.root / "old-static", self.root / "frontend-static"
+        old_static.mkdir(); frontend.mkdir()
+        (old_static / "base.css").write_text("base")
+        (frontend / "app.js").write_text("app")
+        env = self.root / "operator.env"
+        env.write_text("WEBUI_SECRET_KEY=synthetic-only\n"); env.chmod(0o600)
+        workspace = self.root / "handoff-instance"
+        args = types.SimpleNamespace(
+            image="openatelier-test:local", expected_image_id=IMAGE,
+            source_data=str(target), env_file=str(env), workspace=str(workspace),
+            network="openatelierui-private", host_port=18080, container_port=8080,
+            health_timeout=5,
+        )
+        docker = DockerDouble(old_static, frontend)
+        with patch.object(instance.subprocess, "run", side_effect=docker), \
+                patch.object(instance, "_health"), \
+                patch.object(instance.os, "getuid", return_value=1000), \
+                patch.object(instance.os, "getgid", return_value=1000):
+            started = instance.start(args)
+        self.assertEqual(started["url"], "http://127.0.0.1:18080")
+        self.assertEqual((workspace / "pre-session" / "webui.db").read_bytes(), original_db)
+        self.assertEqual((workspace / "data" / "uploads" / "f1_synthetic.html").read_bytes(), original_upload)
+        self.assertEqual((target / "webui.db").read_bytes(), original_db)
+        self.assertEqual((target / "uploads" / "f1_synthetic.html").read_bytes(), original_upload)
 
 
 if __name__ == "__main__":

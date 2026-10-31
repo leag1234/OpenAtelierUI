@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Exercise the checked-in private configuration route bodies with isolated stubs."""
 
 from __future__ import annotations

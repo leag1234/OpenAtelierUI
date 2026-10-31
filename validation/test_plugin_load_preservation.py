@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Check loader persistence behavior with isolated synthetic stores and modules."""
 
 from __future__ import annotations

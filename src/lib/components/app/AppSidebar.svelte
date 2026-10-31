@@ -1,7 +1,8 @@
 <script lang="ts">
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
+	import MenuLines from '$lib/components/icons/MenuLines.svelte';
 	import Plus from '$lib/components/icons/Plus.svelte';
-	import { WEBUI_NAME } from '$lib/stores';
+	import { WEBUI_NAME, showSidebar } from '$lib/stores';
 
 	let selected = '';
 </script>
@@ -53,6 +54,22 @@
 			</button>
 		</Tooltip>
 	</div>
+
+	{#if !$showSidebar}
+		<div class="flex justify-center relative">
+			<Tooltip content="Open navigation" placement="right">
+				<button
+					class="cursor-pointer rounded-full p-2 hover:bg-gray-100 dark:hover:bg-gray-900 transition"
+					aria-label="Open navigation"
+					aria-controls="sidebar"
+					aria-expanded={$showSidebar}
+					on:click={() => showSidebar.set(true)}
+				>
+					<MenuLines />
+				</button>
+			</Tooltip>
+		</div>
+	{/if}
 
 	<div class=" -mt-1 border-[1.5px] border-gray-100 dark:border-gray-900 mx-4"></div>
 

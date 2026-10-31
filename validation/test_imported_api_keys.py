@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Named SQLite controls for the opt-in legacy API-key import slice."""
 
 from __future__ import annotations

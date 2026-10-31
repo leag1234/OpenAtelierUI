@@ -1,11 +1,9 @@
 <script>
-	import { getContext, onMount } from 'svelte';
+	import { getContext } from 'svelte';
 	const i18n = getContext('i18n');
 
 	import { WEBUI_BASE_URL } from '$lib/constants';
-
-	import Marquee from './common/Marquee.svelte';
-	import SlideShow from './common/SlideShow.svelte';
+	import { WEBUI_NAME } from '$lib/stores';
 	import ArrowRightCircle from './icons/ArrowRightCircle.svelte';
 
 	export let show = true;
@@ -54,52 +52,31 @@
 			</div>
 		</div>
 
-		<SlideShow duration={5000} />
+		<div class="absolute inset-0 bg-linear-to-t from-20% from-black to-transparent"></div>
+		<div class="absolute inset-0 backdrop-blur-xs bg-black/50"></div>
 
-		<div
-			class="w-full h-full absolute top-0 left-0 bg-linear-to-t from-20% from-black to-transparent"
-		></div>
-
-		<div class="w-full h-full absolute top-0 left-0 backdrop-blur-xs bg-black/50"></div>
-
-		<div class="relative bg-transparent w-full min-h-screen flex z-10">
-			<div class="flex flex-col justify-end w-full items-center pb-10 text-center">
-				<div class="text-5xl lg:text-7xl font-secondary">
-					<Marquee
-						duration={5000}
-						words={[
-							$i18n.t('Explore the cosmos'),
-							$i18n.t('Unlock mysteries'),
-							$i18n.t('Chart new frontiers'),
-							$i18n.t('Dive into knowledge'),
-							$i18n.t('Discover wonders'),
-							$i18n.t('Ignite curiosity'),
-							$i18n.t('Forge new paths'),
-							$i18n.t('Unravel secrets'),
-							$i18n.t('Pioneer insights'),
-							$i18n.t('Embark on adventures')
-						]}
-					/>
-
-					<div class="mt-0.5">{$i18n.t(`wherever you are`)}</div>
-				</div>
-
-				<div class="flex justify-center mt-8">
-					<div class="flex flex-col justify-center items-center">
-						<button
-							class="relative z-20 flex p-1 rounded-full bg-white/5 hover:bg-white/10 transition font-medium text-sm"
-							on:click={() => {
-								getStartedHandler();
-							}}
-						>
-							<ArrowRightCircle className="size-6" />
-						</button>
-						<div class="mt-1.5 font-primary text-base font-medium">{$i18n.t(`Get started`)}</div>
-					</div>
-				</div>
+		<main
+			class="relative z-10 flex min-h-screen w-full items-center justify-center px-6 text-center"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="first-use-heading"
+		>
+			<div class="max-w-2xl">
+				<h1 id="first-use-heading" class="font-secondary text-4xl font-semibold sm:text-6xl">
+					{$i18n.t('Welcome to {{WEBUI_NAME}}', { WEBUI_NAME: $WEBUI_NAME })}
+				</h1>
+				<p class="mx-auto mt-5 max-w-xl text-base text-white/85 sm:text-lg">
+					{$i18n.t('Set up your account to work with conversations, files, and models on this server.')}
+				</p>
+				<button
+					type="button"
+					class="relative z-20 mt-8 inline-flex min-h-12 items-center justify-center gap-3 rounded-full bg-white/10 px-6 py-3 font-medium text-white transition hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+					on:click={getStartedHandler}
+				>
+					<span>{$i18n.t('Continue to account setup')}</span>
+					<ArrowRightCircle className="size-6" />
+				</button>
 			</div>
-
-			<!-- <div class="absolute bottom-12 left-0 right-0 w-full"></div> -->
-		</div>
+		</main>
 	</div>
 {/if}

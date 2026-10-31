@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Execute the checked-in legacy group lookup method with an isolated query stub."""
 
 import ast

@@ -148,8 +148,11 @@ async def get_model_by_id(id: str, user=Depends(get_verified_user)):
         )
 
 
-@router.get("/model/history")
-async def get_model_history(id: str, page: int = 1, user=Depends(get_verified_user)):
+@router.get(
+    "/model/history",
+    operation_id="get_model_history_api_v1_models_model_history_get",
+)
+async def list_imported_model_versions(id: str, page: int = 1, user=Depends(get_verified_user)):
     model = Models.get_model_by_id(id)
     if not model:
         raise HTTPException(status_code=404, detail="We could not find what you're looking for :/")
@@ -163,8 +166,11 @@ async def get_model_history(id: str, page: int = 1, user=Depends(get_verified_us
         raise HTTPException(status_code=503, detail=str(error))
 
 
-@router.get("/model/history/{version_id}")
-async def get_model_history_version(id: str, version_id: str, user=Depends(get_verified_user)):
+@router.get(
+    "/model/history/{version_id}",
+    operation_id="get_model_history_version_api_v1_models_model_history__version_id__get",
+)
+async def read_imported_model_version(id: str, version_id: str, user=Depends(get_verified_user)):
     model = Models.get_model_by_id(id)
     if not model:
         raise HTTPException(status_code=404, detail="We could not find what you're looking for :/")
@@ -178,8 +184,11 @@ async def get_model_history_version(id: str, version_id: str, user=Depends(get_v
         raise HTTPException(status_code=503, detail=str(error))
 
 
-@router.post("/model/access/update")
-async def update_model_access_by_id(
+@router.post(
+    "/model/access/update",
+    operation_id="update_model_access_by_id_api_v1_models_model_access_update_post",
+)
+async def apply_model_access_grants(
     form_data: dict, user=Depends(get_verified_user)
 ):
     id = form_data.get("id")

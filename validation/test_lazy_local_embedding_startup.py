@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Source-isolated controls for the opt-in local encoder startup wrapper."""
 
 import ast

@@ -1,8 +1,6 @@
 import json
 import logging
 import os
-import shutil
-import base64
 import redis
 
 from datetime import datetime
@@ -10,7 +8,6 @@ from pathlib import Path
 from typing import Generic, Optional, TypeVar
 from urllib.parse import urlparse
 
-import requests
 from pydantic import BaseModel
 from sqlalchemy import JSON, Column, DateTime, Integer, func
 
@@ -29,6 +26,7 @@ from open_webui.env import (
     WEBUI_NAME,
     log,
 )
+from open_webui.utils.startup_paths import hydrate_frontend_static
 from open_webui.internal.db import Base, get_db
 from open_webui.utils.redis import get_redis_connection
 
@@ -649,41 +647,7 @@ load_oauth_providers()
 ####################################
 
 STATIC_DIR = Path(os.getenv("STATIC_DIR", OPEN_WEBUI_DIR / "static")).resolve()
-
-for file_path in (FRONTEND_BUILD_DIR / "static").glob("**/*"):
-    if file_path.is_file():
-        target_path = STATIC_DIR / file_path.relative_to(
-            (FRONTEND_BUILD_DIR / "static")
-        )
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            shutil.copyfile(file_path, target_path)
-        except Exception as e:
-            logging.error(f"An error occurred: {e}")
-
-frontend_favicon = FRONTEND_BUILD_DIR / "static" / "favicon.png"
-
-if frontend_favicon.exists():
-    try:
-        shutil.copyfile(frontend_favicon, STATIC_DIR / "favicon.png")
-    except Exception as e:
-        logging.error(f"An error occurred: {e}")
-
-frontend_splash = FRONTEND_BUILD_DIR / "static" / "splash.png"
-
-if frontend_splash.exists():
-    try:
-        shutil.copyfile(frontend_splash, STATIC_DIR / "splash.png")
-    except Exception as e:
-        logging.error(f"An error occurred: {e}")
-
-frontend_loader = FRONTEND_BUILD_DIR / "static" / "loader.js"
-
-if frontend_loader.exists():
-    try:
-        shutil.copyfile(frontend_loader, STATIC_DIR / "loader.js")
-    except Exception as e:
-        logging.error(f"An error occurred: {e}")
+hydrate_frontend_static(FRONTEND_BUILD_DIR, STATIC_DIR, logging.getLogger(__name__))
 
 
 ####################################
@@ -691,42 +655,11 @@ if frontend_loader.exists():
 ####################################
 
 CUSTOM_NAME = os.environ.get("CUSTOM_NAME", "")
-
 if CUSTOM_NAME:
-    try:
-        r = requests.get(f"https://api.openwebui.com/api/v1/custom/{CUSTOM_NAME}")
-        data = r.json()
-        if r.ok:
-            if "logo" in data:
-                WEBUI_FAVICON_URL = url = (
-                    f"https://api.openwebui.com{data['logo']}"
-                    if data["logo"][0] == "/"
-                    else data["logo"]
-                )
-
-                r = requests.get(url, stream=True)
-                if r.status_code == 200:
-                    with open(f"{STATIC_DIR}/favicon.png", "wb") as f:
-                        r.raw.decode_content = True
-                        shutil.copyfileobj(r.raw, f)
-
-            if "splash" in data:
-                url = (
-                    f"https://api.openwebui.com{data['splash']}"
-                    if data["splash"][0] == "/"
-                    else data["splash"]
-                )
-
-                r = requests.get(url, stream=True)
-                if r.status_code == 200:
-                    with open(f"{STATIC_DIR}/splash.png", "wb") as f:
-                        r.raw.decode_content = True
-                        shutil.copyfileobj(r.raw, f)
-
-            WEBUI_NAME = data["name"]
-    except Exception as e:
-        log.exception(e)
-        pass
+    log.warning(
+        "CUSTOM_NAME no longer contacts an external branding service; "
+        "set WEBUI_NAME and WEBUI_FAVICON_URL directly"
+    )
 
 
 ####################################
@@ -822,7 +755,7 @@ if OLLAMA_BASE_URL == "" and OLLAMA_API_BASE_URL != "":
 if ENV == "prod":
     if OLLAMA_BASE_URL == "/ollama" and not K8S_FLAG:
         if USE_OLLAMA_DOCKER.lower() == "true":
-            # if you use all-in-one docker container (Open WebUI + Ollama)
+            # If an all-in-one OpenAtelierUI and Ollama container is used.
             # with the docker build arg USE_OLLAMA=true (--build-arg="USE_OLLAMA=true") this only works with http://localhost:11434
             OLLAMA_BASE_URL = "http://localhost:11434"
         else:

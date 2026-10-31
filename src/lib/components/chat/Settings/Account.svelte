@@ -4,6 +4,10 @@
 
 	import { user, config, settings } from '$lib/stores';
 	import { updateUserProfile, createAPIKey, getAPIKey, getSessionUser } from '$lib/apis/auths';
+	import {
+		exposedProfileFields,
+		supportedProfileValues
+	} from '$lib/apis/auths/profilePayload';
 
 	import UpdatePassword from './Account/UpdatePassword.svelte';
 	import { getGravatarUrl } from '$lib/apis/utils';
@@ -20,6 +24,11 @@
 
 	let profileImageUrl = '';
 	let name = '';
+	let profileFieldsEnabled = { bio: false, gender: false, date_of_birth: false };
+	let profileFieldsInitialized = false;
+	let bio = '';
+	let gender = '';
+	let dateOfBirth = '';
 
 	let webhookUrl = '';
 	let showAPIKeys = false;
@@ -46,11 +55,23 @@
 			});
 		}
 
-		const updatedUser = await updateUserProfile(localStorage.token, name, profileImageUrl).catch(
-			(error) => {
-				toast.error(`${error}`);
-			}
-		);
+		const profileFields = supportedProfileValues(profileFieldsEnabled, {
+			bio,
+			gender,
+			date_of_birth: dateOfBirth
+		});
+		let updatedUser;
+		try {
+			updatedUser = await updateUserProfile(
+				localStorage.token,
+				name,
+				profileImageUrl,
+				profileFields
+			);
+		} catch (error) {
+			toast.error(`${error}`);
+			return false;
+		}
 
 		if (updatedUser) {
 			// Get Session User Info
@@ -59,6 +80,7 @@
 				return null;
 			});
 
+			if (!sessionUser) return false;
 			await user.set(sessionUser);
 			return true;
 		}
@@ -73,6 +95,14 @@
 			toast.error($i18n.t('Failed to create API Key.'));
 		}
 	};
+
+	$: if ($user && !profileFieldsInitialized) {
+		profileFieldsEnabled = exposedProfileFields($user);
+		bio = $user.bio ?? '';
+		gender = $user.gender ?? '';
+		dateOfBirth = $user.date_of_birth ?? '';
+		profileFieldsInitialized = true;
+	}
 
 	onMount(async () => {
 		name = $user?.name;
@@ -245,6 +275,44 @@
 					</div>
 				</div>
 			</div>
+
+			{#if profileFieldsEnabled.bio}
+				<div class="pt-2">
+					<label class="mb-1 block text-xs font-medium" for="account-biography">Biography</label>
+					<textarea
+						id="account-biography"
+						class="w-full rounded-lg py-2 px-3 text-sm dark:text-gray-300 dark:bg-gray-850 outline-hidden"
+						rows="3"
+						bind:value={bio}
+					/>
+				</div>
+			{/if}
+
+			{#if profileFieldsEnabled.gender}
+				<div class="pt-2">
+					<label class="mb-1 block text-xs font-medium" for="account-gender">Gender</label>
+					<input
+						id="account-gender"
+						class="w-full rounded-lg py-2 px-3 text-sm dark:text-gray-300 dark:bg-gray-850 outline-hidden"
+						type="text"
+						bind:value={gender}
+					/>
+				</div>
+			{/if}
+
+			{#if profileFieldsEnabled.date_of_birth}
+				<div class="pt-2">
+					<label class="mb-1 block text-xs font-medium" for="account-date-of-birth">
+						Date of birth
+					</label>
+					<input
+						id="account-date-of-birth"
+						class="w-full rounded-lg py-2 px-3 text-sm dark:text-gray-300 dark:bg-gray-850 outline-hidden"
+						type="date"
+						bind:value={dateOfBirth}
+					/>
+				</div>
+			{/if}
 
 			{#if $config?.features?.enable_user_webhooks}
 				<div class="pt-2">

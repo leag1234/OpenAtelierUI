@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Source-bound tests for the bounded private saved-chat compatibility slice."""
 
 import ast

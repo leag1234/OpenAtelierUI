@@ -1,4 +1,5 @@
-# Helm Charts
-Open WebUI Helm Charts are now hosted in a separate repo, which can be found here: https://github.com/open-webui/helm-charts 
+# Helm packaging status
 
-The charts are released at https://helm.openwebui.com. 
+OpenAtelierUI does not currently publish a Helm chart. The inherited chart pointers were removed because they referenced another project's release channel.
+
+Use the local manifests only after reviewing their namespace, storage and image settings for the target cluster.

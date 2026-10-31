@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Default-off, owner-only private notes API compatibility prototype."""
 
 import json
@@ -188,8 +189,12 @@ def list_pinned_notes(request: Request, user=Depends(get_verified_user)):
         raise _unavailable(error) from None
 
 
-@router.get("/search", response_model=NoteListResponse)
-def search_notes(
+@router.get(
+    "/search",
+    response_model=NoteListResponse,
+    operation_id="search_notes_api_v1_notes_search_get",
+)
+def query_private_notes(
     request: Request,
     query: Optional[str] = None,
     view_option: Optional[str] = None,

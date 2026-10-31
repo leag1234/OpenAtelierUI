@@ -106,7 +106,6 @@ from open_webui.models.users import UserModel, Users
 from open_webui.models.chats import Chats
 
 from open_webui.config import (
-    LICENSE_KEY,
     # Ollama
     ENABLE_OLLAMA_API,
     OLLAMA_BASE_URLS,
@@ -383,7 +382,6 @@ from open_webui.utils.provider_errors import ProviderErrorResponse
 from open_webui.utils.access_control import has_access
 
 from open_webui.utils.auth import (
-    get_license_data,
     get_http_authorization_cred,
     decode_token,
     get_admin_user,
@@ -439,9 +437,9 @@ print(
  ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝     ╚══╝╚══╝ ╚══════╝╚═════╝  ╚═════╝ ╚═╝
 
 
-v{VERSION} - building the best open-source AI user interface.
+OpenAtelierUI v{VERSION}
 {f"Commit: {WEBUI_BUILD_HASH}" if WEBUI_BUILD_HASH != "dev-build" else ""}
-https://github.com/open-webui/open-webui
+https://github.com/leag1234/OpenAtelierUI
 """
 )
 
@@ -454,20 +452,18 @@ async def lifespan(app: FastAPI):
     if RESET_CONFIG_ON_START:
         reset_config()
 
-    if LICENSE_KEY:
-        get_license_data(app, LICENSE_KEY)
-
     asyncio.create_task(periodic_usage_pool_cleanup())
     yield
 
 
-DEFAULT_WEBUI_NAME = "Open WebUI"
+DEFAULT_WEBUI_NAME = "OpenAtelierUI"
+LEGACY_DEFAULT_WEBUI_NAME = "Open WebUI"
 PROJECT_WEBUI_NAME = "OpenAtelierUI"
 
 
 def resolve_public_webui_name(configured_name: str, custom_name: str = "") -> str:
     """Use the project identity for the inherited default, retaining overrides."""
-    if configured_name == DEFAULT_WEBUI_NAME and not custom_name:
+    if configured_name in {DEFAULT_WEBUI_NAME, LEGACY_DEFAULT_WEBUI_NAME} and not custom_name:
         return PROJECT_WEBUI_NAME
     return configured_name
 
@@ -1152,6 +1148,55 @@ def _event_call_channel():
     )
 
 
+def _authorize_direct_model(request, item, form_data, user):
+    direct = item.get("direct") if isinstance(item, dict) else None
+    if not isinstance(item, dict) or (direct is not None and type(direct) is not bool):
+        raise HTTPException(status_code=404, detail="Resource not found")
+    if item.get("direct") is not True:
+        return item
+    item = dict(item)
+    if not request.app.state.config.ENABLE_DIRECT_CONNECTIONS:
+        raise HTTPException(status_code=403, detail="Direct connections are disabled")
+    for key in ("filterIds", "actionIds", "toolIds"):
+        if item.get(key) or form_data.get(key):
+            raise HTTPException(status_code=404, detail="Resource not found")
+    info_value = item.get("info")
+    info = dict(info_value) if isinstance(info_value, dict) else ({} if info_value is None else None)
+    if info is None:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    meta_value = info.get("meta")
+    meta = dict(meta_value) if isinstance(meta_value, dict) else ({} if meta_value is None else None)
+    if meta is None:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    item["info"] = info
+    info["meta"] = meta
+    for key in ("filterIds", "actionIds", "toolIds"):
+        if meta.get(key):
+            raise HTTPException(status_code=404, detail="Resource not found")
+    knowledge = meta.get("knowledge", [])
+    if knowledge is False or knowledge is None:
+        knowledge = []
+    if not isinstance(knowledge, list) or len(knowledge) > 64:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    descriptors = []
+    for entry in knowledge:
+        if not isinstance(entry, dict):
+            raise HTTPException(status_code=404, detail="Resource not found")
+        descriptor = dict(entry)
+        names = descriptor.get("collection_names", [])
+        if not isinstance(names, list):
+            raise HTTPException(status_code=404, detail="Resource not found")
+        if descriptor.get("collection_name") is not None:
+            names = [*names, descriptor["collection_name"]]
+        if names:
+            descriptor["type"] = "collection"
+            descriptor["collection_names"] = names
+            descriptor["legacy"] = True
+        descriptors.append(descriptor)
+    meta["knowledge"] = retrieval.authorize_chat_files(descriptors, user)
+    return item
+
+
 @app.post("/api/v1/chat/completions")
 @app.post("/api/chat/completions")
 async def chat_completion(
@@ -1172,10 +1217,14 @@ async def chat_completion(
                     status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found"
                 )
 
+    if "files" in form_data:
+        form_data["files"] = retrieval.authorize_chat_files(form_data["files"], user)
+
+    model_item = _authorize_direct_model(request, form_data.pop("model_item", {}), form_data, user)
+
     if not request.app.state.MODELS:
         await get_all_models(request, user=user)
 
-    model_item = form_data.pop("model_item", {})
     tasks = form_data.pop("background_tasks", None)
 
     metadata = {}
@@ -1326,13 +1375,17 @@ async def chat_completed(
 ):
     _validate_private_chat_context(form_data, user)
     try:
-        model_item = form_data.pop("model_item", {})
+        model_item = _authorize_direct_model(request, form_data.pop("model_item", {}), form_data, user)
+        if "files" in form_data:
+            form_data["files"] = retrieval.authorize_chat_files(form_data["files"], user)
 
         if model_item.get("direct", False):
             request.state.direct = True
             request.state.model = model_item
 
         return await chat_completed_handler(request, form_data, user)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1346,13 +1399,17 @@ async def chat_action(
 ):
     _validate_private_chat_context(form_data, user)
     try:
-        model_item = form_data.pop("model_item", {})
+        model_item = _authorize_direct_model(request, form_data.pop("model_item", {}), form_data, user)
+        if "files" in form_data:
+            form_data["files"] = retrieval.authorize_chat_files(form_data["files"], user)
 
         if model_item.get("direct", False):
             request.state.direct = True
             request.state.model = model_item
 
         return await chat_action_handler(request, action_id, form_data, user)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1560,16 +1617,17 @@ async def get_app_version():
 
 @app.get("/api/version/updates")
 async def get_app_latest_release_version(user=Depends(get_verified_user)):
-    if OFFLINE_MODE:
-        log.debug(
-            f"Offline mode is enabled, returning current version as latest version"
-        )
+    release_check_enabled = os.environ.get(
+        "OPENATELIERUI_ENABLE_RELEASE_CHECK", "false"
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    if OFFLINE_MODE or not release_check_enabled:
+        log.debug("Release checks are disabled; returning the current version")
         return {"current": VERSION, "latest": VERSION}
     try:
         timeout = aiohttp.ClientTimeout(total=1)
         async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
             async with session.get(
-                "https://api.github.com/repos/open-webui/open-webui/releases/latest"
+                "https://api.github.com/repos/leag1234/OpenAtelierUI/releases/latest"
             ) as response:
                 response.raise_for_status()
                 data = await response.json()

@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Response policy for rendering untrusted uploaded HTML as a static preview."""
 
 UPLOADED_HTML_CONTENT_SECURITY_POLICY = (

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """SQLite and CLI controls for the bounded user-permission migration."""
 
 from __future__ import annotations

@@ -1,6 +1,8 @@
 # User profile fields spike provenance
 
 SPDX-License-Identifier: BSD-3-Clause
+Copyright (c) 2026 GaÃ«l Duval
+SPDX-FileCopyrightText: 2026 Gaël Duval
 
 This default-off experiment carries the measured nullable `bio`, `gender`, and
 `date_of_birth` values through a fresh SQLite target copy and exposes them on

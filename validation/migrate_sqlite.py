@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Read-only preview and fresh-target SQLite migration experiment.
 
 This is a bounded synthetic-data prototype. It never executes source SQL or
@@ -23,6 +24,7 @@ import re
 import resource
 import shutil
 import sqlite3
+import stat
 import sys
 import tempfile
 import time
@@ -95,6 +97,20 @@ MAX_IMPORTED_USER_GENDER_BYTES = 128
 MAX_IMPORTED_API_KEY_ROWS = 1000
 MAX_API_KEY_CONFIG_VALUE_BYTES = 16 * 1024
 MAX_USER_PERMISSIONS_CONFIG_BYTES = 16 * 1024
+IDENTITY_CONFIG_SOURCE_KEYS = {
+    "ui.enable_signup",
+    "ui.enable_login_form",
+    "ui.default_user_role",
+    "auth.admin.show",
+}
+IDENTITY_CONFIG_OLD_ALIASES = {
+    "ENABLE_SIGNUP",
+    "ENABLE_LOGIN_FORM",
+    "DEFAULT_USER_ROLE",
+    "SHOW_ADMIN_DETAILS",
+    "ui.ENABLE_LOGIN_FORM",
+}
+MAX_IDENTITY_CONFIG_VALUE_BYTES = 4096
 API_KEY_COLUMNS = {
     "id", "user_id", "key", "data", "expires_at", "last_used_at", "created_at", "updated_at"
 }
@@ -135,6 +151,12 @@ OPENAI_CONFIG_OLD_ALIASES = {
 MAX_OPENAI_CONFIG_VALUE_BYTES = 16 * 1024
 MAX_OPENAI_API_KEY_CHARS = 4096
 MAX_OPENAI_ENDPOINTS = 8
+MAX_OPENAI_HEADER_COUNT = 32
+MAX_OPENAI_HEADER_VALUE_BYTES = 4096
+MAX_OPENAI_HEADER_TOTAL_BYTES = 16 * 1024
+MAX_OPENAI_MODEL_IDS = 64
+MAX_OPENAI_MODEL_ID_BYTES = 256
+MAX_OPENAI_MODEL_IDS_TOTAL_BYTES = 8192
 CHAT_UNSUPPORTED = {"tasks", "summary", "last_read_at", "current_message_id", "variables", "timer_at"}
 PRIVATE_CHAT_META_KEY = "_mdk_private_saved_work"
 PRIVATE_CHAT_META_VERSION = 1
@@ -192,6 +214,16 @@ def _valid_message_graph_field(field: str, value: object) -> bool:
             return len(value.encode("utf-8")) <= MAX_MESSAGE_MODEL_ID_BYTES and not any(ord(char) < 32 or ord(char) == 127 for char in value)
         except UnicodeError:
             return False
+    return False
+
+
+def _message_done_value(value: object) -> bool:
+    if type(value) is bool:
+        return value
+    if type(value) is int:
+        return value == 1
+    if type(value) is str:
+        return value in ("true", "1")
     return False
 
 
@@ -648,22 +680,101 @@ def _parse_openai_configuration(connection: sqlite3.Connection) -> dict[str, obj
         )
     if configs:
         expected_indexes = {str(index) for index in range(len(urls))}
-        if set(configs) != expected_indexes or any(
-            type(configs[index]) is not dict
-            or set(configs[index]) != {"enable"}
-            or type(configs[index]["enable"]) is not bool
-            for index in expected_indexes
-        ):
+        if set(configs) != expected_indexes:
             raise MigrationError(
                 "openai_configuration_value_unsupported",
                 "only a complete canonical endpoint-index map with a boolean enable field is supported",
             )
+        seen_model_ids = set()
+        for index in expected_indexes:
+            entry = configs[index]
+            if (
+                type(entry) is not dict
+                or "enable" not in entry
+                or set(entry) - {"enable", "headers", "model_ids", "prefix_id"}
+                or type(entry["enable"]) is not bool
+            ):
+                raise MigrationError(
+                    "openai_configuration_value_unsupported",
+                    "only endpoint enablement, bounded static headers, bounded model identifiers, and an empty model prefix are supported",
+                )
+            if "headers" in entry:
+                _validate_openai_static_headers(entry["headers"])
+            if "prefix_id" in entry and (type(entry["prefix_id"]) is not str or entry["prefix_id"] != ""):
+                raise MigrationError(
+                    "openai_configuration_value_unsupported",
+                    "only an empty model prefix is supported",
+                )
+            if "model_ids" in entry:
+                model_ids = entry["model_ids"]
+                if type(model_ids) is not list or not 1 <= len(model_ids) <= MAX_OPENAI_MODEL_IDS:
+                    raise MigrationError(
+                        "openai_configuration_value_unsupported",
+                        "model identifiers must be a bounded nonempty string list",
+                    )
+                total_bytes = 0
+                for model_id in model_ids:
+                    if type(model_id) is not str or not model_id:
+                        raise MigrationError(
+                            "openai_configuration_value_unsupported",
+                            "model identifiers must be bounded unique strings",
+                        )
+                    try:
+                        model_id_bytes = len(model_id.encode("utf-8", errors="strict"))
+                    except UnicodeError:
+                        raise MigrationError(
+                            "openai_configuration_value_unsupported",
+                            "model identifiers must be bounded unique strings",
+                        ) from None
+                    if (
+                        model_id_bytes > MAX_OPENAI_MODEL_ID_BYTES
+                        or any(character.isspace() or ord(character) < 32 or 127 <= ord(character) <= 159 for character in model_id)
+                        or model_id in seen_model_ids
+                    ):
+                        raise MigrationError(
+                            "openai_configuration_value_unsupported",
+                            "model identifiers must be bounded unique strings",
+                        )
+                    total_bytes += model_id_bytes
+                    seen_model_ids.add(model_id)
+                if total_bytes > MAX_OPENAI_MODEL_IDS_TOTAL_BYTES:
+                    raise MigrationError(
+                        "openai_configuration_value_unsupported",
+                        "model identifiers exceed the supported endpoint bound",
+                    )
     return {
         "enable": enable,
         "api_base_urls": urls,
         "api_keys": keys,
         "api_configs": configs,
     }
+
+
+def _validate_openai_static_headers(headers: object) -> None:
+    if headers is None:
+        return
+    token = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+\Z")
+    if not isinstance(headers, dict) or len(headers) > MAX_OPENAI_HEADER_COUNT:
+        raise MigrationError("openai_configuration_value_unsupported", "static headers are unsupported")
+    seen = set()
+    total = 0
+    for name, value in headers.items():
+        if not isinstance(name, str) or not name.isascii() or not token.fullmatch(name) or name.lower() in seen:
+            raise MigrationError("openai_configuration_value_unsupported", "static headers are unsupported")
+        seen.add(name.lower())
+        if not isinstance(value, str):
+            raise MigrationError("openai_configuration_value_unsupported", "static headers are unsupported")
+        try:
+            size = len(value.encode("utf-8", errors="strict"))
+        except UnicodeError:
+            raise MigrationError("openai_configuration_value_unsupported", "static headers are unsupported") from None
+        if size > MAX_OPENAI_HEADER_VALUE_BYTES or any(
+            (ord(char) < 32 and char != "\t") or 127 <= ord(char) <= 159 for char in value
+        ) or any(marker in value for marker in ("{{", "}}", "${")):
+            raise MigrationError("openai_configuration_value_unsupported", "static headers are unsupported")
+        total += len(name) + size
+        if total > MAX_OPENAI_HEADER_TOTAL_BYTES:
+            raise MigrationError("openai_configuration_value_unsupported", "static headers are unsupported")
 
 
 def _parse_user_permissions(connection: sqlite3.Connection) -> dict[str, dict[str, bool]]:
@@ -748,12 +859,65 @@ def _parse_user_permissions(connection: sqlite3.Connection) -> dict[str, dict[st
     return value
 
 
+def _parse_identity_configuration(connection: sqlite3.Connection) -> dict[str, object]:
+    """Read only the four bounded signup/login/default-role/admin-display settings."""
+    if "config" not in _tables(connection) or set(_columns(connection, "config")) != {"key", "value", "updated_at"}:
+        raise MigrationError("identity_configuration_source_schema_mismatch", "selected identity configuration schema is unsupported")
+    selected = {}
+    guarded = IDENTITY_CONFIG_SOURCE_KEYS
+    for row in connection.execute('SELECT "key","value" FROM "config"'):
+        key = row["key"]
+        if not isinstance(key, str):
+            continue
+        if key in IDENTITY_CONFIG_OLD_ALIASES or (
+            key.casefold() != key and key.casefold() in {value.casefold() for value in guarded}
+        ):
+            raise MigrationError("identity_configuration_ambiguous_override", "configuration contains an unsupported identity alias")
+        if key not in guarded and (
+            key in {"ui", "auth", "auth.admin"}
+            or any(key == path or key.startswith(path + ".") or path.startswith(key + ".") for path in guarded)
+        ):
+            raise MigrationError("identity_configuration_ambiguous_override", "configuration contains an identity parent or dotted override")
+        if key not in guarded:
+            continue
+        if key in selected:
+            raise MigrationError("identity_configuration_duplicate_key", "selected identity configuration contains duplicate settings")
+        raw = row["value"]
+        if not isinstance(raw, str):
+            raise MigrationError("identity_configuration_value_invalid", "selected identity setting must contain bounded JSON text")
+        try:
+            if len(raw.encode("utf-8", errors="strict")) > MAX_IDENTITY_CONFIG_VALUE_BYTES:
+                raise MigrationError("identity_configuration_value_invalid", "selected identity setting exceeds its size bound")
+            selected[key] = json.loads(raw, object_pairs_hook=_reject_duplicate_json_keys)
+        except MigrationError:
+            raise
+        except (UnicodeError, ValueError, TypeError, RecursionError):
+            raise MigrationError("identity_configuration_value_invalid", "selected identity setting is not supported JSON") from None
+    if set(selected) != guarded:
+        raise MigrationError("identity_configuration_missing_key", "all four selected identity settings are required")
+    for key in ("ui.enable_signup", "ui.enable_login_form", "auth.admin.show"):
+        if type(selected[key]) is not bool:
+            raise MigrationError("identity_configuration_value_invalid", "selected identity switches must be JSON booleans")
+    if type(selected["ui.default_user_role"]) is not str or selected["ui.default_user_role"] not in {"pending", "user"}:
+        raise MigrationError("identity_configuration_value_unsupported", "only pending or user default roles are supported")
+    return selected
+
+
 def _digest(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             h.update(block)
     return h.hexdigest()
+
+
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    """Python 3.8-compatible equivalent of Path.is_relative_to()."""
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
 
 
 def _sidecars(path: Path) -> list[str]:
@@ -1200,13 +1364,8 @@ def _validate_chat(connection: sqlite3.Connection, report: dict, *, include_priv
                     continue
                 if field in message and not _is_empty(message[field]):
                     _block(report, "unsupported_message_field_" + field, 1)
-        for item in payload.get("messages", []):
-            if not isinstance(item, dict) or item.get("id") not in nodes:
-                _block(report, "chat_preview_message_mismatch", 1, fatal=True)
-                break
-            node = nodes[item["id"]]
-            if any(k in item and item[k] != node.get(k) for k in ("role", "content")):
-                _block(report, "chat_preview_message_mismatch", 1, fatal=True)
+        if _resolve_chat_preview_ids(payload, nodes, include_private_chat_metadata) is None:
+            _block(report, "chat_preview_message_mismatch", 1, fatal=True)
         for field in CHAT_UNSUPPORTED:
             if field in chat and not _is_empty(chat[field]):
                 # current_message_id is supported through chat.history.currentId.
@@ -1215,6 +1374,191 @@ def _validate_chat(connection: sqlite3.Connection, report: dict, *, include_priv
                 if include_private_chat_metadata and field == "last_read_at":
                     continue
                 _block(report, "unsupported_chat_field_" + field, 1, fatal=include_private_chat_metadata)
+
+
+def _resolve_chat_preview_ids(payload: dict, nodes: dict, allow_derived: bool) -> list[str] | None:
+    """Resolve id-less derived preview messages only by a unique selected graph match."""
+    flat = payload.get("messages", [])
+    if not isinstance(flat, list) or len(flat) > 10000:
+        return None
+    if not allow_derived or all(isinstance(item, dict) and isinstance(item.get("id"), str)
+                                and item["id"] in nodes for item in flat):
+        resolved = []
+        for item in flat:
+            if not isinstance(item, dict) or item.get("id") not in nodes:
+                return None
+            node = nodes[item["id"]]
+            if any(key in item and item[key] != node.get(key) for key in ("role", "content")):
+                return None
+            resolved.append(item["id"])
+        return resolved
+    if len(nodes) > 10000:
+        return None
+    current = payload.get("history", {}).get("currentId")
+    selected = []
+    cursor = current
+    seen = set()
+    while cursor is not None:
+        if cursor not in nodes or cursor in seen:
+            return None
+        seen.add(cursor)
+        selected.append(cursor)
+        cursor = nodes[cursor].get("parentId")
+    selected.reverse()
+    last_position = -1
+    resolved = []
+    explicit_ids = {item.get("id") for item in flat if isinstance(item, dict)
+                     and isinstance(item.get("id"), str) and item.get("id") in nodes}
+    preview_positions = {}
+    for position, node_id in enumerate(selected):
+        if node_id in explicit_ids:
+            continue
+        node = nodes[node_id]
+        try:
+            key = json.dumps([node.get("role"), node.get("content")], ensure_ascii=True,
+                             sort_keys=True, separators=(",", ":"))
+        except (TypeError, ValueError):
+            return None
+        preview_positions.setdefault(key, []).append((position, node_id))
+    for item in flat:
+        if not isinstance(item, dict):
+            return None
+        identity = item.get("id")
+        if isinstance(identity, str) and identity in nodes:
+            node = nodes[identity]
+            if any(key in item and item[key] != node.get(key) for key in ("role", "content")):
+                return None
+            resolved.append(identity)
+            continue
+        if not allow_derived or identity is not None or set(item) - {"role", "content"}:
+            return None
+        if not {"role", "content"}.issubset(item):
+            return None
+        try:
+            key = json.dumps([item["role"], item["content"]], ensure_ascii=True,
+                             sort_keys=True, separators=(",", ":"))
+        except (TypeError, ValueError):
+            return None
+        matches = preview_positions.get(key, [])
+        if len(matches) != 1 or matches[0][1] in resolved:
+            return None
+        position, match = matches[0]
+        if position <= last_position:
+            return None
+        last_position = position
+        resolved.append(match)
+    return resolved
+
+
+def _validate_chat_file_links(connection: sqlite3.Connection, report: dict, file_rows: list[dict]) -> None:
+    """Validate selected chat-file joins against private graph descriptors and file owners."""
+    tables = set(_tables(connection))
+    if "chat_file" not in tables: return
+    rows_count = _count(connection, "chat_file")
+    expected = {"id", "user_id", "chat_id", "file_id", "message_id", "created_at", "updated_at"}
+    if set(_columns(connection, "chat_file")) != expected or rows_count > 10000:
+        _block(report, "private_chat_file_schema_or_limit_unsupported", 1, fatal=True)
+        return
+    if (not SOURCE_REQUIRED["chat"].issubset(_columns(connection, "chat"))
+            or not SOURCE_REQUIRED["file"].issubset(_columns(connection, "file"))):
+        _block(report, "private_chat_file_schema_or_limit_unsupported", 1, fatal=True)
+        return
+    chats = {row["id"]: row for row in connection.execute('SELECT id,user_id,chat FROM "chat"')}
+    files = {row["id"]: row for row in connection.execute('SELECT id,user_id,filename,hash,path FROM "file"')}
+    links = connection.execute('SELECT * FROM "chat_file" ORDER BY id').fetchall() if rows_count else []
+    link_ids, linked = set(), set()
+    valid = True
+    upload_by_id = {row["id"]: row for row in file_rows}
+    known_files = set(upload_by_id)
+    for row in links:
+        link_id, owner, chat_id, file_id, message_id = (row[k] for k in ("id", "user_id", "chat_id", "file_id", "message_id"))
+        if (not _safe_chat_file_id(link_id) or not _safe_chat_file_id(owner)
+                or not _safe_chat_file_id(chat_id) or not _safe_chat_file_id(file_id)
+                or not _safe_chat_file_id(message_id)
+                or link_id in link_ids or type(row["created_at"]) is not int or row["created_at"] < 0
+                or type(row["updated_at"]) is not int or row["updated_at"] < 0):
+            valid = False
+            break
+        link_ids.add(link_id)
+        chat, file_row = chats.get(chat_id), files.get(file_id)
+        if (not isinstance(owner, str) or not chat or chat["user_id"] != owner
+                or not file_row or file_id not in known_files or file_row["user_id"] != owner
+                or not isinstance(message_id, str)):
+            valid = False
+            break
+        try:
+            payload = json.loads(chat["chat"]) if isinstance(chat["chat"], str) else chat["chat"]
+            node = payload["history"]["messages"][message_id]
+        except (ValueError, TypeError, KeyError):
+            valid = False
+            break
+        if not isinstance(node, dict) or node.get("role") != "user" or (chat_id, message_id, file_id) in linked:
+            valid = False
+            break
+        descriptors = node.get("files")
+        if not isinstance(descriptors, list) or len(descriptors) > 64:
+            valid = False
+            break
+        matches = []
+        for descriptor in descriptors:
+            if not isinstance(descriptor, dict):
+                continue
+            nested = descriptor.get("file")
+            if (isinstance(nested, dict) and nested.get("id") == file_id
+                    and descriptor.get("id") == file_id):
+                matches.append(nested)
+        if len(matches) != 1 or matches[0].get("user_id") != owner or matches[0].get("filename") != file_row["filename"]:
+            valid = False
+            break
+        actual_hash = upload_by_id[file_id]["sha256"]
+        if ((file_row["hash"] is not None and file_row["hash"] != actual_hash)
+                or (matches[0].get("hash") is not None and matches[0].get("hash") != actual_hash)
+                or (matches[0].get("path") is not None and matches[0].get("path") != file_row["path"])):
+            valid = False
+            break
+        linked.add((chat_id, message_id, file_id))
+    if valid:
+        for chat_id, chat in chats.items():
+            try:
+                payload = json.loads(chat["chat"]) if isinstance(chat["chat"], str) else chat["chat"]
+                nodes = payload["history"]["messages"]
+            except (ValueError, TypeError, KeyError):
+                continue
+            for message_id, node in nodes.items():
+                if not isinstance(node, dict):
+                    continue
+                for descriptor in node.get("files", []) if isinstance(node.get("files", []), list) else []:
+                    nested = descriptor.get("file") if isinstance(descriptor, dict) else None
+                    file_id = nested.get("id") if isinstance(nested, dict) else None
+                    if file_id is not None and (chat_id, message_id, file_id) not in linked:
+                        valid = False
+                        break
+                if not valid:
+                    break
+            if not valid:
+                break
+    if not valid:
+        _block(report, "private_chat_file_reference_invalid_or_ambiguous", 1, fatal=True)
+        return
+    if links:
+        report["chat_file_mapping"] = {
+            "enabled": True,
+            "validated_link_count": len(links),
+            "target_representation": "same-owner embedded chat graph plus imported file row",
+            "source_join_row_ids_and_timestamps": "retained in exact source archive",
+        }
+        _block(report, "chat_file_join_metadata_archived_only", len(links),
+               detail="validated file references remain embedded in copied private chat graphs; source join-row identifiers and timestamps remain archive-only")
+
+
+def _safe_chat_file_id(value) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        encoded = value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError:
+        return False
+    return len(encoded) <= 256 and not any(ord(char) < 32 or 127 <= ord(char) < 160 for char in value)
 
 
 def _private_chat_metadata_overrides(connection: sqlite3.Connection, report: dict) -> dict[str, dict[str, str]]:
@@ -1298,6 +1642,10 @@ def _private_chat_metadata_overrides(connection: sqlite3.Connection, report: dic
                     _block(report, "private_chat_metadata_json_profile_mismatch", 1, fatal=True)
                     author_invalid = True
                     break
+            if "done" in node and not _valid_message_graph_field("done", node["done"]):
+                _block(report, "private_chat_metadata_invalid_graph_done", 1, fatal=True)
+                author_invalid = True
+                break
             for field in MESSAGE_GRAPH_FIELDS.intersection(message):
                 value = message[field]
                 if value is None:
@@ -1306,11 +1654,16 @@ def _private_chat_metadata_overrides(connection: sqlite3.Connection, report: dic
                     _block(report, "private_chat_metadata_invalid_message_" + field, 1, fatal=True)
                     author_invalid = True
                     break
-                if field in node and (type(node[field]) is not type(value) or node[field] != value):
-                    _block(report, "private_chat_metadata_message_field_mismatch_" + field, 1, fatal=True)
-                    author_invalid = True
-                    break
-                node[field] = value
+                if field in node:
+                    matches = (_message_done_value(node[field]) == _message_done_value(value)
+                               if field == "done" else
+                               type(node[field]) is type(value) and node[field] == value)
+                    if not matches:
+                        _block(report, "private_chat_metadata_message_field_mismatch_" + field, 1, fatal=True)
+                        author_invalid = True
+                        break
+                else:
+                    node[field] = value
             if author_invalid:
                 break
             if node.get("role") == "user":
@@ -1324,8 +1677,14 @@ def _private_chat_metadata_overrides(connection: sqlite3.Connection, report: dic
         if not isinstance(flat, list):
             _block(report, "private_chat_metadata_flat_messages_invalid", 1, fatal=True)
             continue
-        for item in flat:
-            if not isinstance(item, dict) or item.get("id") not in nodes:
+        flat_ids = _resolve_chat_preview_ids(payload, nodes, allow_derived=True)
+        if flat_ids is None:
+            _block(report, "private_chat_metadata_flat_messages_invalid", 1, fatal=True)
+            continue
+        for item, node_id in zip(flat, flat_ids):
+            if item.get("id") is None:
+                item["id"] = node_id
+            if item.get("id") not in nodes:
                 _block(report, "private_chat_metadata_flat_messages_invalid", 1, fatal=True)
                 author_invalid = True
                 break
@@ -1521,7 +1880,13 @@ def _validate_object_domains(
         if kind not in tables:
             continue
         cols = set(_columns(connection, kind))
-        if not required.issubset(cols) or cols - (required | {"version_id"}):
+        missing = required - cols
+        empty_legacy_version_schema = (
+            kind in {"tool", "model"}
+            and missing == {"version_id"}
+            and _count(connection, kind) == 0
+        )
+        if (missing and not empty_legacy_version_schema) or cols - (required | {"version_id"}):
             _block(report, "source_schema_mismatch_" + kind, 1, fatal=True)
             continue
         rows = [dict(row) for row in connection.execute(f'SELECT * FROM "{kind}" ORDER BY id')]
@@ -1753,9 +2118,19 @@ def _validate_template(
 def _validate_function_history(connection: sqlite3.Connection, tables: set[str]) -> bool:
     """Validate the measured function-history subset before target creation."""
     expected = {"id", "function_id", "parent_id", "snapshot", "user_id", "commit_message", "created_at"}
-    if "function_history" not in tables or set(_columns(connection, "function_history")) != expected:
+    if "function_history" not in tables:
+        if "function" in tables and _count(connection, "function") == 0:
+            return True
+        raise ValueError("function history is absent for a source with active functions")
+    if set(_columns(connection, "function_history")) != expected:
         raise ValueError("function history schema is outside the supported shape")
-    function_columns = set(_columns(connection, "function")) if "function" in tables else set()
+    if "function" not in tables:
+        raise ValueError("function history requires a known function table")
+    function_columns = set(_columns(connection, "function"))
+    if "version_id" not in function_columns:
+        if _count(connection, "function") == 0 and _count(connection, "function_history") == 0:
+            return True
+        raise ValueError("function history requires known active function links")
     if not {"id", "user_id", "version_id", "meta"}.issubset(function_columns):
         raise ValueError("function history requires known active function links")
     if "user" not in tables or "id" not in _columns(connection, "user"):
@@ -1902,6 +2277,7 @@ def _inspect_source(
     include_api_key_configuration: bool = False,
     include_openai_configuration: bool = False,
     include_user_permissions: bool = False,
+    include_identity_configuration: bool = False,
     include_function_history: bool = False,
 ) -> dict:
     started = time.perf_counter()
@@ -1930,7 +2306,7 @@ def _inspect_source(
         template_info = _validate_template(
             template,
             require_named_tool_config=(
-                include_named_tool_configuration or include_api_key_configuration or include_openai_configuration or include_user_permissions
+                include_named_tool_configuration or include_api_key_configuration or include_openai_configuration or include_user_permissions or include_identity_configuration
             ),
             prepare_user_profile_fields=include_user_profile_fields,
         )
@@ -1951,7 +2327,13 @@ def _inspect_source(
         if unknown_tables:
             _block(report, "unknown_source_tables", len(unknown_tables), fatal=True)
         for table, required in SOURCE_REQUIRED.items():
-            if table not in tables or not required.issubset(_columns(connection, table)):
+            missing = required - set(_columns(connection, table)) if table in tables else required
+            empty_legacy_version_schema = (
+                table in {"tool", "model"}
+                and missing == {"version_id"}
+                and _count(connection, table) == 0
+            )
+            if table not in tables or (missing and not empty_legacy_version_schema):
                 _block(report, "source_schema_mismatch_" + table, 1, fatal=True)
         object_counts = connection.execute("SELECT type,COUNT(*) FROM sqlite_master WHERE type IN ('trigger','view') GROUP BY type").fetchall()
         if object_counts:
@@ -1964,15 +2346,33 @@ def _inspect_source(
                 count
                 and table not in APP_TABLES | MARKER_TABLES | {"config", "function_history", "access_grant", "group", "group_member", "tool_history", "model_history"}
                 and not (table == "api_key" and include_api_keys)
+                and not (table == "chat_file" and include_private_chat_metadata)
             ):
                 _block(report, "unsupported_nonempty_domain_" + table, count, fatal=True)
         for table in ("config", "function_history"):
             if table in tables and _count(connection, table) and not (
                 table == "config"
-                and (include_named_tool_configuration or include_api_key_configuration or include_user_permissions)
+                and (
+                    include_named_tool_configuration
+                    or include_api_key_configuration
+                    or include_openai_configuration
+                    or include_user_permissions
+                    or include_identity_configuration
+                )
             ) and not (table == "function_history" and include_function_history):
                 _block(report, "unsupported_nonempty_domain_" + table, _count(connection, table), detail="full bytes are retained in the source archive; old target behavior is not implemented")
-        valid_required = {name: name in tables and required.issubset(_columns(connection, name)) for name, required in SOURCE_REQUIRED.items()}
+        valid_required = {}
+        for name, required in SOURCE_REQUIRED.items():
+            columns = set(_columns(connection, name)) if name in tables else set()
+            missing = required - columns
+            valid_required[name] = name in tables and (
+                not missing
+                or (
+                    name in {"tool", "model"}
+                    and missing == {"version_id"}
+                    and _count(connection, name) == 0
+                )
+            )
         profile_fields_verified = False
         if valid_required.get("auth"):
             columns = _columns(connection, "auth")
@@ -2082,7 +2482,7 @@ def _inspect_source(
             except ValueError as error:
                 _block(report, "invalid_function_history", 1, fatal=True, detail=str(error))
             if function_history_selected:
-                history_count = _count(connection, "function_history")
+                history_count = _count(connection, "function_history") if "function_history" in tables else 0
                 _block(
                     report,
                     "function_history_prototype",
@@ -2095,10 +2495,14 @@ def _inspect_source(
                     "revision_count": history_count,
                     "resource_count": connection.execute(
                         'SELECT COUNT(DISTINCT function_id) FROM "function_history"'
-                    ).fetchone()[0],
+                    ).fetchone()[0] if "function_history" in tables else 0,
                 }
             else:
                 report["function_history"] = {"opt_in": True, "prepared": False, "revision_count": 0, "resource_count": 0}
+        file_rows = _source_file_rows(connection, upload_root, report) if valid_required.get("file") else []
+        report["uploads"] = [{key: row[key] for key in ("id", "filename", "bytes", "sha256")} for row in file_rows]
+        if include_private_chat_metadata:
+            _validate_chat_file_links(connection, report, file_rows)
         _validate_chat(connection, report, include_private_chat_metadata=include_private_chat_metadata)
         private_chat_overrides = (
             _private_chat_metadata_overrides(connection, report)
@@ -2106,8 +2510,6 @@ def _inspect_source(
                     and valid_required.get("chat_message") and valid_required.get("user"))
             else {}
         )
-        file_rows = _source_file_rows(connection, upload_root, report) if valid_required.get("file") else []
-        report["uploads"] = [{key: row[key] for key in ("id", "filename", "bytes", "sha256")} for row in file_rows]
         if source.stat().st_size + report.get("upload_bytes", 0) > MAX_INPUT_BYTES:
             _block(report, "dataset_too_large", source.stat().st_size + report.get("upload_bytes", 0), fatal=True)
         auth_ids = {row[0] for row in connection.execute('SELECT id FROM "auth"')} if valid_required.get("auth") else set()
@@ -2137,7 +2539,7 @@ def _inspect_source(
             known_users = {row[0] for row in connection.execute('SELECT id FROM "user"')}
             if any(row[0] not in known_users for row in connection.execute('SELECT user_id FROM "chat"')):
                 _block(report, "chat_owner_missing", 1, fatal=True)
-        if include_named_tool_configuration or include_api_key_configuration or include_openai_configuration or include_user_permissions:
+        if include_named_tool_configuration or include_api_key_configuration or include_openai_configuration or include_user_permissions or include_identity_configuration:
             config_rows = report["table_counts"].get("config", 0)
             verified = False
             defaults_source_hash = None
@@ -2162,6 +2564,11 @@ def _inspect_source(
                     user_permissions = (
                         _parse_user_permissions(connection)
                         if include_user_permissions
+                        else None
+                    )
+                    identity_settings = (
+                        _parse_identity_configuration(connection)
+                        if include_identity_configuration
                         else None
                     )
                     defaults, defaults_source_hash, defaults_hash = _load_pinned_old_defaults()
@@ -2202,6 +2609,17 @@ def _inspect_source(
                                 "pinned old configuration defaults have an unsupported user shape",
                             )
                         user_config["permissions"] = user_permissions
+                    if identity_settings is not None:
+                        ui_config = target_config_data.setdefault("ui", {})
+                        auth_config = target_config_data.setdefault("auth", {})
+                        if not isinstance(ui_config, dict) or not isinstance(auth_config, dict):
+                            raise MigrationError("identity_configuration_old_defaults_invalid", "pinned old configuration has an unsupported identity shape")
+                        ui_config.update({
+                            "enable_signup": identity_settings["ui.enable_signup"],
+                            "ENABLE_LOGIN_FORM": identity_settings["ui.enable_login_form"],
+                            "default_user_role": identity_settings["ui.default_user_role"],
+                        })
+                        auth_config.setdefault("admin", {})["show"] = identity_settings["auth.admin.show"]
                     named_tool_config_data = {
                         "data": target_config_data,
                         "version": target_config_data["version"],
@@ -2216,6 +2634,7 @@ def _inspect_source(
                     + (3 if include_api_key_configuration else 0)
                     + (4 if include_openai_configuration else 0)
                     + (1 if include_user_permissions else 0)
+                    + (4 if include_identity_configuration else 0)
                 )
                 remaining_config_rows = max(config_rows - selected_config_rows, 0)
                 if remaining_config_rows:
@@ -2239,19 +2658,19 @@ def _inspect_source(
                         1,
                         detail="three selected API-key settings are mapped; remaining configuration is archived and cutover is disabled",
                     )
-                if include_openai_configuration:
-                    _block(
-                        report,
-                        "openai_configuration_prototype",
-                        1,
-                        detail="four selected OpenAI-compatible endpoint settings are mapped; remaining configuration is archived and cutover is disabled",
-                    )
                 if include_user_permissions:
                     _block(
                         report,
                         "user_permissions_prototype",
                         1,
                         detail="the selected boolean permission map is copied; only the API-key feature check is scoped, other permission semantics remain unqualified and cutover is disabled",
+                    )
+                if include_identity_configuration:
+                    _block(
+                        report,
+                        "identity_configuration_prototype",
+                        1,
+                        detail="four selected signup/login/default-role/admin-visibility settings are copied; trust, MFA, OAuth, LDAP and remaining settings stay archived and cutover is disabled",
                     )
             else:
                 remaining_config_rows = config_rows
@@ -2299,6 +2718,13 @@ def _inspect_source(
                     "remaining_config_rows": remaining_config_rows,
                     "semantics": "only explicit features.api_keys enforcement is in scope; other permission values are copied but unqualified",
                 }
+            if include_identity_configuration:
+                report["identity_configuration"] = {
+                    "opt_in": True,
+                    "selected_key_count": 4 if verified else 0,
+                    "old_defaults_verified": bool(verified),
+                    "remaining_config_rows": remaining_config_rows,
+                }
         group_memberships = _validate_group_domains(connection, report, user_ids, template)
         object_access = _validate_object_domains(connection, report, user_ids, set(group_memberships))
         for table in COPYABLE_TABLES & set(tables):
@@ -2328,6 +2754,7 @@ def inspect_source(
     include_api_key_configuration: bool = False,
     include_openai_configuration: bool = False,
     include_user_permissions: bool = False,
+    include_identity_configuration: bool = False,
     include_function_history: bool = False,
 ) -> tuple[dict, list, dict, dict, dict]:
     """Inspect source inputs while preserving the original five-value API."""
@@ -2342,6 +2769,7 @@ def inspect_source(
         include_api_key_configuration=include_api_key_configuration,
         include_openai_configuration=include_openai_configuration,
         include_user_permissions=include_user_permissions,
+        include_identity_configuration=include_identity_configuration,
         include_function_history=include_function_history,
     )[:5]
 
@@ -2358,6 +2786,7 @@ def preview(
     include_api_key_configuration: bool = False,
     include_openai_configuration: bool = False,
     include_user_permissions: bool = False,
+    include_identity_configuration: bool = False,
     include_function_history: bool = False,
 ) -> dict:
     report, _, _, _, _ = inspect_source(
@@ -2371,6 +2800,7 @@ def preview(
         include_api_key_configuration=include_api_key_configuration,
         include_openai_configuration=include_openai_configuration,
         include_user_permissions=include_user_permissions,
+        include_identity_configuration=include_identity_configuration,
         include_function_history=include_function_history,
     )
     return report
@@ -2402,6 +2832,7 @@ def _copy_domains(
     object_access: dict[tuple[str, str], object],
     group_memberships: dict[str, list[str]],
     private_chat_overrides: dict[str, dict[str, str]] | None = None,
+    map_chat_file_paths: bool = False,
     named_tool_config_data: dict | None = None,
     include_user_profile_fields: bool = False,
     api_key_overrides: dict[str, str] | None = None,
@@ -2426,13 +2857,23 @@ def _copy_domains(
         user_mapping,
         {"api_key": api_key_overrides or {}},
     )
+    file_paths = {row["id"]: str(runtime_data_root / "uploads" / (row["id"] + "_" + row["filename"])) for row in upload_rows}
+    copied_chat = {}
+    for chat_id, values in (private_chat_overrides or {}).items():
+        payload = json.loads(values["chat"])
+        if map_chat_file_paths:
+            for node in payload["history"]["messages"].values():
+                for descriptor in node.get("files", []) if isinstance(node.get("files", []), list) else []:
+                    nested = descriptor.get("file") if isinstance(descriptor, dict) else None
+                    if isinstance(nested, dict) and nested.get("id") in file_paths and "path" in nested:
+                        nested["path"] = file_paths[nested["id"]]
+        copied_chat[chat_id] = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     counts["chat"] = _insert_rows(source, target, "chat", {
         "id": "id", "user_id": "user_id", "title": "title", "share_id": "share_id", "archived": "archived",
         "created_at": "created_at", "updated_at": "updated_at", "chat": "chat", "pinned": "pinned",
         "meta": "meta", "folder_id": "folder_id",
-    }, {"chat": {chat_id: value["chat"] for chat_id, value in (private_chat_overrides or {}).items()},
+    }, {"chat": copied_chat or {chat_id: value["chat"] for chat_id, value in (private_chat_overrides or {}).items()},
         "meta": {chat_id: value["meta"] for chat_id, value in (private_chat_overrides or {}).items()}})
-    file_paths = {row["id"]: str(runtime_data_root / "uploads" / (row["id"] + "_" + row["filename"])) for row in upload_rows}
     counts["file"] = _insert_rows(source, target, "file", {
         "id": "id", "user_id": "user_id", "filename": "filename", "meta": "meta", "created_at": "created_at",
         "hash": "hash", "data": "data", "updated_at": "updated_at", "path": None, "access_control": None,
@@ -2484,6 +2925,24 @@ def _dir_size(root: Path) -> int:
     return sum(path.stat().st_size for path in root.rglob("*") if path.is_file())
 
 
+def _secure_output_tree(root: Path) -> None:
+    def private_directory(path: Path) -> None:
+        if not stat.S_ISDIR(path.lstat().st_mode):
+            raise MigrationError("unsafe_output_artifact", "new output contains a symlink or non-directory")
+        os.chmod(path, 0o700)
+
+    private_directory(root)
+    for directory, subdirs, files in os.walk(root, followlinks=False):
+        parent = Path(directory)
+        for name in subdirs:
+            private_directory(parent / name)
+        for name in files:
+            path = parent / name
+            if not stat.S_ISREG(path.lstat().st_mode):
+                raise MigrationError("unsafe_output_artifact", "new output contains a symlink or non-regular file")
+            os.chmod(path, 0o600)
+
+
 def convert(
     source_db: str | Path,
     uploads_root: str | Path,
@@ -2499,6 +2958,7 @@ def convert(
     include_api_key_configuration: bool = False,
     include_openai_configuration: bool = False,
     include_user_permissions: bool = False,
+    include_identity_configuration: bool = False,
     include_function_history: bool = False,
     failpoint: Callable[[str], None] | None = None,
 ) -> dict:
@@ -2514,6 +2974,7 @@ def convert(
         include_api_key_configuration=include_api_key_configuration,
         include_openai_configuration=include_openai_configuration,
         include_user_permissions=include_user_permissions,
+        include_identity_configuration=include_identity_configuration,
         include_function_history=include_function_history,
     )
     source = Path(source_db).resolve(strict=True)
@@ -2526,7 +2987,7 @@ def convert(
         raise MigrationError("target_already_exists", "new target directory already exists; output is never overwritten", report)
     parent = target.parent.resolve(strict=True)
     target = parent / target.name
-    if source == target or template == target or source.is_relative_to(target) or template.is_relative_to(target):
+    if source == target or template == target or _is_relative_to(source, target) or _is_relative_to(template, target):
         raise MigrationError("target_path_overlap", "source, template and fresh target paths must be separate", report)
     if report["fatal"]:
         report["status"] = "refused_fatal_input"
@@ -2575,7 +3036,8 @@ def convert(
             counts = _copy_domains(
                 source_connection, target_connection, upload_rows, runtime_root,
                 object_access, group_memberships, private_chat_overrides,
-                named_tool_config_data,
+                map_chat_file_paths=bool(report.get("chat_file_mapping")),
+                named_tool_config_data=named_tool_config_data,
                 include_user_profile_fields=include_user_profile_fields,
                 api_key_overrides=api_key_overrides,
             )
@@ -2693,6 +3155,8 @@ def convert(
             raise MigrationError("target_already_exists", "new target appeared during conversion; refusing overwrite", report)
         if archive_final.exists():
             raise MigrationError("archive_target_already_exists", "source archive destination appeared during conversion", report)
+        _secure_output_tree(archive_attempt)
+        _secure_output_tree(attempt)
         os.replace(archive_attempt, archive_final)
         os.replace(attempt, target)
         return report
@@ -2702,7 +3166,12 @@ def convert(
             (attempt / "failure.json").write_text(json.dumps(failure, sort_keys=True, indent=2) + "\n", encoding="utf-8")
             if archive_attempt.exists():
                 (archive_attempt / "failure.json").write_text(json.dumps(failure, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+            for retained in (attempt, archive_attempt):
+                if retained.exists():
+                    _secure_output_tree(retained)
         except OSError:
+            pass
+        except MigrationError:
             pass
         if isinstance(error, MigrationError):
             error.report = {**report, **failure, "failed_attempt_dir": str(attempt)}
@@ -2757,6 +3226,7 @@ def main(argv: list[str] | None = None) -> int:
             action="store_true",
             help="map the exact measured nested boolean user-permissions setting into old configuration",
         )
+        command.add_argument("--include-identity-configuration", action="store_true")
         command.add_argument(
             "--include-function-history",
             action="store_true",
@@ -2776,6 +3246,7 @@ def main(argv: list[str] | None = None) -> int:
                 include_api_key_configuration=args.include_api_key_configuration,
                 include_openai_configuration=args.include_openai_configuration,
                 include_user_permissions=args.include_user_permissions,
+                include_identity_configuration=args.include_identity_configuration,
                 include_function_history=args.include_function_history,
             )
         else:
@@ -2793,6 +3264,7 @@ def main(argv: list[str] | None = None) -> int:
                 include_api_key_configuration=args.include_api_key_configuration,
                 include_openai_configuration=args.include_openai_configuration,
                 include_user_permissions=args.include_user_permissions,
+                include_identity_configuration=args.include_identity_configuration,
                 include_function_history=args.include_function_history,
             )
     except MigrationError as error:

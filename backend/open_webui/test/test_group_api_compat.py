@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Focused tests for the measured flat-group API projection and mutations."""
 
 import ast

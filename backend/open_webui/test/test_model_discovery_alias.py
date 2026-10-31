@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Exercise the old callable-model aggregate and verify its route alias."""
 
 import ast

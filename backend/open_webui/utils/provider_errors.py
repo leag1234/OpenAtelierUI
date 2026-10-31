@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Narrow opt-in projection for bounded OpenAI-compatible provider errors."""
 
 from __future__ import annotations

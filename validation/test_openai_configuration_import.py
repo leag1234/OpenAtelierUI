@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """SQLite and CLI controls for the narrow OpenAI-compatible config import."""
 
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -12,7 +14,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from migrate_sqlite import MigrationError, convert, preview
+from migrate_sqlite import MigrationError, _secure_output_tree, convert, preview
 from test_api_key_configuration_import import SETTINGS as API_KEY_SETTINGS
 from test_api_key_configuration_import import add_api_key_settings
 from test_migrate_sqlite import add_named_tool_configuration, build_source, build_template, digest
@@ -74,6 +76,19 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
         blocker = next(item for item in report["blockers"] if item["code"] == "unsupported_nonempty_domain_config")
         self.assertEqual(blocker["count"], 4)
         self.assertFalse(report["cutover_eligible"])
+        result = subprocess.run(
+            [
+                sys.executable, str(Path(__file__).with_name("migrate_sqlite.py")), "preview",
+                "--source-db", str(self.source), "--uploads-root", str(self.uploads),
+                "--empty-old-target-template", str(self.template),
+            ],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertEqual(
+            next(item for item in json.loads(result.stdout)["blockers"] if item["code"] == "unsupported_nonempty_domain_config")["count"],
+            4,
+        )
         self.assertEqual(digest(self.source), before)
 
     def test_cli_preview_convert_and_secret_redaction(self):
@@ -94,15 +109,18 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
             text=True,
             check=False,
         )
-        self.assertEqual(preview_result.returncode, 3, preview_result.stderr)
+        self.assertEqual(preview_result.returncode, 0, preview_result.stderr)
         preview_report = json.loads(preview_result.stdout)
         self.assertEqual(preview_report["openai_configuration"]["selected_key_count"], 4)
         self.assertEqual(preview_report["openai_configuration"]["remaining_config_rows"], 0)
-        self.assertIn(
-            "openai_configuration_prototype",
+        self.assertEqual(preview_report["status"], "eligible_for_review")
+        self.assertTrue(preview_report["cutover_eligible"])
+        self.assertFalse(preview_report.get("target_created", False))
+        self.assertNotIn("openai_configuration_prototype", {item["code"] for item in preview_report["blockers"]})
+        self.assertNotIn(
+            "unsupported_nonempty_domain_config",
             {item["code"] for item in preview_report["blockers"]},
         )
-        self.assertFalse(preview_report["cutover_eligible"])
         self.assertNotIn(SYNTHETIC_API_KEY, preview_result.stdout)
 
         target = self.root / "converted"
@@ -112,8 +130,9 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
             text=True,
             check=False,
         )
-        self.assertEqual(converted.returncode, 3, converted.stderr)
+        self.assertEqual(converted.returncode, 0, converted.stderr)
         self.assertNotIn(SYNTHETIC_API_KEY, converted.stdout + converted.stderr)
+        self.assertEqual(json.loads(converted.stdout)["status"], "prepared_for_independent_review")
         config = self.target_config(target)
         self.assertEqual(
             config["openai"],
@@ -131,6 +150,59 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
         self.assertEqual(config["version"], 0)
         self.assertEqual(digest(self.source), before)
 
+    def test_selected_conversion_outputs_are_private_without_changing_inputs(self):
+        add_openai_settings(self.source)
+        originals = [self.source, self.template, self.uploads, self.uploads / "f1_synthetic.html"]
+        before = {
+            path: (path.stat().st_mode & 0o777, digest(path) if path.is_file() else None)
+            for path in originals
+        }
+        target = self.root / "private-output"
+        old_umask = os.umask(0o022)
+        try:
+            report = convert(
+                self.source, self.uploads, self.template, target,
+                include_openai_configuration=True,
+            )
+        finally:
+            os.umask(old_umask)
+
+        archive = Path(report["archive"]["path"])
+        for output_root in (target, archive):
+            self.assertEqual(output_root.stat().st_mode & 0o777, 0o700)
+            for path in output_root.rglob("*"):
+                mode = path.lstat().st_mode & 0o777
+                self.assertEqual(mode, 0o700 if path.is_dir() else 0o600, str(path))
+        self.assertEqual(report["status"], "prepared_for_independent_review")
+        self.assertTrue(any("No cutover or activation" in item for item in report["limitations"]))
+        self.assertEqual(self.target_config(target)["openai"], {
+            "enable": True,
+            "api_base_urls": OPENAI_SETTINGS["openai.api_base_urls"],
+            "api_keys": [SYNTHETIC_API_KEY],
+            "api_configs": {},
+        })
+        for path in originals:
+            self.assertEqual(path.stat().st_mode & 0o777, before[path][0])
+            self.assertEqual(digest(path) if path.is_file() else None, before[path][1])
+
+    def test_output_permission_guard_refuses_symlink_and_fifo(self):
+        root = self.root / "unsafe-output"
+        root.mkdir(mode=0o700)
+        outside = self.root / "outside.txt"
+        outside.write_text("unchanged", encoding="utf-8")
+        (root / "link").symlink_to(outside)
+        with self.assertRaises(MigrationError) as caught:
+            _secure_output_tree(root)
+        self.assertEqual(caught.exception.code, "unsafe_output_artifact")
+        self.assertEqual(outside.read_text(encoding="utf-8"), "unchanged")
+        self.assertTrue((root / "link").is_symlink())
+
+        (root / "link").unlink()
+        os.mkfifo(root / "pipe")
+        with self.assertRaises(MigrationError) as caught:
+            _secure_output_tree(root)
+        self.assertEqual(caught.exception.code, "unsafe_output_artifact")
+
     def test_false_enablement_and_selected_mapping_preserve_exact_values(self):
         values = dict(OPENAI_SETTINGS)
         values["openai.enable"] = False
@@ -146,6 +218,142 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
             include_openai_configuration=True,
         )
         self.assertFalse(self.target_config(target)["openai"]["enable"])
+
+    def test_static_headers_are_preserved_exactly_in_selected_endpoint_options(self):
+        values = dict(OPENAI_SETTINGS)
+        values["openai.api_base_urls"] = [
+            "http://127.0.0.1:18081/v1",
+            "http://127.0.0.1:18082/v1",
+        ]
+        values["openai.api_keys"] = [SYNTHETIC_API_KEY, "sk-openatelier-second-synthetic"]
+        values["openai.api_configs"] = {
+            "0": {
+                "enable": True,
+                "headers": {
+                    "Origin": "http://localhost:3000",
+                    "Authorization": "Bearer synthetic-operator-value",
+                },
+            },
+            "1": {"enable": True},
+        }
+        add_openai_settings(self.source, values)
+        report = preview(
+            self.source, self.uploads, self.template, include_openai_configuration=True
+        )
+        self.assertEqual(report["openai_configuration"]["selected_key_count"], 4)
+        self.assertNotIn("synthetic-operator-value", json.dumps(report))
+        self.assertNotIn(SYNTHETIC_API_KEY, json.dumps(report))
+        target = self.root / "static-headers"
+        convert(
+            self.source, self.uploads, self.template, target,
+            include_openai_configuration=True,
+        )
+        self.assertEqual(
+            self.target_config(target)["openai"]["api_configs"],
+            values["openai.api_configs"],
+        )
+        self.assertEqual(
+            self.target_config(target)["openai"]["api_base_urls"],
+            values["openai.api_base_urls"],
+        )
+        self.assertEqual(
+            self.target_config(target)["openai"]["api_keys"], values["openai.api_keys"]
+        )
+
+    def test_model_ids_and_empty_prefix_preserve_exact_selected_options(self):
+        model_ids = [f"{index:02d}" + "x" * 126 for index in range(64)]
+        values = {
+            **OPENAI_SETTINGS,
+            "openai.api_base_urls": [
+                "http://127.0.0.1:18081/v1",
+                "http://127.0.0.1:18082/v1",
+            ],
+            "openai.api_keys": [SYNTHETIC_API_KEY, "sk-second-synthetic-key"],
+            "openai.api_configs": {
+                "0": {"enable": True, "model_ids": ["community-qwen"], "prefix_id": ""},
+                "1": {"enable": False, "model_ids": model_ids, "prefix_id": ""},
+            },
+        }
+        add_openai_settings(self.source, values)
+        before = digest(self.source)
+        report = preview(
+            self.source, self.uploads, self.template, include_openai_configuration=True
+        )
+        self.assertFalse(report["fatal"])
+        self.assertEqual(report["openai_configuration"]["selected_key_count"], 4)
+        self.assertNotIn(
+            "unsupported_nonempty_domain_config",
+            {item["code"] for item in report["blockers"]},
+        )
+        for private_value in (SYNTHETIC_API_KEY, "community-qwen", model_ids[0], "sk-second-synthetic-key"):
+            self.assertNotIn(private_value, json.dumps(report))
+
+        target = self.root / "model-options"
+        convert(
+            self.source, self.uploads, self.template, target,
+            include_openai_configuration=True,
+        )
+        imported = self.target_config(target)["openai"]
+        self.assertEqual(imported["api_configs"], values["openai.api_configs"])
+        self.assertEqual(imported["api_base_urls"], values["openai.api_base_urls"])
+        self.assertEqual(imported["api_keys"], values["openai.api_keys"])
+        self.assertEqual(digest(self.source), before)
+
+    def test_invalid_model_options_refuse_before_target_without_echo(self):
+        too_many = [f"id-{index}" for index in range(65)]
+        too_many_bytes = [f"{index:02d}" + "x" * 254 for index in range(33)]
+        invalid_entries = (
+            {"enable": True, "model_ids": []},
+            {"enable": True, "model_ids": "one-string"},
+            {"enable": True, "model_ids": too_many},
+            {"enable": True, "model_ids": ["x" * 257]},
+            {"enable": True, "model_ids": too_many_bytes},
+            {"enable": True, "model_ids": ["has whitespace"]},
+            {"enable": True, "model_ids": ["control\x1f"]},
+            {"enable": True, "model_ids": ["control\x85"]},
+            {"enable": True, "model_ids": ["control\x7f"]},
+            {"enable": True, "model_ids": ["malformed\ud800"]},
+            {"enable": True, "model_ids": [True]},
+            {"enable": True, "model_ids": [{"id": "nested"}]},
+            {"enable": True, "model_ids": ["private-model-marker", "private-model-marker"]},
+            {"enable": True, "prefix_id": "nonempty"},
+            {"enable": True, "prefix_id": None},
+            {"enable": True, "tags": []},
+            {"enable": True, "model_ids": ["valid"], "unexpected": False},
+        )
+        for entry in invalid_entries:
+            with self.subTest(keys=sorted(entry)):
+                self.tearDown()
+                self.setUp()
+                values = {**OPENAI_SETTINGS, "openai.api_configs": {"0": entry}}
+                add_openai_settings(self.source, values)
+                before = digest(self.source)
+                target = self.root / "refused-model-options"
+                with self.assertRaises(MigrationError) as caught:
+                    convert(
+                        self.source, self.uploads, self.template, target,
+                        include_openai_configuration=True,
+                    )
+                self.assertEqual(caught.exception.code, "fatal_source_input")
+                report = json.dumps(caught.exception.report)
+                self.assertIn("openai_configuration_value_unsupported", report)
+                self.assertNotIn(SYNTHETIC_API_KEY, report)
+                self.assertNotIn("private-model-marker", report)
+                self.assertFalse(target.exists())
+                self.assertEqual(digest(self.source), before)
+
+    def test_duplicate_model_ids_across_endpoints_refuse(self):
+        values = {
+            **OPENAI_SETTINGS,
+            "openai.api_base_urls": ["http://127.0.0.1:18081/v1", "http://127.0.0.1:18082/v1"],
+            "openai.api_keys": [SYNTHETIC_API_KEY, "sk-second-synthetic-key"],
+            "openai.api_configs": {
+                "0": {"enable": True, "model_ids": ["duplicate-model"]},
+                "1": {"enable": True, "model_ids": ["duplicate-model"]},
+            },
+        }
+        add_openai_settings(self.source, values)
+        self.assert_refused_before_target("openai_configuration_value_unsupported")
 
     def test_composes_with_existing_named_api_key_and_permission_selectors(self):
         add_named_tool_configuration(self.source)
@@ -190,6 +398,7 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
         self.assertIn(expected_code, {item["code"] for item in caught.exception.report["blockers"]})
         self.assertFalse(target.exists())
         self.assertNotIn(SYNTHETIC_API_KEY, json.dumps(caught.exception.report))
+        self.assertNotIn("synthetic-static-secret", json.dumps(caught.exception.report))
         self.assertEqual(digest(self.source), before)
 
     def test_alias_parent_descendant_and_duplicate_rows_refuse_before_target(self):
@@ -228,6 +437,42 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
             ({**OPENAI_SETTINGS, "openai.api_keys": ["clé"]}, "openai_configuration_value_unsupported"),
             ({**OPENAI_SETTINGS, "openai.api_keys": [SYNTHETIC_API_KEY, "second"]}, "openai_configuration_value_unsupported"),
             ({**OPENAI_SETTINGS, "openai.api_configs": {"timeout": 1}}, "openai_configuration_value_unsupported"),
+            (
+                {**OPENAI_SETTINGS, "openai.api_configs": {"0": {"enable": True, "headers": {"bad name": "x"}}}},
+                "openai_configuration_value_unsupported",
+            ),
+            (
+                {**OPENAI_SETTINGS, "openai.api_configs": {"0": {"enable": True, "headers": {"Origin": "http://ok\r\nX-Injected: synthetic-static-secret"}}}},
+                "openai_configuration_value_unsupported",
+            ),
+            (
+                {**OPENAI_SETTINGS, "openai.api_configs": {"0": {"enable": True, "headers": {"Origin": "{{ user }}"}}}},
+                "openai_configuration_value_unsupported",
+            ),
+            (
+                {**OPENAI_SETTINGS, "openai.api_configs": {"0": {"enable": True, "headers": {"X-Test": "control\x85"}}}},
+                "openai_configuration_value_unsupported",
+            ),
+            (
+                {**OPENAI_SETTINGS, "openai.api_configs": {"0": {"enable": True, "headers": {"Origin": "a", "origin": "b"}}}},
+                "openai_configuration_value_unsupported",
+            ),
+            (
+                {**OPENAI_SETTINGS, "openai.api_configs": {"0": {"enable": True, "headers": {"Origin": "x" * 4097}}}},
+                "openai_configuration_value_unsupported",
+            ),
+            (
+                {**OPENAI_SETTINGS, "openai.api_configs": {"0": {"enable": True, "headers": {f"X-{index}": "v" for index in range(33)}}}},
+                "openai_configuration_value_unsupported",
+            ),
+            (
+                {**OPENAI_SETTINGS, "openai.api_configs": {"0": {"enable": True, "headers": {f"X-{index}": "v" * 4096 for index in range(5)}}}},
+                "openai_configuration_value_invalid",
+            ),
+            (
+                {**OPENAI_SETTINGS, "openai.api_configs": {"0": {"enable": True, "unexpected": True}}},
+                "openai_configuration_value_unsupported",
+            ),
             ({**OPENAI_SETTINGS, "openai.api_configs": "RAW:{\"x\":1,\"x\":2}"}, "openai_configuration_value_invalid"),
             ({**OPENAI_SETTINGS, "openai.enable": "RAW:True"}, "openai_configuration_value_invalid"),
         )
@@ -251,7 +496,24 @@ class OpenAIConfigurationImportTests(unittest.TestCase):
         )
         self.assertFalse(report["fatal"])
         self.assertEqual(report["openai_configuration"]["remaining_config_rows"], 1)
+        blocker = next(
+            item for item in report["blockers"] if item["code"] == "unsupported_nonempty_domain_config"
+        )
+        self.assertEqual(blocker["count"], 1)
         self.assertNotIn(SYNTHETIC_API_KEY, json.dumps(report))
+        cli = subprocess.run(
+            [
+                sys.executable, str(Path(__file__).with_name("migrate_sqlite.py")), "preview",
+                "--source-db", str(self.source), "--uploads-root", str(self.uploads),
+                "--empty-old-target-template", str(self.template), FLAG,
+            ],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(cli.returncode, 3, cli.stderr)
+        self.assertEqual(
+            next(item for item in json.loads(cli.stdout)["blockers"] if item["code"] == "unsupported_nonempty_domain_config")["count"],
+            1,
+        )
 
     def test_actual_cli_refuses_unsupported_key_without_echoing_it(self):
         values = dict(OPENAI_SETTINGS)

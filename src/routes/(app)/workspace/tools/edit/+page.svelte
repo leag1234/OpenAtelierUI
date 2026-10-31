@@ -1,7 +1,8 @@
 <script>
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
-	import { getToolById, getTools, updateToolById } from '$lib/apis/tools';
+	import { getToolById, getTools, updateToolById, updateToolAccessById } from '$lib/apis/tools';
+	import { buildReadGrantsFromParsed, parseResourceReadGrants, saveResourceWithSharing } from '$lib/apis/models/sharing.js';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import ToolkitEditor from '$lib/components/workspace/Tools/ToolkitEditor.svelte';
 	import { WEBUI_VERSION } from '$lib/constants';
@@ -22,7 +23,7 @@
 			console.log('Version is lower than required');
 			toast.error(
 				$i18n.t(
-					'Open WebUI version (v{{OPEN_WEBUI_VERSION}}) is lower than required version (v{{REQUIRED_VERSION}})',
+					'OpenAtelierUI version (v{{OPEN_WEBUI_VERSION}}) is lower than required version (v{{REQUIRED_VERSION}})',
 					{
 						OPEN_WEBUI_VERSION: WEBUI_VERSION,
 						REQUIRED_VERSION: manifest?.required_open_webui_version ?? '0.0.0'
@@ -32,18 +33,25 @@
 			return;
 		}
 
-		const res = await updateToolById(localStorage.token, tool.id, {
-			id: data.id,
-			name: data.name,
-			meta: data.meta,
-			content: data.content,
-			access_control: data.access_control
-		}).catch((error) => {
-			toast.error(`${error}`);
-			return null;
-		});
+		const parsed = parseResourceReadGrants(tool, 'tool', true);
+		const existingGrants = parsed.supported
+			? buildReadGrantsFromParsed(parsed)
+			: undefined;
+		const result = await saveResourceWithSharing(data.id, data, existingGrants,
+			(id, details) => updateToolById(localStorage.token, id, details),
+			(id, grants) => updateToolAccessById(localStorage.token, id, grants)
+		);
+		if (result.status === 'sharing_failed') {
+			toast.error('Tool details were saved, but sharing was not updated. Retry the sharing change.');
+			return;
+		}
+		if (result.status !== 'saved') {
+			toast.error('The tool details could not be saved. Review the form and try again.');
+			return;
+		}
 
-		if (res) {
+		if (result.model) {
+			tool = result.model;
 			toast.success($i18n.t('Tool updated successfully'));
 			tools.set(await getTools(localStorage.token));
 
@@ -74,9 +82,9 @@
 		name={tool.name}
 		meta={tool.meta}
 		content={tool.content}
-		accessControl={tool.access_control}
+		existingTool={tool}
 		onSave={(value) => {
-			saveHandler(value);
+			return saveHandler(value);
 		}}
 	/>
 {:else}

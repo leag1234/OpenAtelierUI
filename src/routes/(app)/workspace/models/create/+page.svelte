@@ -6,6 +6,7 @@
 
 	import { onMount, tick, getContext } from 'svelte';
 	import { createNewModel, getModelById } from '$lib/apis/models';
+	import { modelCreatePayload } from '$lib/apis/models/sharing.js';
 	import { getModels } from '$lib/apis';
 
 	import ModelEditor from '$lib/components/workspace/Models/ModelEditor.svelte';
@@ -27,7 +28,7 @@
 
 		if (modelInfo) {
 			const res = await createNewModel(localStorage.token, {
-				...modelInfo,
+				...modelCreatePayload(modelInfo),
 				meta: {
 					...modelInfo.meta,
 					profile_image_url: modelInfo.meta.profile_image_url ?? '/static/favicon.png',
@@ -57,28 +58,6 @@
 	let model = null;
 
 	onMount(async () => {
-		window.addEventListener('message', async (event) => {
-			if (
-				!['https://openwebui.com', 'https://www.openwebui.com', 'http://localhost:5173'].includes(
-					event.origin
-				)
-			) {
-				return;
-			}
-
-			let data = JSON.parse(event.data);
-
-			if (data?.info) {
-				data = data.info;
-			}
-
-			model = data;
-		});
-
-		if (window.opener ?? false) {
-			window.opener.postMessage('loaded', '*');
-		}
-
 		if (sessionStorage.model) {
 			model = JSON.parse(sessionStorage.model);
 			sessionStorage.removeItem('model');

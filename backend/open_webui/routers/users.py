@@ -13,7 +13,7 @@ from open_webui.models.users import (
 )
 
 
-from open_webui.socket.main import get_active_status_by_user_id
+from open_webui.socket.main import disconnect_user_sockets, get_active_status_by_user_id
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.env import SRC_LOG_LEVELS
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -261,6 +261,7 @@ class UserResponse(BaseModel):
 @router.post("/{user_id}/sessions/revoke")
 async def revoke_user_sessions(user_id: str, user=Depends(get_admin_user)):
     revoke_user_session_epoch(user_id)
+    await disconnect_user_sockets(user_id)
     return None
 
 

@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Default-off access to profile columns prepared by the bounded importer."""
 
 import datetime

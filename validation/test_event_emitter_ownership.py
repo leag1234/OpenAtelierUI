@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Source-extracted controls for plugin event session ownership and aliasing."""
 
 from __future__ import annotations
@@ -50,11 +51,15 @@ class RecordingChats:
 
 def load_emitter(session_pool, user_pool, socket, chats):
     tree = ast.parse(SOCKET_SOURCE.read_text(encoding="utf-8"))
+    guard = next(
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_session_identity"
+    )
     function = next(
         node for node in tree.body
         if isinstance(node, ast.FunctionDef) and node.name == "get_event_emitter"
     )
-    module = ast.Module(body=[function], type_ignores=[])
+    module = ast.Module(body=[guard, function], type_ignores=[])
     namespace = {
         "SESSION_POOL": session_pool,
         "USER_POOL": user_pool,
@@ -70,14 +75,16 @@ class EventEmitterOwnershipTests(unittest.TestCase):
     def setUp(self):
         self.previous_flag = os.environ.pop("OPENATELIER_EVENT_CHANNEL_COMPAT", None)
         self.session_pool = CountingPool({
-            "own-a": {"id": "user-a"},
-            "own-b": {"id": "user-a"},
-            "foreign": {"id": "user-b"},
+            "own-a": {"id": "user-a", "role": "user"},
+            "own-b": {"id": "user-a", "role": "user"},
+            "foreign": {"id": "user-b", "role": "user"},
+            "orphan": {"id": "user-a", "role": "user"},
             "missing-id": {},
             "malformed": None,
         })
         self.user_pool = CountingPool({
-            "user-a": ["own-a", "own-b", "foreign", "missing", "missing-id", "malformed", "own-a"]
+            "user-a": ["own-a", "own-b", "foreign", "missing", "missing-id", "malformed", "own-a"],
+            "user-b": ["foreign"],
         })
         self.socket = RecordingSocket()
         self.chats = RecordingChats()
@@ -109,9 +116,11 @@ class EventEmitterOwnershipTests(unittest.TestCase):
                 "data": event,
             })
             self.assertIs(envelope["data"], event)
-        self.assertEqual(self.session_pool.lookups.count("own-a"), 1)
-        self.assertEqual(self.session_pool.lookups.count("own-b"), 1)
-        self.assertEqual(self.session_pool.lookups.count("foreign"), 1)
+        # The emitter reads each session once, then the shared live-binding
+        # guard rechecks it before routing.
+        self.assertEqual(self.session_pool.lookups.count("own-a"), 2)
+        self.assertEqual(self.session_pool.lookups.count("own-b"), 2)
+        self.assertEqual(self.session_pool.lookups.count("foreign"), 2)
 
     def test_opt_in_alias_emits_same_envelope_once_on_each_channel(self):
         os.environ["OPENATELIER_EVENT_CHANNEL_COMPAT"] = "1"
@@ -142,6 +151,12 @@ class EventEmitterOwnershipTests(unittest.TestCase):
                 self.assertEqual(self.socket.emissions, [])
                 self.assertEqual(self.session_pool.lookups, [])
                 self.assertEqual(self.user_pool.lookups, [])
+
+    def test_orphan_session_binding_cannot_receive_private_events(self):
+        emitter = self.get_event_emitter({"user_id": "user-a", "session_id": "orphan"})
+        asyncio.run(emitter({"type": "progress", "data": {"status": "private"}}))
+        self.assertEqual({entry[2] for entry in self.socket.emissions}, {"own-a", "own-b"})
+        self.assertNotIn("orphan", {entry[2] for entry in self.socket.emissions})
 
     def test_status_database_update_behavior_remains_one_call(self):
         emitter = self.get_event_emitter({

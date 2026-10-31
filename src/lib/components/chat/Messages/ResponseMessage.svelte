@@ -29,6 +29,7 @@
 		removeAllDetails
 	} from '$lib/utils';
 	import { WEBUI_BASE_URL } from '$lib/constants';
+	import { statusDescription, statusSearchQuery, statusSearchUrls } from '$lib/utils/chatStatus.js';
 
 	import Name from './Name.svelte';
 	import ProfileImage from './ProfileImage.svelte';
@@ -629,7 +630,7 @@
 										</div>
 									{/if}
 
-									{#if status?.action === 'web_search' && status?.urls}
+									{#if status?.action === 'web_search' && statusSearchUrls(status)}
 										<WebSearchResults {status}>
 											<div class="flex flex-col justify-center -space-y-0.5">
 												<div
@@ -641,29 +642,29 @@
 													<!-- $i18n.t("No search query generated") -->
 
 													<!-- $i18n.t('Searched {{count}} sites') -->
-													{#if status?.description.includes('{{count}}')}
-														{$i18n.t(status?.description, {
-															count: status?.urls.length
+													{#if statusDescription(status).includes('{{count}}')}
+														{$i18n.t(statusDescription(status), {
+														count: statusSearchUrls(status).length
 														})}
-													{:else if status?.description === 'No search query generated'}
+													{:else if statusDescription(status) === 'No search query generated'}
 														{$i18n.t('No search query generated')}
-													{:else if status?.description === 'Generating search query'}
+													{:else if statusDescription(status) === 'Generating search query'}
 														{$i18n.t('Generating search query')}
 													{:else}
-														{status?.description}
+														{statusDescription(status)}
 													{/if}
 												</div>
 											</div>
 										</WebSearchResults>
-									{:else if status?.action === 'knowledge_search'}
+									{:else if status?.action === 'knowledge_search' && statusSearchQuery(status)}
 										<div class="flex flex-col justify-center -space-y-0.5">
 											<div
 												class="{status?.done === false
 													? 'shimmer'
 													: ''} text-gray-500 dark:text-gray-500 text-base line-clamp-1 text-wrap"
 											>
-												{$i18n.t(`Searching Knowledge for "{{searchQuery}}"`, {
-													searchQuery: status.query
+											{$i18n.t(`Searching Knowledge for "{{searchQuery}}"`, {
+													searchQuery: statusSearchQuery(status)
 												})}
 											</div>
 										</div>
@@ -677,16 +678,16 @@
 														: 'text-gray-500 dark:text-gray-500'} text-base line-clamp-1 text-wrap"
 											>
 												<!-- $i18n.t(`Searching "{{searchQuery}}"`) -->
-												{#if status?.description.includes('{{searchQuery}}')}
-													{$i18n.t(status?.description, {
-														searchQuery: status?.query
+													{#if statusDescription(status).includes('{{searchQuery}}')}
+														{$i18n.t(statusDescription(status), {
+															searchQuery: statusSearchQuery(status) ?? ''
 													})}
-												{:else if status?.description === 'No search query generated'}
+													{:else if statusDescription(status) === 'No search query generated'}
 													{$i18n.t('No search query generated')}
-												{:else if status?.description === 'Generating search query'}
+													{:else if statusDescription(status) === 'Generating search query'}
 													{$i18n.t('Generating search query')}
 												{:else}
-													{status?.description}
+														{statusDescription(status)}
 												{/if}
 											</div>
 										</div>
@@ -780,7 +781,13 @@
 						{:else}
 							<div class="w-full flex flex-col relative" id="response-content-container">
 								{#if message.content === '' && !message.error}
-									<Skeleton />
+									{#if message.done === true}
+										<div class="text-sm text-gray-600 dark:text-gray-300">
+											{$i18n.t('Response ended without content.')}
+										</div>
+									{:else}
+										<Skeleton />
+									{/if}
 								{:else if message.content && message.error !== true}
 									<!-- always show message contents even if there's an error -->
 									<!-- unless message.error === true which is legacy error handling, where the error message is stored in message.content -->
@@ -970,6 +977,7 @@
 									{#if $user?.role === 'user' ? ($user?.permissions?.chat?.edit ?? true) : true}
 										<Tooltip content={$i18n.t('Edit')} placement="bottom">
 											<button
+												aria-label={$i18n.t('Edit')}
 												class="{isLastMessage
 													? 'visible'
 													: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
@@ -998,6 +1006,7 @@
 
 								<Tooltip content={$i18n.t('Copy')} placement="bottom">
 									<button
+										aria-label={$i18n.t('Copy')}
 										class="{isLastMessage
 											? 'visible'
 											: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition copy-response-button"
@@ -1026,6 +1035,7 @@
 									<Tooltip content={$i18n.t('Read Aloud')} placement="bottom">
 										<button
 											id="speak-button-{message.id}"
+											aria-label={$i18n.t('Read Aloud')}
 											class="{isLastMessage
 												? 'visible'
 												: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
@@ -1212,6 +1222,7 @@
 									{#if !$temporaryChatEnabled && ($config?.features.enable_message_rating ?? true)}
 										<Tooltip content={$i18n.t('Good Response')} placement="bottom">
 											<button
+												aria-label={$i18n.t('Good Response')}
 												class="{isLastMessage
 													? 'visible'
 													: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
@@ -1248,6 +1259,7 @@
 
 										<Tooltip content={$i18n.t('Bad Response')} placement="bottom">
 											<button
+												aria-label={$i18n.t('Bad Response')}
 												class="{isLastMessage
 													? 'visible'
 													: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
@@ -1288,6 +1300,7 @@
 											<button
 												type="button"
 												id="continue-response-button"
+												aria-label={$i18n.t('Continue Response')}
 												class="{isLastMessage
 													? 'visible'
 													: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition regenerate-response-button"
@@ -1321,6 +1334,7 @@
 									<Tooltip content={$i18n.t('Regenerate')} placement="bottom">
 										<button
 											type="button"
+											aria-label={$i18n.t('Regenerate')}
 											class="{isLastMessage
 												? 'visible'
 												: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition regenerate-response-button"

@@ -1,7 +1,61 @@
 // SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) 2026 Gaël Duval
 
 const FOCUSABLE_SELECTOR =
 	'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), iframe:not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])';
+
+export function activateContainedNavigationFocus(container, initialFocus, onEscape) {
+	const doc = container.ownerDocument;
+	const previousFocus = doc.activeElement;
+	const focusable = () => Array.from(container.querySelectorAll(FOCUSABLE_SELECTOR)).filter(
+		(element) => !element.disabled && element.tabIndex !== -1
+	);
+	const focusInitial = () =>
+		(initialFocus?.isConnected ? initialFocus : focusable()[0])?.focus();
+	const onKeyDown = (event) => {
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			onEscape();
+		} else if (event.key === 'Tab') {
+			const items = focusable();
+			if (!items.length) return event.preventDefault();
+			if (
+				event.shiftKey &&
+				(doc.activeElement === items[0] || !container.contains(doc.activeElement))
+			) {
+				event.preventDefault();
+				items.at(-1).focus();
+			} else if (
+				!event.shiftKey &&
+				(doc.activeElement === items.at(-1) || !container.contains(doc.activeElement))
+			) {
+				event.preventDefault();
+				items[0].focus();
+			}
+		}
+	};
+	container.addEventListener('keydown', onKeyDown);
+	focusInitial();
+	return () => {
+		container.removeEventListener('keydown', onKeyDown);
+		if (previousFocus?.isConnected) previousFocus.focus();
+	};
+}
+
+export function scheduleContainedNavigationFocus(container, initialFocus, onEscape, nextTick, isCurrent) {
+	let cancelled = false;
+	let cleanup = null;
+	Promise.resolve(nextTick()).then(() => {
+		if (!cancelled && isCurrent()) {
+			cleanup = activateContainedNavigationFocus(container, initialFocus, onEscape);
+		}
+	});
+	return () => {
+		cancelled = true;
+		cleanup?.();
+		cleanup = null;
+	};
+}
 
 /**
  * Add a bounded focus boundary for an opt-in modal. The returned cleanup restores

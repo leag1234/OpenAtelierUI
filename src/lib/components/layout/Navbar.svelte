@@ -63,6 +63,8 @@
 						showSidebar.set(!$showSidebar);
 					}}
 					aria-label="Toggle Sidebar"
+					aria-controls="sidebar"
+					aria-expanded={$showSidebar}
 				>
 					<div class=" m-auto self-center">
 						<MenuLines />

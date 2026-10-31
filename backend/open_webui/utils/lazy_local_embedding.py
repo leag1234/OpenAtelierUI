@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Opt-in first-use wrapper for the existing local embedding factory."""
 
 import os

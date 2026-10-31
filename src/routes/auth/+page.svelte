@@ -7,6 +7,7 @@
 
 	import { getBackendConfig } from '$lib/apis';
 	import { ldapUserSignIn, getSessionUser, userSignIn, userSignUp } from '$lib/apis/auths';
+	import { hydrateSignedInProfile } from '$lib/apis/auths/profilePayload';
 
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 	import { WEBUI_NAME, config, user, socket } from '$lib/stores';
@@ -43,7 +44,7 @@
 			}
 
 			$socket.emit('user-join', { auth: { token: sessionUser.token } });
-			await user.set(sessionUser);
+			await hydrateSignedInProfile(sessionUser, getSessionUser, (value) => user.set(value));
 			await config.set(await getBackendConfig());
 
 			const redirectPath = querystringValue('redirect') || '/';
@@ -171,6 +172,11 @@
 	getStartedHandler={() => {
 		onboarding = false;
 		mode = $config?.features.enable_ldap ? 'ldap' : 'signup';
+		return tick().then(() => {
+			const firstFieldId =
+				mode === 'ldap' ? 'ldap-username' : mode === 'signup' ? 'sign-up-name' : 'sign-in-email';
+			if (typeof document !== 'undefined') document.getElementById(firstFieldId)?.focus();
+		});
 	}}
 />
 
@@ -206,6 +212,8 @@
 
 		<div
 			class="fixed bg-transparent min-h-screen w-full flex justify-center font-primary z-50 text-black dark:text-white"
+			aria-hidden={onboarding}
+			inert={onboarding}
 		>
 			<div class="w-full sm:max-w-md px-10 min-h-screen flex flex-col text-center">
 				{#if ($config?.features.auth_trusted_header ?? false) || $config?.features.auth === false}
@@ -246,10 +254,9 @@
 
 								{#if $config?.onboarding ?? false}
 									<div class=" mt-1 text-xs font-medium text-gray-500">
-										ⓘ {$WEBUI_NAME}
-										{$i18n.t(
-											'does not make any external connections, and your data stays securely on your locally hosted server.'
-										)}
+						ⓘ {$i18n.t(
+							'Available models and services depend on server configuration. Requests may be sent to external providers configured by the server administrator; check provider settings before sharing sensitive information.'
+						)}
 									</div>
 								{/if}
 							</div>
@@ -258,8 +265,12 @@
 								<div class="flex flex-col mt-4">
 									{#if mode === 'signup'}
 										<div class="mb-2">
-											<div class=" text-sm font-medium text-left mb-1">{$i18n.t('Name')}</div>
+											<label
+												for="sign-up-name"
+												class="text-sm font-medium text-left mb-1"
+											>{$i18n.t('Name')}</label>
 											<input
+												id="sign-up-name"
 												bind:value={name}
 												type="text"
 												class="my-0.5 w-full text-sm outline-hidden bg-transparent"
@@ -272,8 +283,12 @@
 
 									{#if mode === 'ldap'}
 										<div class="mb-2">
-											<div class=" text-sm font-medium text-left mb-1">{$i18n.t('Username')}</div>
+											<label
+												for="ldap-username"
+												class="text-sm font-medium text-left mb-1"
+											>{$i18n.t('Username')}</label>
 											<input
+												id="ldap-username"
 												bind:value={ldapUsername}
 												type="text"
 												class="my-0.5 w-full text-sm outline-hidden bg-transparent"
@@ -285,8 +300,12 @@
 										</div>
 									{:else}
 										<div class="mb-2">
-											<div class=" text-sm font-medium text-left mb-1">{$i18n.t('Email')}</div>
+											<label
+												for="sign-in-email"
+												class="block text-sm font-medium text-left mb-1"
+											>{$i18n.t('Email')}</label>
 											<input
+												id="sign-in-email"
 												bind:value={email}
 												type="email"
 												class="my-0.5 w-full text-sm outline-hidden bg-transparent"
@@ -299,9 +318,13 @@
 									{/if}
 
 									<div>
-										<div class=" text-sm font-medium text-left mb-1">{$i18n.t('Password')}</div>
+										<label
+											for="sign-in-password"
+											class="block text-sm font-medium text-left mb-1"
+										>{$i18n.t('Password')}</label>
 
 										<input
+											id="sign-in-password"
 											bind:value={password}
 											type="password"
 											class="my-0.5 w-full text-sm outline-hidden bg-transparent"

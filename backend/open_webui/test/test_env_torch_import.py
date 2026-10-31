@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Exercise the actual env.py device block with synthetic platforms/modules."""
 
 import ast

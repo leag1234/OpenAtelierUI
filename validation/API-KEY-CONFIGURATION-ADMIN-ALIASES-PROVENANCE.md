@@ -1,4 +1,5 @@
 <!-- SPDX-License-Identifier: BSD-3-Clause -->
+<!-- Copyright (c) 2026 Gaël Duval -->
 # API-key admin configuration aliases
 
 This narrow compatibility change adds the three observed current admin-config field names to the existing `/admin/config` GET and POST handlers:

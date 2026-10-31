@@ -89,7 +89,8 @@
 		files,
 		selectedToolIds,
 		imageGenerationEnabled,
-		webSearchEnabled
+		webSearchEnabled,
+		codeInterpreterEnabled
 	});
 
 	let showTools = false;
@@ -453,13 +454,13 @@
 			</div>
 		</div>
 
-		<div class="{transparentBackground ? 'bg-transparent' : 'bg-white dark:bg-gray-900'} ">
+		<div id="message-input-container" class="w-full min-w-0 {transparentBackground ? 'bg-transparent' : 'bg-white dark:bg-gray-900'} ">
 			<div
 				class="{($settings?.widescreenMode ?? null)
 					? 'max-w-full'
 					: 'max-w-6xl'} px-2.5 mx-auto inset-x-0"
 			>
-				<div class="">
+				<div class="w-full min-w-0 flex-1 max-w-none" style="max-width: none !important">
 					<input
 						bind:this={filesInputElement}
 						bind:files={inputFiles}
@@ -612,6 +613,7 @@
 												bind:this={chatInputElement}
 												bind:value={prompt}
 												id="chat-input"
+												ariaLabel={$i18n.t('Send a Message')}
 												messageInput={true}
 												shiftEnter={!($settings?.ctrlEnterToSend ?? false) &&
 													(!$mobile ||
@@ -822,6 +824,7 @@
 									{:else}
 										<textarea
 											id="chat-input"
+											aria-label={$i18n.t('Send a Message')}
 											dir="auto"
 											bind:this={chatInputElement}
 											class="scrollbar-hidden bg-transparent dark:text-gray-100 outline-hidden w-full pt-3 px-1 resize-none"
@@ -1330,6 +1333,7 @@
 												<Tooltip content={$i18n.t('Send message')}>
 													<button
 														id="send-message-button"
+														aria-label={$i18n.t('Send message')}
 														class="{!(prompt === '' && files.length === 0)
 															? 'bg-black text-white hover:bg-gray-900 dark:bg-white dark:text-black dark:hover:bg-gray-100 '
 															: 'text-white bg-gray-200 dark:text-gray-900 dark:bg-gray-700 disabled'} transition rounded-full p-1.5 self-center"

@@ -1,0 +1,16 @@
+OpenAtelierUI notices
+
+This project is based on Open WebUI v0.6.5, licensed under BSD-3-Clause:
+
+  Copyright (c) 2023-2025 Timothy Jaeryang Baek
+  Source commit: 07d8460126a686de9a99e2662d06106e22c3f6b6
+  License: LICENSE
+
+The unchanged compatibility fixture at
+validation/fixtures/third-party/input_inspector.py is licensed under MIT by
+its copyright holder. Its license is retained at
+validation/fixtures/third-party/LICENSE.input_inspector.
+
+Dependencies and container-image components retain their own licenses. Their
+presence does not make them BSD-3-Clause or imply legal clearance of a complete
+binary or container distribution.

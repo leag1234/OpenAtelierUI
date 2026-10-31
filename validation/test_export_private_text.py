@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Synthetic tests for the standalone private text-chat exporter."""
 import contextlib
 import hashlib

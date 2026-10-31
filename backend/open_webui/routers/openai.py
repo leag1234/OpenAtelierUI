@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Literal, Optional, overload
 
@@ -47,6 +48,10 @@ from open_webui.utils.provider_errors import (
     provider_error_compat_enabled,
     read_bounded_provider_error_body,
 )
+from open_webui.utils.openai_static_headers import (
+    configured_static_headers,
+    merge_static_headers,
+)
 
 
 log = logging.getLogger(__name__)
@@ -60,25 +65,27 @@ log.setLevel(SRC_LOG_LEVELS["OPENAI"])
 ##########################################
 
 
-async def send_get_request(url, key=None, user: UserModel = None):
+async def send_get_request(url, key=None, user: UserModel = None, static_headers=None):
     timeout = aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT_MODEL_LIST)
     try:
         async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+            request_headers = {
+                **({"Authorization": f"Bearer {key}"} if key else {}),
+                **(
+                    {
+                        "X-OpenWebUI-User-Name": user.name,
+                        "X-OpenWebUI-User-Id": user.id,
+                        "X-OpenWebUI-User-Email": user.email,
+                        "X-OpenWebUI-User-Role": user.role,
+                    }
+                    if ENABLE_FORWARD_USER_INFO_HEADERS and user
+                    else {}
+                ),
+            }
+            request_headers = merge_static_headers(request_headers, static_headers)
             async with session.get(
                 url,
-                headers={
-                    **({"Authorization": f"Bearer {key}"} if key else {}),
-                    **(
-                        {
-                            "X-OpenWebUI-User-Name": user.name,
-                            "X-OpenWebUI-User-Id": user.id,
-                            "X-OpenWebUI-User-Email": user.email,
-                            "X-OpenWebUI-User-Role": user.role,
-                        }
-                        if ENABLE_FORWARD_USER_INFO_HEADERS and user
-                        else {}
-                    ),
-                },
+                headers=request_headers,
             ) as response:
                 return await response.json()
     except Exception as e:
@@ -221,8 +228,8 @@ async def speech(request: Request, user=Depends(get_verified_user)):
                     "Authorization": f"Bearer {request.app.state.config.OPENAI_API_KEYS[idx]}",
                     **(
                         {
-                            "HTTP-Referer": "https://openwebui.com/",
-                            "X-Title": "Open WebUI",
+                            "HTTP-Referer": "https://github.com/leag1234/OpenAtelierUI",
+                            "X-Title": "OpenAtelierUI",
                         }
                         if "openrouter.ai" in url
                         else {}
@@ -268,7 +275,7 @@ async def speech(request: Request, user=Depends(get_verified_user)):
 
             raise HTTPException(
                 status_code=r.status_code if r else 500,
-                detail=detail if detail else "Open WebUI: Server Connection Error",
+                detail=detail if detail else "OpenAtelierUI: Server Connection Error",
             )
 
     except ValueError:
@@ -302,6 +309,9 @@ async def get_all_models_responses(request: Request, user: UserModel) -> list:
                     f"{url}/models",
                     request.app.state.config.OPENAI_API_KEYS[idx],
                     user=user,
+                    static_headers=configured_static_headers(
+                        request.app.state.config.OPENAI_API_CONFIGS, idx, url
+                    ),
                 )
             )
         else:
@@ -322,6 +332,9 @@ async def get_all_models_responses(request: Request, user: UserModel) -> list:
                             f"{url}/models",
                             request.app.state.config.OPENAI_API_KEYS[idx],
                             user=user,
+                            static_headers=configured_static_headers(
+                                request.app.state.config.OPENAI_API_CONFIGS, idx, url
+                            ),
                         )
                     )
                 else:
@@ -472,7 +485,7 @@ async def get_models(
             try:
                 async with session.get(
                     f"{url}/models",
-                    headers={
+                    headers=merge_static_headers({
                         "Authorization": f"Bearer {key}",
                         "Content-Type": "application/json",
                         **(
@@ -485,7 +498,9 @@ async def get_models(
                             if ENABLE_FORWARD_USER_INFO_HEADERS
                             else {}
                         ),
-                    },
+                    }, configured_static_headers(
+                        request.app.state.config.OPENAI_API_CONFIGS, url_idx, url
+                    )),
                 ) as r:
                     if r.status != 200:
                         # Extract response error details if available
@@ -521,7 +536,7 @@ async def get_models(
                 # ClientError covers all aiohttp requests issues
                 log.exception(f"Client error: {str(e)}")
                 raise HTTPException(
-                    status_code=500, detail="Open WebUI: Server Connection Error"
+                    status_code=500, detail="OpenAtelierUI: Server Connection Error"
                 )
             except Exception as e:
                 log.exception(f"Unexpected error: {e}")
@@ -582,7 +597,7 @@ async def verify_connection(
             # ClientError covers all aiohttp requests issues
             log.exception(f"Client error: {str(e)}")
             raise HTTPException(
-                status_code=500, detail="Open WebUI: Server Connection Error"
+                status_code=500, detail="OpenAtelierUI: Server Connection Error"
             )
         except Exception as e:
             log.exception(f"Unexpected error: {e}")
@@ -706,13 +721,13 @@ async def generate_chat_completion(
             method="POST",
             url=f"{url}/chat/completions",
             data=payload,
-            headers={
+            headers=merge_static_headers({
                 "Authorization": f"Bearer {key}",
                 "Content-Type": "application/json",
                 **(
                     {
-                        "HTTP-Referer": "https://openwebui.com/",
-                        "X-Title": "Open WebUI",
+                        "HTTP-Referer": "https://github.com/leag1234/OpenAtelierUI",
+                        "X-Title": "OpenAtelierUI",
                     }
                     if "openrouter.ai" in url
                     else {}
@@ -727,7 +742,7 @@ async def generate_chat_completion(
                     if ENABLE_FORWARD_USER_INFO_HEADERS
                     else {}
                 ),
-            },
+            }, api_config.get("headers")),
         )
 
         if r.status >= 400 and provider_error_compat_enabled():
@@ -771,7 +786,7 @@ async def generate_chat_completion(
 
         raise HTTPException(
             status_code=r.status if r else 500,
-            detail=detail if detail else "Open WebUI: Server Connection Error",
+            detail=detail if detail else "OpenAtelierUI: Server Connection Error",
         )
     finally:
         if not streaming and session:
@@ -785,6 +800,9 @@ async def proxy(path: str, request: Request, user=Depends(get_verified_user)):
     """
     Deprecated: proxy all requests to OpenAI API
     """
+
+    if os.environ.get("ENABLE_OPENAI_API_PASSTHROUGH", "False").lower() != "true":
+        raise HTTPException(status_code=403, detail="Direct API passthrough is disabled")
 
     body = await request.body()
 
@@ -802,7 +820,7 @@ async def proxy(path: str, request: Request, user=Depends(get_verified_user)):
             method=request.method,
             url=f"{url}/{path}",
             data=body,
-            headers={
+            headers=merge_static_headers({
                 "Authorization": f"Bearer {key}",
                 "Content-Type": "application/json",
                 **(
@@ -815,7 +833,9 @@ async def proxy(path: str, request: Request, user=Depends(get_verified_user)):
                     if ENABLE_FORWARD_USER_INFO_HEADERS
                     else {}
                 ),
-            },
+            }, configured_static_headers(
+                request.app.state.config.OPENAI_API_CONFIGS, idx, url
+            )),
         )
         r.raise_for_status()
 
@@ -848,7 +868,7 @@ async def proxy(path: str, request: Request, user=Depends(get_verified_user)):
                 detail = f"External: {e}"
         raise HTTPException(
             status_code=r.status if r else 500,
-            detail=detail if detail else "Open WebUI: Server Connection Error",
+            detail=detail if detail else "OpenAtelierUI: Server Connection Error",
         )
     finally:
         if not streaming and session:

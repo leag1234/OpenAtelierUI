@@ -1,4 +1,8 @@
 import { WEBUI_API_BASE_URL } from '$lib/constants';
+import { requestModelAccessUpdate } from './sharing.js';
+
+export const updateModelAccessById = (token: string, id: string, accessGrants: object[]) =>
+	requestModelAccessUpdate(fetch, WEBUI_API_BASE_URL, token, id, accessGrants);
 
 export const getModels = async (token: string = '') => {
 	let error = null;

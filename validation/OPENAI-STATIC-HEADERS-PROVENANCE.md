@@ -1,0 +1,9 @@
+# Static headers for selected OpenAI-compatible connections
+
+This bounded compatibility slice lets the existing opt-in OpenAI configuration import preserve operator-owned static headers for a selected endpoint. The router applies those values only to the matching indexed connection (or its existing URL-keyed legacy entry) for model catalog GETs, chat completion POSTs, and the existing generic proxy. No request-supplied header map is accepted or forwarded.
+
+Header names must be ASCII HTTP tokens. Values are strings of at most 4096 UTF-8 bytes, with no more than 32 fields and 16 KiB aggregate; controls other than horizontal tab and simple template markers are refused. Names compare case-insensitively when overriding built-in headers. The helper does not log values or expose them in errors. The existing admin-only configuration endpoint remains unchanged and retains its pre-existing ability to return saved configuration. With no configured map, the existing built-in header set is unchanged. The source parser preserves an accepted JSON options map exactly and keeps unrelated option shapes unsupported.
+
+The helper tests cover empty/default behavior, per-index and legacy URL isolation, built-in override behavior, hostile values and actual extracted `send_get_request` dispatch. Router source checks bind that helper to catalog, direct catalog, chat, and generic proxy paths. Importer tests exercise CLI preview/convert and secret-free diagnostics. These are component/source checks; primary integration owns the copied-runtime and browser replay.
+
+This does not change consumer origin checks or plugins and does not establish template expansion, dynamic/user-provided headers, all OpenAI-compatible providers, other endpoint families such as speech, production setup, or default/cutover eligibility. Operators must protect the copied configuration and any static credential values through their existing configuration controls.

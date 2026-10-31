@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Inactive, copy-only SQLite account epoch experiment.
 
 This module is not imported by the application. Callers must pass an existing

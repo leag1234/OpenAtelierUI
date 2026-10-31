@@ -1,4 +1,8 @@
 import { WEBUI_API_BASE_URL } from '$lib/constants';
+import { requestToolAccessUpdate } from '$lib/apis/models/sharing.js';
+
+export const updateToolAccessById = (token: string, id: string, accessGrants: object[]) =>
+	requestToolAccessUpdate(fetch, WEBUI_API_BASE_URL, token, id, accessGrants);
 
 export const createNewTool = async (token: string, tool: object) => {
 	let error = null;

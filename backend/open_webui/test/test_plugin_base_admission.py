@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
+# Copyright (c) 2026 Gaël Duval
 """Execute the real plugin completion branch with isolated policy/storage stubs."""
 
 import ast
