@@ -62,6 +62,19 @@ class ProvenanceRemediationTests(unittest.TestCase):
         self.assertIn("image: openatelierui:local", manifest)
         self.assertIn("imagePullPolicy: Never", manifest)
 
+    def test_container_metadata_and_notices_are_project_specific(self):
+        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        self.assertIn('org.opencontainers.image.title="OpenAtelierUI"', dockerfile)
+        self.assertIn(
+            'org.opencontainers.image.source="https://github.com/leag1234/OpenAtelierUI"',
+            dockerfile,
+        )
+        self.assertIn('org.opencontainers.image.licenses="BSD-3-Clause"', dockerfile)
+        self.assertIn(
+            "COPY --chown=$UID:$GID ./LICENSE ./NOTICE ./PROVENANCE.md /opt/openatelierui/",
+            dockerfile,
+        )
+
     def test_upstream_community_export_flows_are_absent(self):
         component_root = ROOT / "src/lib/components"
         source = "\n".join(

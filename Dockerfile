@@ -162,6 +162,7 @@ COPY --chown=$UID:$GID --from=build /app/package.json /app/package.json
 
 # copy backend files
 COPY --chown=$UID:$GID ./backend .
+COPY --chown=$UID:$GID ./LICENSE ./NOTICE ./PROVENANCE.md /opt/openatelierui/
 
 EXPOSE 8080
 
@@ -172,5 +173,13 @@ USER $UID:$GID
 ARG BUILD_HASH
 ENV WEBUI_BUILD_VERSION=${BUILD_HASH}
 ENV DOCKER=true
+
+LABEL org.opencontainers.image.title="OpenAtelierUI" \
+      org.opencontainers.image.description="BSD-licensed, compatibility-oriented AI interface" \
+      org.opencontainers.image.source="https://github.com/leag1234/OpenAtelierUI" \
+      org.opencontainers.image.url="https://github.com/leag1234/OpenAtelierUI" \
+      org.opencontainers.image.licenses="BSD-3-Clause" \
+      org.opencontainers.image.version="${BUILD_HASH}" \
+      org.opencontainers.image.revision="${BUILD_HASH}"
 
 CMD [ "bash", "start.sh"]
