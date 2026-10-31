@@ -910,6 +910,15 @@ def _digest(path: Path) -> str:
     return h.hexdigest()
 
 
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    """Python 3.8-compatible equivalent of Path.is_relative_to()."""
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
 def _sidecars(path: Path) -> list[str]:
     return [str(Path(str(path) + suffix)) for suffix in ("-wal", "-shm", "-journal") if Path(str(path) + suffix).exists()]
 
@@ -2977,7 +2986,7 @@ def convert(
         raise MigrationError("target_already_exists", "new target directory already exists; output is never overwritten", report)
     parent = target.parent.resolve(strict=True)
     target = parent / target.name
-    if source == target or template == target or source.is_relative_to(target) or template.is_relative_to(target):
+    if source == target or template == target or _is_relative_to(source, target) or _is_relative_to(template, target):
         raise MigrationError("target_path_overlap", "source, template and fresh target paths must be separate", report)
     if report["fatal"]:
         report["status"] = "refused_fatal_input"

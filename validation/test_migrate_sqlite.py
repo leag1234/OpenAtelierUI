@@ -268,6 +268,12 @@ def add_second_private_chat(source: Path) -> None:
 
 
 class ImporterTests(unittest.TestCase):
+    def test_python38_path_containment_guard(self):
+        parent = Path('/synthetic/target')
+        self.assertTrue(importer._is_relative_to(parent, parent))
+        self.assertTrue(importer._is_relative_to(parent / 'source.sqlite', parent))
+        self.assertFalse(importer._is_relative_to(Path('/synthetic/target-sibling'), parent))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
@@ -752,7 +758,7 @@ class ImporterTests(unittest.TestCase):
         self.assertEqual(digest(self.template), template_hash)
         archive = Path(report['archive']['path'])
         self.assertNotEqual(archive, target)
-        self.assertFalse(archive.is_relative_to(target))
+        self.assertFalse(importer._is_relative_to(archive, target))
         self.assertEqual(digest(archive / 'source.sqlite'), source_hash)
         self.assertEqual((archive / 'uploads' / 'f1_synthetic.html').read_bytes(), (self.uploads / 'f1_synthetic.html').read_bytes())
         db = sqlite3.connect(target / 'webui.db')

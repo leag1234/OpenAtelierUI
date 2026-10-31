@@ -7,11 +7,11 @@ The currently qualified operator path uses a locally loaded, pinned image and th
 ## Prerequisites
 
 - Linux operator account with UID and GID 1000.
-- Python 3.10 or later.
+- Python 3.8 or later.
 - A local OpenAtelierUI image already loaded; no pull is performed by the helper.
-- A pre-existing private runtime network selected by the operator.
+- A pre-existing private runtime network selected by the operator. On Docker 28.1.1, an `--internal` bridge suppresses the loopback port publication used by this candidate; the measured path uses a bridge with outbound masquerading disabled instead.
 - A closed source-data copy containing `webui.db` and `uploads/`.
-- A mode-0600 environment file. Its contents are never printed by the helper.
+- A mode-0600 environment file containing `WEBUI_SECRET_KEY`. Its contents are never printed by the helper.
 
 Record the exact local image identity before starting:
 
@@ -20,6 +20,20 @@ IMAGE_TAG=openatelierui-candidate:local
 IMAGE_ID="$(docker image inspect --format '{{.Id}}' "$IMAGE_TAG")"
 printf '%s\n' "$IMAGE_ID"
 ```
+
+Create the private bridge and environment file without exposing their values:
+
+```sh
+docker network create --driver bridge \
+  --opt com.docker.network.bridge.enable_ip_masquerade=false \
+  openatelierui-private
+
+umask 077
+{ printf 'WEBUI_SECRET_KEY='; openssl rand -hex 32; } > /srv/openatelierui/operator.env
+chmod 0600 /srv/openatelierui/operator.env
+```
+
+The no-masquerade bridge avoids ordinary outbound Internet routing in the measured Docker setup. It is not a substitute for host firewall policy or deployment-specific network review.
 
 ## Preview migration on a copy
 
