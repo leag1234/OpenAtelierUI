@@ -22,6 +22,7 @@
 		requestSavedChatStop,
 		selectChatEventChannel
 	} from '$lib/utils/chat-session';
+	import { clearChatDraft, readChatDraft, saveChatDraft } from '$lib/utils/chat-draft';
 
 	import {
 		chatId,
@@ -150,9 +151,29 @@
 	let chatFiles = [];
 	let files = [];
 	let params = {};
+	let draftReady = false;
+
+	const draftContext = (id = '') => ({
+		userId: $user?.id,
+		chatId: id ?? '',
+		temporary: $temporaryChatEnabled
+	});
+
+	const restoreDraft = (id = '') => {
+		const input = readChatDraft(localStorage, draftContext(id));
+		if (!input) return;
+
+		prompt = input.prompt;
+		files = input.files;
+		selectedToolIds = input.selectedToolIds;
+		webSearchEnabled = input.webSearchEnabled;
+		imageGenerationEnabled = input.imageGenerationEnabled;
+		codeInterpreterEnabled = input.codeInterpreterEnabled;
+	};
 
 	$: if (chatIdProp) {
 		(async () => {
+			draftReady = false;
 			loading = true;
 			console.log(chatIdProp);
 
@@ -166,17 +187,8 @@
 				await tick();
 				loading = false;
 
-				if (localStorage.getItem(`chat-input-${chatIdProp}`)) {
-					try {
-						const input = JSON.parse(localStorage.getItem(`chat-input-${chatIdProp}`));
-
-						prompt = input.prompt;
-						files = input.files;
-						selectedToolIds = input.selectedToolIds;
-						webSearchEnabled = input.webSearchEnabled;
-						imageGenerationEnabled = input.imageGenerationEnabled;
-					} catch (e) {}
-				}
+				restoreDraft(chatIdProp);
+				draftReady = true;
 
 				window.setTimeout(() => scrollToBottom(), 0);
 				const chatInput = document.getElementById('chat-input');
@@ -444,22 +456,8 @@
 			}
 		}
 
-		if (localStorage.getItem(`chat-input-${chatIdProp}`)) {
-			try {
-				const input = JSON.parse(localStorage.getItem(`chat-input-${chatIdProp}`));
-				prompt = input.prompt;
-				files = input.files;
-				selectedToolIds = input.selectedToolIds;
-				webSearchEnabled = input.webSearchEnabled;
-				imageGenerationEnabled = input.imageGenerationEnabled;
-			} catch (e) {
-				prompt = '';
-				files = [];
-				selectedToolIds = [];
-				webSearchEnabled = false;
-				imageGenerationEnabled = false;
-			}
-		}
+		restoreDraft(chatIdProp);
+		draftReady = true;
 
 		showControls.subscribe(async (value) => {
 			if (controlPane && !$mobile) {
@@ -1417,6 +1415,7 @@
 		chatInput?.focus();
 
 		saveSessionSelectedModels();
+		clearChatDraft(localStorage, draftContext($chatId));
 
 		await sendPrompt(history, userPrompt, userMessageId, { newChat: true });
 	};
@@ -2197,10 +2196,8 @@
 								{stopResponse}
 								{createMessagePair}
 								onChange={(input) => {
-									if (input.prompt) {
-										localStorage.setItem(`chat-input-${$chatId}`, JSON.stringify(input));
-									} else {
-										localStorage.removeItem(`chat-input-${$chatId}`);
+									if (draftReady) {
+										saveChatDraft(localStorage, draftContext($chatId), input);
 									}
 								}}
 								on:upload={async (e) => {
@@ -2249,6 +2246,11 @@
 								toolServers={$toolServers}
 								{stopResponse}
 								{createMessagePair}
+								onChange={(input) => {
+									if (draftReady) {
+										saveChatDraft(localStorage, draftContext($chatId), input);
+									}
+								}}
 								on:upload={async (e) => {
 									const { type, data } = e.detail;
 

@@ -22,6 +22,7 @@
 
 	export let createMessagePair: Function;
 	export let stopResponse: Function;
+	export let onChange: Function = () => {};
 
 	export let autoScroll = false;
 
@@ -191,6 +192,7 @@
 					{transparentBackground}
 					{stopResponse}
 					{createMessagePair}
+					{onChange}
 					placeholder={$i18n.t('How can I help you today?')}
 					on:upload={(e) => {
 						dispatch('upload', e.detail);
