@@ -12,6 +12,7 @@ from pathlib import Path
 import markdown
 from bs4 import BeautifulSoup
 from open_webui.constants import ERROR_MESSAGES
+from open_webui.utils.startup_paths import ensure_implicit_data_directory
 
 ####################################
 # Load .env file
@@ -227,7 +228,10 @@ DATA_DIR = Path(os.getenv("DATA_DIR", BACKEND_DIR / "data")).resolve()
 
 if FROM_INIT_PY:
     NEW_DATA_DIR = Path(os.getenv("DATA_DIR", OPEN_WEBUI_DIR / "data")).resolve()
-    NEW_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if "DATABASE_URL" not in os.environ:
+        ensure_implicit_data_directory(NEW_DATA_DIR)
+    else:
+        NEW_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     # Check if the data directory exists in the package directory
     if DATA_DIR.exists() and DATA_DIR != NEW_DATA_DIR:
@@ -246,6 +250,9 @@ if FROM_INIT_PY:
         shutil.rmtree(DATA_DIR)
 
     DATA_DIR = Path(os.getenv("DATA_DIR", OPEN_WEBUI_DIR / "data"))
+
+if "DATABASE_URL" not in os.environ:
+    ensure_implicit_data_directory(DATA_DIR)
 
 STATIC_DIR = Path(os.getenv("STATIC_DIR", OPEN_WEBUI_DIR / "static"))
 
