@@ -48,6 +48,18 @@ class Store:
 
 
 class AtlasDropInReportTests(unittest.TestCase):
+    def test_container_keeps_the_legacy_atlas_bootstrap_entrypoint(self):
+        dockerfile = (ROOT / "Dockerfile").read_text()
+        wrapper = ROOT / "packaging" / "start-with-atlas.sh"
+        self.assertTrue(wrapper.is_file())
+        self.assertIn(
+            "./packaging/start-with-atlas.sh /opt/openatelier/start-with-atlas.sh",
+            dockerfile,
+        )
+        source = wrapper.read_text()
+        self.assertIn("open_webui.utils.async_model_bootstrap", source)
+        self.assertIn("exec bash /app/backend/start.sh", source)
+
     def test_default_feature_activation_matches_existing_integration_inputs(self):
         ns = extracted_functions(
             MAIN,

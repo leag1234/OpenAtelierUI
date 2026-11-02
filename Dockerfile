@@ -163,6 +163,7 @@ COPY --chown=$UID:$GID --from=build /app/package.json /app/package.json
 # copy backend files
 COPY --chown=$UID:$GID ./backend .
 COPY --chown=$UID:$GID ./LICENSE ./NOTICE ./PROVENANCE.md /opt/openatelierui/
+COPY --chown=$UID:$GID ./packaging/start-with-atlas.sh /opt/openatelier/start-with-atlas.sh
 
 EXPOSE 8080
 
