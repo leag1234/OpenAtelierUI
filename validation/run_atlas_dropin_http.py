@@ -40,6 +40,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", required=True)
     parser.add_argument("--expected-image", type=Path, required=True)
+    parser.add_argument("--image-url", default="/static/atlas/model.png")
     args = parser.parse_args()
 
     status, media, content = call(
@@ -86,7 +87,7 @@ def main():
         body={
             "id": "atlas-avatar-model",
             "name": "Synthetic Atlas avatar",
-            "meta": {"profile_image_url": "/static/atlas/model.png"},
+            "meta": {"profile_image_url": args.image_url},
             "params": {},
             "access_control": None,
             "is_active": True,
