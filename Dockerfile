@@ -69,19 +69,19 @@ ENV OPENAI_API_KEY="" \
 #### Other models #########################################################
 ## whisper TTS model settings ##
 ENV WHISPER_MODEL="base" \
-    WHISPER_MODEL_DIR="/app/backend/data/cache/whisper/models"
+    WHISPER_MODEL_DIR="/opt/openatelierui/cache/whisper/models"
 
 ## RAG Embedding model settings ##
 ENV RAG_EMBEDDING_MODEL="$USE_EMBEDDING_MODEL_DOCKER" \
     RAG_RERANKING_MODEL="$USE_RERANKING_MODEL_DOCKER" \
-    SENTENCE_TRANSFORMERS_HOME="/app/backend/data/cache/embedding/models"
+    SENTENCE_TRANSFORMERS_HOME="/opt/openatelierui/cache/embedding/models"
 
 ## Tiktoken model settings ##
 ENV TIKTOKEN_ENCODING_NAME="cl100k_base" \
-    TIKTOKEN_CACHE_DIR="/app/backend/data/cache/tiktoken"
+    TIKTOKEN_CACHE_DIR="/opt/openatelierui/cache/tiktoken"
 
 ## Hugging Face download cache ##
-ENV HF_HOME="/app/backend/data/cache/embedding/models"
+ENV HF_HOME="/opt/openatelierui/cache/embedding/models"
 
 ## Torch Extensions ##
 # ENV TORCH_EXTENSIONS_DIR="/.cache/torch_extensions"
@@ -100,6 +100,7 @@ RUN if [ $UID -ne 0 ]; then \
     fi
 
 RUN mkdir -p $HOME/.cache/chroma
+RUN mkdir -p /opt/openatelierui/cache
 RUN echo -n 00000000-0000-0000-0000-000000000000 > $HOME/.cache/chroma/telemetry_user_id
 
 # Make sure the user has access to the app and root directory
@@ -137,17 +138,19 @@ RUN pip3 install --no-cache-dir uv && \
     # If you use CUDA the whisper and embedding model will be downloaded on first use
     pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/$USE_CUDA_DOCKER_VER --no-cache-dir && \
     uv pip install --system -r requirements.txt --no-cache-dir && \
+    python -c "import numpy, pyarrow, sentence_transformers; assert numpy.__version__ == '1.26.4'; assert pyarrow.__version__ == '19.0.0'" && \
     python -c "import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ['RAG_EMBEDDING_MODEL'], device='cpu')" && \
-    python -c "import os; from faster_whisper import WhisperModel; WhisperModel(os.environ['WHISPER_MODEL'], device='cpu', compute_type='int8', download_root=os.environ['WHISPER_MODEL_DIR'])"; \
+    python -c "import os; from faster_whisper import WhisperModel; WhisperModel(os.environ['WHISPER_MODEL'], device='cpu', compute_type='int8', download_root=os.environ['WHISPER_MODEL_DIR'])" && \
     python -c "import os; import tiktoken; tiktoken.get_encoding(os.environ['TIKTOKEN_ENCODING_NAME'])"; \
     else \
     pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --no-cache-dir && \
     uv pip install --system -r requirements.txt --no-cache-dir && \
+    python -c "import numpy, pyarrow, sentence_transformers; assert numpy.__version__ == '1.26.4'; assert pyarrow.__version__ == '19.0.0'" && \
     python -c "import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ['RAG_EMBEDDING_MODEL'], device='cpu')" && \
-    python -c "import os; from faster_whisper import WhisperModel; WhisperModel(os.environ['WHISPER_MODEL'], device='cpu', compute_type='int8', download_root=os.environ['WHISPER_MODEL_DIR'])"; \
+    python -c "import os; from faster_whisper import WhisperModel; WhisperModel(os.environ['WHISPER_MODEL'], device='cpu', compute_type='int8', download_root=os.environ['WHISPER_MODEL_DIR'])" && \
     python -c "import os; import tiktoken; tiktoken.get_encoding(os.environ['TIKTOKEN_ENCODING_NAME'])"; \
     fi; \
-    chown -R $UID:$GID /app/backend/data/
+    chown -R $UID:$GID /opt/openatelierui/cache/
 
 
 
@@ -164,6 +167,24 @@ COPY --chown=$UID:$GID --from=build /app/package.json /app/package.json
 COPY --chown=$UID:$GID ./backend .
 COPY --chown=$UID:$GID ./LICENSE ./NOTICE ./PROVENANCE.md /opt/openatelierui/
 COPY --chown=$UID:$GID ./packaging/start-with-atlas.sh /opt/openatelier/start-with-atlas.sh
+COPY --chown=$UID:$GID ./validation/migrate_atlas_copy.py /opt/openatelierui/migration/migrate_copy.py
+COPY --chown=$UID:$GID ./validation/migrate_sqlite.py /opt/openatelierui/migration/migrate_sqlite.py
+COPY --chown=$UID:$GID ./validation/import_private_notes.py /opt/openatelierui/migration/import_private_notes.py
+COPY --chown=$UID:$GID ./backend/open_webui/utils/imported_history.py /opt/openatelierui/backend/open_webui/utils/imported_history.py
+COPY --chown=$UID:$GID ./backend/open_webui/config.py /opt/openatelierui/backend/open_webui/config.py
+COPY --chown=$UID:$GID ./packaging/openatelierui-migrate-v0113 /usr/local/bin/openatelierui-migrate-v0113
+
+RUN migration_tmp="$(mktemp -d)" && \
+    mkdir -p /opt/openatelierui/migration-template && \
+    DATA_DIR="${migration_tmp}" \
+    DATABASE_URL="sqlite:///${migration_tmp}/webui.db" \
+    WEBUI_SECRET_KEY="build-only-migration-template" \
+    OFFLINE_MODE=true \
+    python3 -c "import open_webui.config" && \
+    cp "${migration_tmp}/webui.db" /opt/openatelierui/migration-template/webui.db && \
+    chmod 0444 /opt/openatelierui/migration-template/webui.db && \
+    chmod 0555 /usr/local/bin/openatelierui-migrate-v0113 && \
+    rm -rf "${migration_tmp}"
 
 EXPOSE 8080
 

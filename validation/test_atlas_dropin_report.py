@@ -66,6 +66,30 @@ class AtlasDropInReportTests(unittest.TestCase):
         self.assertIn("open_webui.utils.async_model_bootstrap", source)
         self.assertIn("exec bash /app/backend/start.sh", source)
 
+    def test_image_build_pins_compatible_embeddings_and_fails_closed_on_prefetch(self):
+        requirements = (ROOT / "backend/requirements.txt").read_text(encoding="utf-8")
+        project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        for dependency in (
+            "numpy==1.26.4",
+            "pyarrow==19.0.0",
+            "sentence-transformers==3.3.1",
+            "chardet==5.2.0",
+        ):
+            self.assertEqual(requirements.count(dependency), 1)
+            self.assertEqual(project.count(dependency), 1)
+        self.assertEqual(dockerfile.count("assert numpy.__version__ == '1.26.4'"), 2)
+        self.assertEqual(dockerfile.count("assert pyarrow.__version__ == '19.0.0'"), 2)
+        self.assertNotIn("download_root=os.environ['WHISPER_MODEL_DIR'])\";", dockerfile)
+        self.assertIn(
+            'SENTENCE_TRANSFORMERS_HOME="/opt/openatelierui/cache/embedding/models"',
+            dockerfile,
+        )
+        self.assertNotIn(
+            'SENTENCE_TRANSFORMERS_HOME="/app/backend/data/cache/embedding/models"',
+            dockerfile,
+        )
+
     def test_default_feature_activation_matches_existing_integration_inputs(self):
         ns = extracted_functions(
             MAIN,
@@ -228,6 +252,8 @@ class AtlasDropInReportTests(unittest.TestCase):
             1,
         )
         self.assertIn("aria-label={$i18n.t('Integrations')}", composer)
+        self.assertIn("flex shrink-0 gap-1 items-center whitespace-nowrap", composer)
+        self.assertIn("@xl:block whitespace-nowrap", composer)
         self.assertIn("bind:codeInterpreterEnabled", composer)
         self.assertIn("bind:webSearchEnabled", composer)
         self.assertIn("bind:imageGenerationEnabled", composer)
@@ -250,6 +276,13 @@ class AtlasDropInReportTests(unittest.TestCase):
         self.assertGreater(source.index(size), source.index(name))
         between = source[source.index(name):source.index(size)]
         self.assertNotIn("</div>\n\t\t\t</div>", between)
+        self.assertIn("{dismissible ? 'pr-5' : ''}", source)
+        self.assertIn("aria-label={$i18n.t('Remove file')}", source)
+        self.assertIn("focus-visible:outline-blue-600", source)
+        self.assertNotIn("group-hover:visible invisible", source)
+        outer_end = source.index("</button>")
+        remove_start = source.index("aria-label={$i18n.t('Remove file')}")
+        self.assertGreater(remove_start, outer_end)
 
     def test_ollama_version_route_requires_verified_identity(self):
         tree = ast.parse(OLLAMA.read_text(encoding="utf-8"))

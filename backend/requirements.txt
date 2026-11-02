@@ -8,6 +8,7 @@ python-jose==3.4.0
 passlib[bcrypt]==1.7.4
 
 requests==2.32.3
+chardet==5.2.0
 aiohttp==3.11.11
 async-timeout
 aiocache
@@ -54,6 +55,8 @@ elasticsearch==8.17.1
 
 transformers
 sentence-transformers==3.3.1
+numpy==1.26.4
+pyarrow==19.0.0
 accelerate
 colbert-ai==0.2.21
 einops==0.8.1

@@ -3,7 +3,6 @@
 	import { formatFileSize } from '$lib/utils';
 
 	import FileItemModal from './FileItemModal.svelte';
-	import GarbageBin from '../icons/GarbageBin.svelte';
 	import Spinner from './Spinner.svelte';
 	import Tooltip from './Tooltip.svelte';
 
@@ -25,8 +24,6 @@
 	export let type: string;
 	export let size: number;
 
-	import { deleteFileById } from '$lib/apis/files';
-
 	let showModal = false;
 
 	const decodeString = (str: string) => {
@@ -42,27 +39,27 @@
 	<FileItemModal bind:show={showModal} bind:item {edit} />
 {/if}
 
-<button
-	class="relative group p-1.5 {className} flex items-center gap-1 {colorClassName} {small
-		? 'rounded-xl'
-		: 'rounded-2xl'} text-left"
-	type="button"
-	on:click={async () => {
-		if (item?.file?.data?.content) {
-			showModal = !showModal;
-		} else {
-			if (url) {
+
+<div class="relative inline-flex max-w-full">
+	<button
+		class="p-1.5 {className} flex items-center gap-1 {colorClassName} {small
+			? 'rounded-xl'
+			: 'rounded-2xl'} text-left"
+		type="button"
+		on:click={async () => {
+			if (item?.file?.data?.content) {
+				showModal = !showModal;
+			} else if (url) {
 				if (type === 'file') {
 					window.open(`${url}/content`, '_blank').focus();
 				} else {
 					window.open(`${url}`, '_blank').focus();
 				}
 			}
-		}
 
-		dispatch('click');
-	}}
->
+			dispatch('click');
+		}}
+	>
 	{#if !small}
 		<div class="p-3 bg-black/20 dark:bg-white/10 text-white rounded-xl">
 			{#if !loading}
@@ -89,7 +86,7 @@
 
 	{#if !small}
 		<div class="flex flex-col justify-center -space-y-0.5 px-2.5 w-full">
-			<div class="flex items-center gap-2 mb-1 min-w-0">
+			<div class="flex items-center gap-2 mb-1 min-w-0 {dismissible ? 'pr-5' : ''}">
 				<div class="dark:text-gray-100 text-sm font-medium truncate flex-1">
 					{decodeString(name)}
 				</div>
@@ -126,15 +123,17 @@
 		</Tooltip>
 	{/if}
 
+	</button>
+
 	{#if dismissible}
-		<div class=" absolute -top-1 -right-1">
-			<button
-				class=" bg-white text-black border border-gray-50 rounded-full group-hover:visible invisible transition"
-				type="button"
-				on:click|stopPropagation={() => {
-					dispatch('dismiss');
-				}}
-			>
+		<button
+			class="absolute -top-1 -right-1 z-10 rounded-full border border-gray-200 bg-white text-black shadow-sm transition hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:hover:bg-gray-800"
+			type="button"
+			aria-label={$i18n.t('Remove file')}
+			on:click|stopPropagation={() => {
+				dispatch('dismiss');
+			}}
+		>
 				<svg
 					xmlns="http://www.w3.org/2000/svg"
 					viewBox="0 0 20 20"
@@ -145,16 +144,6 @@
 						d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"
 					/>
 				</svg>
-			</button>
-
-			<!-- <button
-				class=" p-1 dark:text-gray-300 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 rounded-full group-hover:visible invisible transition"
-				type="button"
-				on:click={() => {
-				}}
-			>
-				<GarbageBin />
-			</button> -->
-		</div>
+		</button>
 	{/if}
-</button>
+</div>

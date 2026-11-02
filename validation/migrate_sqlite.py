@@ -49,6 +49,7 @@ MAX_INPUT_BYTES = 16 * 1024 * 1024
 APP_TABLES = {"auth", "user", "chat", "chat_message", "file", "function", "tool", "model"}
 COPYABLE_TABLES = {"auth", "user", "chat", "file", "function", "tool", "model"}
 MARKER_TABLES = {"alembic_version", "migratehistory"}
+V0113_ALEMBIC_HEAD = "d4c1a8e37b62"
 KNOWN_TABLES = {
     "access_grant", "alembic_version", "api_key", "app", "auth", "automation",
     "automation_run", "calendar", "calendar_event", "calendar_event_attendee",
@@ -73,6 +74,21 @@ SOURCE_REQUIRED = {
     "model": {"id", "user_id", "base_model_id", "name", "params", "meta", "is_active", "updated_at", "created_at", "version_id"},
     "access_grant": {"id", "resource_type", "resource_id", "principal_type", "principal_id", "permission", "created_at"},
 }
+
+
+def _source_head(connection: sqlite3.Connection) -> str | None:
+    if "alembic_version" not in _tables(connection):
+        return None
+    columns = set(_columns(connection, "alembic_version"))
+    if "version_num" not in columns or _count(connection, "alembic_version") != 1:
+        return None
+    value = connection.execute('SELECT version_num FROM "alembic_version" LIMIT 1').fetchone()[0]
+    return value if isinstance(value, str) else None
+
+
+def _known_missing_model_version(connection: sqlite3.Connection, missing: set[str]) -> bool:
+    """Accept the measured v0.11.3 active-model shape without inventing history."""
+    return missing == {"version_id"} and _source_head(connection) == V0113_ALEMBIC_HEAD
 
 TARGET_REQUIRED = {
     "alembic_version": {"version_num"},
@@ -1297,7 +1313,8 @@ def _validate_chat(connection: sqlite3.Connection, report: dict, *, include_priv
         history = payload["history"]
         nodes = history["messages"]
         current = history.get("currentId")
-        if current is None or current not in nodes:
+        empty_chat = current is None and not nodes
+        if not empty_chat and (current is None or current not in nodes):
             _block(report, "invalid_selected_chat_branch", 1, fatal=True)
         if not _is_empty(chat.get("current_message_id")) and chat.get("current_message_id") != current:
             _block(report, "chat_selected_branch_mismatch", 1, fatal=True)
@@ -1881,12 +1898,14 @@ def _validate_object_domains(
             continue
         cols = set(_columns(connection, kind))
         missing = required - cols
-        empty_legacy_version_schema = (
-            kind in {"tool", "model"}
-            and missing == {"version_id"}
-            and _count(connection, kind) == 0
+        allowed_missing_version = (
+            missing == {"version_id"}
+            and (
+                _count(connection, kind) == 0
+                or (kind == "model" and _known_missing_model_version(connection, missing))
+            )
         )
-        if (missing and not empty_legacy_version_schema) or cols - (required | {"version_id"}):
+        if (missing and not allowed_missing_version) or cols - (required | {"version_id"}):
             _block(report, "source_schema_mismatch_" + kind, 1, fatal=True)
             continue
         rows = [dict(row) for row in connection.execute(f'SELECT * FROM "{kind}" ORDER BY id')]
@@ -2328,12 +2347,15 @@ def _inspect_source(
             _block(report, "unknown_source_tables", len(unknown_tables), fatal=True)
         for table, required in SOURCE_REQUIRED.items():
             missing = required - set(_columns(connection, table)) if table in tables else required
-            empty_legacy_version_schema = (
+            allowed_missing_version = (
                 table in {"tool", "model"}
                 and missing == {"version_id"}
-                and _count(connection, table) == 0
+                and (
+                    _count(connection, table) == 0
+                    or (table == "model" and _known_missing_model_version(connection, missing))
+                )
             )
-            if table not in tables or (missing and not empty_legacy_version_schema):
+            if table not in tables or (missing and not allowed_missing_version):
                 _block(report, "source_schema_mismatch_" + table, 1, fatal=True)
         object_counts = connection.execute("SELECT type,COUNT(*) FROM sqlite_master WHERE type IN ('trigger','view') GROUP BY type").fetchall()
         if object_counts:
@@ -2370,7 +2392,10 @@ def _inspect_source(
                 or (
                     name in {"tool", "model"}
                     and missing == {"version_id"}
-                    and _count(connection, name) == 0
+                    and (
+                        _count(connection, name) == 0
+                        or (name == "model" and _known_missing_model_version(connection, missing))
+                    )
                 )
             )
         profile_fields_verified = False

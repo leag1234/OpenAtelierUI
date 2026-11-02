@@ -326,6 +326,26 @@ class ImporterTests(unittest.TestCase):
         self.assertEqual(hashes, (digest(self.source), digest(self.template)))
         self.assertEqual(report['table_counts']['function'], 1)
 
+    def test_saved_empty_chat_is_a_valid_branchless_chat(self):
+        empty = {"messages": [], "history": {"messages": {}, "currentId": None}}
+        db = sqlite3.connect(self.source)
+        db.execute('DELETE FROM "chat_message"')
+        db.execute(
+            'UPDATE "chat" SET chat=?, current_message_id=NULL',
+            (json.dumps(empty),),
+        )
+        db.commit()
+        db.close()
+        report = preview(
+            self.source,
+            self.uploads,
+            self.template,
+            include_private_chat_metadata=True,
+        )
+        codes = {entry['code'] for entry in report['blockers']}
+        self.assertNotIn('invalid_selected_chat_branch', codes)
+        self.assertFalse(report['fatal'])
+
     def test_blocked_domains_are_reported_and_do_not_claim_cutover(self):
         # Add deliberately unsupported semantics to an otherwise valid fixture.
         db = sqlite3.connect(self.source)
@@ -1080,6 +1100,20 @@ class ImporterTests(unittest.TestCase):
         with self.assertRaises(MigrationError):
             convert(self.source, self.uploads, self.template, target, include_function_history=True)
         self.assertFalse(target.exists())
+        self.assertEqual(digest(self.source), before)
+
+    def test_measured_v0113_model_without_version_column_is_accepted_without_history_claim(self):
+        db = sqlite3.connect(self.source)
+        db.execute("UPDATE alembic_version SET version_num=?", (importer.V0113_ALEMBIC_HEAD,))
+        db.execute("ALTER TABLE model DROP COLUMN version_id")
+        db.commit()
+        db.close()
+        before = digest(self.source)
+        report = preview(self.source, self.uploads, self.template)
+        codes = {item["code"] for item in report["blockers"]}
+        self.assertFalse(report["fatal"], report["blockers"])
+        self.assertNotIn("source_schema_mismatch_model", codes)
+        self.assertNotIn("active_model_version_link_not_preserved", codes)
         self.assertEqual(digest(self.source), before)
 
     def test_function_history_refuses_missing_function_table_before_querying(self):

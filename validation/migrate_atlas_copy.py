@@ -14,6 +14,7 @@ import sqlite3
 import stat
 import shutil
 import sys
+import traceback
 
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
@@ -319,7 +320,10 @@ def run(mode, source_db, uploads_root, template_path, workspace_dir, target_dir=
                 _write_private(workspace / "core-failure.json", error.report)
             except OSError:
                 pass
+        last_frame = traceback.extract_tb(error.__traceback__)[-1]
         failure = {"ok": False, "status": "failed_retained_workspace", "reason": code,
+                   "error_type": type(error).__name__,
+                   "error_location": f"{Path(last_frame.filename).name}:{last_frame.lineno}",
                    "cutover": False, "source_sha256": source_hash, "template_sha256": template_hash}
         try:
             _write_private(workspace / "failure.json", failure)

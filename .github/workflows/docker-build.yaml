@@ -15,8 +15,8 @@ jobs:
       packages: write
     env:
       IMAGE: ghcr.io/leag1234/openatelierui
-      SOURCE_SHA: 2750e081666a89f726f337f78f7e0bcfaa9c4b18
-      TEST_TAG: candidate-2750e08
+      SOURCE_SHA: ${{ github.sha }}
+      TEST_TAG: candidate-${{ github.sha }}
     steps:
       - name: Check out the qualified source revision
         uses: actions/checkout@v4

@@ -12,7 +12,8 @@ MAX_CONNECTIONS = 16
 MAX_URL_BYTES = 2048
 MAX_KEY_BYTES = 4096
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-_CHAT = re.compile(r"^files/serve/home/user/requests/chatcmpl-([0-9a-f]{32})/(.+)$")
+_REQUEST_ID = r"(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+_CHAT = re.compile(rf"^files/serve/home/user/requests/chatcmpl-({_REQUEST_ID})/(.+)$")
 _ENCODING = re.compile(r"%(?![0-9A-Fa-f]{2})")
 _GRANT_KEYS = {"principal_type", "principal_id", "permission"}
 

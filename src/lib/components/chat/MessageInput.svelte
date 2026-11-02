@@ -1116,7 +1116,7 @@
 													content={$i18n.t('Integrations')}
 												>
 													<button
-														class="translate-y-[0.5px] flex gap-1 items-center text-gray-600 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200 rounded-lg p-1 self-center transition"
+													class="translate-y-[0.5px] flex shrink-0 gap-1 items-center whitespace-nowrap text-gray-600 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200 rounded-lg p-1 self-center transition"
 														aria-label={$i18n.t('Integrations')}
 														type="button"
 														on:click={() => {
@@ -1125,7 +1125,7 @@
 													>
 														<Wrench className="size-4" strokeWidth="1.75" />
 
-														<span class="hidden @xl:block text-sm font-medium text-gray-600 dark:text-gray-300">
+													<span class="hidden @xl:block whitespace-nowrap text-sm font-medium text-gray-600 dark:text-gray-300">
 															{$i18n.t('Integrations')}
 														</span>
 													</button>

@@ -184,6 +184,24 @@ class TerminalDownloadPolicyTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assert_refused(raw([connection()]), path)
 
+    def test_canonical_dashed_project_and_scheduled_request_ids_are_allowed(self):
+        dashed = "/files/serve/home/user/requests/chatcmpl-01234567-89ab-cdef-0123-456789abcdef/Community workshop.pdf"
+        request = build_download_request(raw([connection()]), "synthetic_terminal", dashed, self.user)
+        self.assertEqual(
+            request.path,
+            "files/serve/home/user/requests/chatcmpl-01234567-89ab-cdef-0123-456789abcdef/Community%20workshop.pdf",
+        )
+        refused = (
+            dashed.replace("01234567", "0123456"),
+            dashed.replace("01234567", "012345678"),
+            dashed.replace("89ab", "89AB"),
+            dashed.replace("89ab-cdef", "89abcdef"),
+            dashed.replace("requests/", "scheduled/"),
+        )
+        for path in refused:
+            with self.subTest(path=path):
+                self.assert_refused(raw([connection()]), path)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

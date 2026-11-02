@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly migration_root=/opt/openatelierui/migration
+readonly template_path=/opt/openatelierui/migration-template/webui.db
+
+if [[ ! -r "${template_path}" ]]; then
+  echo "Migration template is unavailable in this image." >&2
+  exit 2
+fi
+
+exec python3 -B "${migration_root}/migrate_copy.py" \
+  "$@" \
+  --empty-old-target-template "${template_path}"
