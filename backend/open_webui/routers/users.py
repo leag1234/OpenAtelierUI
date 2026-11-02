@@ -43,6 +43,11 @@ router = APIRouter()
     response_model=list[UserModel],
     response_model_exclude={"__all__": {"api_key"}},
 )
+@router.get(
+    "/all",
+    response_model=list[UserModel],
+    response_model_exclude={"__all__": {"api_key"}},
+)
 async def get_users(
     skip: Optional[int] = None,
     limit: Optional[int] = None,

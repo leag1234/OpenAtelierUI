@@ -412,6 +412,7 @@
 					{#each visibleTabs as tabId (tabId)}
 						{#if tabId === 'general'}
 							<button
+								id="tab-general"
 								class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
 								'general'
 									? ''

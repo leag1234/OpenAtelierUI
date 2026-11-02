@@ -1,4 +1,8 @@
+import base64
+import binascii
+from pathlib import Path
 from typing import Optional
+from urllib.parse import unquote
 
 from open_webui.models.models import (
     ModelForm,
@@ -16,13 +20,14 @@ from open_webui.utils.imported_history import (
     list_history as list_imported_model_history,
 )
 from open_webui.constants import ERROR_MESSAGES
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import FileResponse, RedirectResponse
 
 
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_access, has_permission
 from open_webui.utils.access_grants import access_control_for_grants, access_grants_for_acl
-from open_webui.env import DATA_DIR, DATABASE_URL
+from open_webui.env import DATA_DIR, DATABASE_URL, STATIC_DIR
 
 
 router = APIRouter()
@@ -143,9 +148,55 @@ async def get_model_by_id(id: str, user=Depends(get_verified_user)):
         )
     else:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
+
+
+@router.get("/model/profile/image")
+async def get_model_profile_image(id: str, user=Depends(get_verified_user)):
+    model = Models.get_model_by_id(id)
+    if not model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=ERROR_MESSAGES.NOT_FOUND
+        )
+    if not (
+        user.role == "admin"
+        or model.user_id == user.id
+        or has_access(user.id, "read", model.access_control)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+        )
+
+    image_url = model.meta.profile_image_url or "/static/favicon.png"
+    if image_url.startswith("data:image/"):
+        try:
+            header, encoded = image_url.split(",", 1)
+            if not header.endswith(";base64"):
+                raise ValueError("unsupported image encoding")
+            content = base64.b64decode(encoded, validate=True)
+            if len(content) > 2 * 1024 * 1024:
+                raise ValueError("image is too large")
+            return Response(content=content, media_type=header[5:-7])
+        except (ValueError, binascii.Error):
+            raise HTTPException(status_code=400, detail="Invalid model profile image.")
+
+    if image_url.startswith("/static/"):
+        root = Path(STATIC_DIR).resolve()
+        image_path = (root / unquote(image_url[len("/static/") :])).resolve()
+        try:
+            image_path.relative_to(root)
+        except ValueError:
+            raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+        if not image_path.is_file():
+            raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+        return FileResponse(image_path)
+
+    if image_url.startswith(("/", "https://", "http://")):
+        return RedirectResponse(image_url)
+    raise HTTPException(status_code=400, detail="Invalid model profile image.")
 
 
 @router.get(

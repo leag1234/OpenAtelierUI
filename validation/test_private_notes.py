@@ -282,12 +282,12 @@ class PrivateNotesStoreTests(unittest.TestCase):
                 router.list_notes(request, 1, owner)
             self.assertEqual(unavailable.exception.status_code, 503)
             router.notes_store = stored_notes
-            disabled_path = Path(self.temp.name) / "default-off.db"
+            disabled_path = Path(self.temp.name) / "explicitly-disabled.db"
             with sqlite3.connect(disabled_path) as db:
                 db.execute("CREATE TABLE existing_only (id TEXT)")
             original_url = env.DATABASE_URL
             env.DATABASE_URL = "sqlite:///" + str(disabled_path)
-            os.environ.pop("OPENATELIER_PRIVATE_NOTES_COMPAT", None)
+            os.environ["OPENATELIER_PRIVATE_NOTES_COMPAT"] = "0"
             off_spec = importlib.util.spec_from_file_location(
                 "private_notes_router_off_test", ROOT / "backend/open_webui/routers/notes.py"
             )

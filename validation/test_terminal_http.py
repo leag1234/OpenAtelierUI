@@ -248,10 +248,10 @@ class TerminalHTTPTests(unittest.TestCase):
         self.assertEqual(self.max_active, 4)
         self.assertEqual(self.active, 0)
 
-    def test_main_registration_is_opt_in_and_precedes_spa_fallback(self):
+    def test_main_registration_follows_existing_config_and_precedes_spa_fallback(self):
         main = (ROOT / "backend/open_webui/main.py").read_text(encoding="utf-8")
-        guard = 'os.environ.get("OPENATELIER_TERMINAL_DOWNLOAD_COMPAT") == "1"'
-        self.assertEqual(main.count(guard), 2)
+        self.assertIn('or bool(environ.get("TERMINAL_SERVER_CONNECTIONS"))', main)
+        self.assertIn("if TERMINAL_COMPAT_ENABLED:", main)
         self.assertLess(main.index("app.include_router(terminals.router"), main.index('app.mount(\n        "/"'))
 
     def test_list_route_returns_only_authorized_public_projection(self):

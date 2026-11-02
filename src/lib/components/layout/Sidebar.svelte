@@ -574,6 +574,7 @@
 							class=" size-5 -translate-x-1.5 rounded-full"
 							alt="OpenAtelierUI"
 						/>
+					<span id="sidebar-webui-name" class="sr-only">{$config?.name ?? 'OpenAtelierUI'}</span>
 					</div>
 					<div class=" self-center font-medium text-sm text-gray-850 dark:text-white font-primary">
 						{$i18n.t('New Chat')}
@@ -812,6 +813,7 @@
 							name={$i18n.t('Pinned')}
 						>
 							<div
+								id="pinned-menu-items-list"
 								class="ml-3 pl-1 mt-[1px] flex flex-col overflow-y-auto scrollbar-hidden border-s border-gray-100 dark:border-gray-900"
 							>
 								{#each $pinnedChats as chat, idx}

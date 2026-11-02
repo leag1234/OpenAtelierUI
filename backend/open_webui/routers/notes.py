@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2026 Gaël Duval
-"""Default-off, owner-only private notes API compatibility prototype."""
+"""Owner-only notes API compatibility implementation."""
 
 import json
 import os
@@ -29,7 +29,7 @@ def _load_notes_store(database_url):
 
 notes_store = (
     _load_notes_store(DATABASE_URL)
-    if os.environ.get("OPENATELIER_PRIVATE_NOTES_COMPAT") == "1"
+    if os.environ.get("OPENATELIER_PRIVATE_NOTES_COMPAT", "1") != "0"
     else None
 )
 

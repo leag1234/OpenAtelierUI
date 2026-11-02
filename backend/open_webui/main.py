@@ -79,9 +79,23 @@ from open_webui.routers import (
     utils,
 )
 
-if os.environ.get("OPENATELIER_PRIVATE_NOTES_COMPAT") == "1":
+def notes_compat_enabled(environ):
+    return environ.get("OPENATELIER_PRIVATE_NOTES_COMPAT", "1") != "0"
+
+
+def terminal_compat_enabled(environ):
+    return (
+        environ.get("OPENATELIER_TERMINAL_DOWNLOAD_COMPAT") == "1"
+        or bool(environ.get("TERMINAL_SERVER_CONNECTIONS"))
+    )
+
+
+NOTES_COMPAT_ENABLED = notes_compat_enabled(os.environ)
+TERMINAL_COMPAT_ENABLED = terminal_compat_enabled(os.environ)
+
+if NOTES_COMPAT_ENABLED:
     from open_webui.routers import notes
-if os.environ.get("OPENATELIER_TERMINAL_DOWNLOAD_COMPAT") == "1":
+if TERMINAL_COMPAT_ENABLED:
     from open_webui.routers import terminals
 
 from open_webui.routers.retrieval import (
@@ -412,14 +426,18 @@ log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MAIN"])
 
 
+def spa_fallback_allowed(path):
+    return not (path == "api" or path.startswith("api/") or path.endswith(".js"))
+
+
 class SPAStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope):
         try:
             return await super().get_response(path, scope)
         except (HTTPException, StarletteHTTPException) as ex:
             if ex.status_code == 404:
-                if path.endswith(".js"):
-                    # Return 404 for javascript files
+                if not spa_fallback_allowed(path):
+                    # API and JavaScript requests must never receive the HTML shell.
                     raise ex
                 else:
                     return await super().get_response("index.html", scope)
@@ -1009,14 +1027,14 @@ app.include_router(memories.router, prefix="/api/v1/memories", tags=["memories"]
 app.include_router(folders.router, prefix="/api/v1/folders", tags=["folders"])
 app.include_router(groups.router, prefix="/api/v1/groups", tags=["groups"])
 app.include_router(files.router, prefix="/api/v1/files", tags=["files"])
-if os.environ.get("OPENATELIER_TERMINAL_DOWNLOAD_COMPAT") == "1":
+if TERMINAL_COMPAT_ENABLED:
     app.include_router(terminals.router, prefix="/api/v1/terminals", tags=["terminals"])
 app.include_router(functions.router, prefix="/api/v1/functions", tags=["functions"])
 app.include_router(
     evaluations.router, prefix="/api/v1/evaluations", tags=["evaluations"]
 )
 app.include_router(utils.router, prefix="/api/v1/utils", tags=["utils"])
-if os.environ.get("OPENATELIER_PRIVATE_NOTES_COMPAT") == "1":
+if NOTES_COMPAT_ENABLED:
     app.include_router(notes.router, prefix="/api/v1/notes", tags=["notes"])
 
 
@@ -1541,7 +1559,7 @@ async def get_app_config(request: Request):
                     "enable_admin_chat_access": ENABLE_ADMIN_CHAT_ACCESS,
                     "enable_google_drive_integration": app.state.config.ENABLE_GOOGLE_DRIVE_INTEGRATION,
                     "enable_onedrive_integration": app.state.config.ENABLE_ONEDRIVE_INTEGRATION,
-                    **({"openatelier_private_notes": True} if os.environ.get("OPENATELIER_PRIVATE_NOTES_COMPAT") == "1" else {}),
+                    **({"openatelier_private_notes": True} if NOTES_COMPAT_ENABLED else {}),
                 }
                 if user is not None
                 else {}

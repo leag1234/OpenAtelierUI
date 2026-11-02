@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2026 Gaël Duval
-"""Small SQLite-only private-note store for the opt-in compatibility slice."""
+"""Small SQLite-only private-note store for the notes compatibility slice."""
 
 import json
 import sqlite3
