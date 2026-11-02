@@ -33,6 +33,41 @@ log.setLevel(SRC_LOG_LEVELS["MODELS"])
 
 router = APIRouter()
 
+
+class UserInfoResponse(BaseModel):
+    id: str
+    name: str
+    email: str
+    role: str
+    bio: Optional[str] = None
+    groups: Optional[list] = None
+    is_active: bool = True
+    status_emoji: Optional[str] = None
+    status_message: Optional[str] = None
+    status_expires_at: Optional[int] = None
+
+
+class UserInfoListResponse(BaseModel):
+    users: list[UserInfoResponse]
+    total: int
+
+
+def _user_info_projection(user):
+    info = user.info if isinstance(user.info, dict) else {}
+    groups = Groups.get_groups_by_member_id(user.id)
+    return {
+        "id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "role": user.role,
+        "bio": getattr(user, "bio", None) or info.get("bio"),
+        "groups": [getattr(group, "id", group) for group in groups],
+        "is_active": True,
+        "status_emoji": info.get("status_emoji"),
+        "status_message": info.get("status_message"),
+        "status_expires_at": info.get("status_expires_at"),
+    }
+
 ############################
 # GetUsers
 ############################
@@ -43,17 +78,18 @@ router = APIRouter()
     response_model=list[UserModel],
     response_model_exclude={"__all__": {"api_key"}},
 )
-@router.get(
-    "/all",
-    response_model=list[UserModel],
-    response_model_exclude={"__all__": {"api_key"}},
-)
 async def get_users(
     skip: Optional[int] = None,
     limit: Optional[int] = None,
     user=Depends(get_admin_user),
 ):
     return Users.get_users(skip, limit)
+
+
+@router.get("/all", response_model=UserInfoListResponse)
+async def get_users_all(user=Depends(get_admin_user)):
+    users = Users.get_users()
+    return {"users": [_user_info_projection(item) for item in users], "total": len(users)}
 
 
 ############################

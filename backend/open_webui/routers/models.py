@@ -22,6 +22,7 @@ from open_webui.utils.imported_history import (
 from open_webui.constants import ERROR_MESSAGES
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse, RedirectResponse
+from pydantic import BaseModel
 
 
 from open_webui.utils.auth import get_admin_user, get_verified_user
@@ -354,8 +355,11 @@ async def update_model_by_id(
 ############################
 
 
-@router.delete("/model/delete", response_model=bool)
-async def delete_model_by_id(id: str, user=Depends(get_verified_user)):
+class ModelIdForm(BaseModel):
+    id: str
+
+
+async def _delete_model_by_id(id, user):
     model = Models.get_model_by_id(id)
     if not model:
         raise HTTPException(
@@ -375,6 +379,18 @@ async def delete_model_by_id(id: str, user=Depends(get_verified_user)):
 
     result = Models.delete_model_by_id(id)
     return result
+
+
+@router.post("/model/delete", response_model=bool)
+async def delete_model_by_id_post(
+    form_data: ModelIdForm, user=Depends(get_verified_user)
+):
+    return await _delete_model_by_id(form_data.id, user)
+
+
+@router.delete("/model/delete", response_model=bool)
+async def delete_model_by_id(id: str, user=Depends(get_verified_user)):
+    return await _delete_model_by_id(id, user)
 
 
 @router.delete("/delete/all", response_model=bool)

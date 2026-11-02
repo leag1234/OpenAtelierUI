@@ -152,17 +152,42 @@ class AtlasDropInReportTests(unittest.TestCase):
             self.assertIsInstance(response, FileResponse)
             self.assertEqual(Path(response.path), default_image.resolve())
 
-    def test_admin_user_list_alias_precedes_dynamic_user_route(self):
+    def test_admin_user_list_alias_matches_reference_envelope_and_precedes_dynamic_route(self):
         tree = ast.parse(USERS.read_text(encoding="utf-8"))
         get_users = next(node for node in tree.body if isinstance(node, ast.AsyncFunctionDef) and node.name == "get_users")
-        paths = []
-        for decorator in get_users.decorator_list:
-            if isinstance(decorator, ast.Call) and decorator.args:
-                value = decorator.args[0]
-                if isinstance(value, ast.Constant):
-                    paths.append(value.value)
-        self.assertEqual(set(paths), {"/", "/all"})
-        self.assertIn("user=Depends(get_admin_user)", ast.unparse(get_users))
+        get_users_all = next(node for node in tree.body if isinstance(node, ast.AsyncFunctionDef) and node.name == "get_users_all")
+
+        def paths(route):
+            values = []
+            for decorator in route.decorator_list:
+                if isinstance(decorator, ast.Call) and decorator.args:
+                    value = decorator.args[0]
+                    if isinstance(value, ast.Constant):
+                        values.append(value.value)
+            return values
+
+        self.assertEqual(paths(get_users), ["/"])
+        self.assertEqual(paths(get_users_all), ["/all"])
+        self.assertIn("user=Depends(get_admin_user)", ast.unparse(get_users_all))
+        source = USERS.read_text(encoding="utf-8")
+        self.assertIn('response_model=UserInfoListResponse', source)
+        self.assertIn('"users": [_user_info_projection(item) for item in users]', source)
+        self.assertLess(source.index('async def get_users_all'), source.index('async def get_user_by_id'))
+
+    def test_admin_user_list_projection_is_secret_free(self):
+        namespace = extracted_functions(
+            USERS,
+            {"_user_info_projection"},
+            {"Groups": types.SimpleNamespace(get_groups_by_member_id=lambda _id: [])},
+        )
+        user = types.SimpleNamespace(
+            id="member", name="Member", email="member@example.invalid", role="user",
+            bio=None, info={"status_message": "Available"}, api_key="must-not-leak",
+        )
+        projected = namespace["_user_info_projection"](user)
+        self.assertEqual(projected["status_message"], "Available")
+        self.assertNotIn("api_key", projected)
+        self.assertNotIn("profile_image_url", projected)
 
     def test_all_reported_dom_hooks_exist_once(self):
         source = "\n".join(
@@ -204,6 +229,19 @@ class AtlasDropInReportTests(unittest.TestCase):
         self.assertIsInstance(default, ast.Call)
         self.assertEqual(default.func.id, "Depends")
         self.assertEqual(default.args[0].id, "get_verified_user")
+
+    def test_model_delete_keeps_current_method_and_reference_post_alias(self):
+        tree = ast.parse(MODELS.read_text(encoding="utf-8"))
+        routes = {
+            node.name: node for node in tree.body
+            if isinstance(node, ast.AsyncFunctionDef)
+            and node.name in {"delete_model_by_id", "delete_model_by_id_post"}
+        }
+        self.assertEqual(set(routes), {"delete_model_by_id", "delete_model_by_id_post"})
+        self.assertEqual(routes["delete_model_by_id"].decorator_list[0].func.attr, "delete")
+        self.assertEqual(routes["delete_model_by_id_post"].decorator_list[0].func.attr, "post")
+        self.assertIn("form_data: ModelIdForm", ast.unparse(routes["delete_model_by_id_post"]))
+        self.assertIn("_delete_model_by_id(form_data.id, user)", ast.unparse(routes["delete_model_by_id_post"]))
 
 
 if __name__ == "__main__":
