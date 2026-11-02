@@ -51,7 +51,9 @@ def main():
         body={"email": "ignored@example.invalid", "password": "ignored"},
     )
     signed_in = as_json(content)
-    assert status == 200 and media == "application/json"
+    assert status == 200 and media == "application/json", (
+        status, media, content[:200]
+    )
     assert signed_in["role"] == "admin"
     token = signed_in["token"]
 
@@ -63,7 +65,9 @@ def main():
 
     status, media, content = call(args.base, "/api/v1/terminals/", token=token)
     terminals = as_json(content)
-    assert status == 200 and media == "application/json"
+    assert status == 200 and media == "application/json", (
+        status, media, content[:200]
+    )
     assert [item["id"] for item in terminals] == ["atlas-files"]
     assert "key" not in terminals[0]
 
