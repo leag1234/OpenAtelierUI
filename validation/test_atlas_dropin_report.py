@@ -214,6 +214,9 @@ class AtlasDropInReportTests(unittest.TestCase):
         composer = MESSAGE_INPUT.read_text(encoding="utf-8")
         integrations = TOOL_SERVERS_MODAL.read_text(encoding="utf-8")
         self.assertIn("export let showModelSelector = false;", navbar)
+        self.assertIn(
+            'class="md:hidden mr-1 self-start flex flex-none items-center', navbar
+        )
         self.assertEqual(
             composer.count("<ModelSelector bind:selectedModels showSetDefault={false} />"),
             1,
