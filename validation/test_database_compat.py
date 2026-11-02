@@ -51,6 +51,23 @@ class DatabaseCompatibilityTests(unittest.TestCase):
         self._database_with("candidate-head", migratehistory=True)
         require_startup_compatible_database(f"sqlite:///{self.database}")
 
+    def test_unknown_external_head_is_refused_without_mutation(self):
+        self._database_with("unknown-newer-head")
+        before = self.database.read_bytes()
+        with self.assertRaises(DatabaseMigrationRequired):
+            require_startup_compatible_database(f"sqlite:///{self.database}")
+        self.assertEqual(self.database.read_bytes(), before)
+
+    def test_empty_external_alembic_table_is_refused_without_mutation(self):
+        connection = sqlite3.connect(self.database)
+        connection.execute("CREATE TABLE alembic_version (version_num TEXT NOT NULL)")
+        connection.commit()
+        connection.close()
+        before = self.database.read_bytes()
+        with self.assertRaises(DatabaseMigrationRequired):
+            require_startup_compatible_database(f"sqlite:///{self.database}")
+        self.assertEqual(self.database.read_bytes(), before)
+
     def test_missing_database_continues_to_initialization(self):
         require_startup_compatible_database(f"sqlite:///{self.database}")
 

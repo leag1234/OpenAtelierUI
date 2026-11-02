@@ -15,11 +15,11 @@ class DatabaseMigrationRequired(RuntimeError):
 
 
 def require_startup_compatible_database(database_url: str) -> None:
-    """Refuse a measured v0.11.3 SQLite database before any migration writes.
+    """Refuse external SQLite migration lineages before any migration writes.
 
     Missing files and databases already owned by this application remain on the
-    normal initialization path. Other unknown database layouts are left to the
-    existing migration machinery rather than guessed here.
+    normal initialization path. The measured v0.11.3 lineage gets its specific
+    copy-only instruction; unknown or newer external lineages fail closed.
     """
 
     prefixes = ("sqlite:///", "sqlite+pysqlite:///")
@@ -59,3 +59,8 @@ def require_startup_compatible_database(database_url: str) -> None:
             "This v0.11.3 database requires copy-only conversion before startup. "
             "Keep the original unchanged and run openatelierui-migrate-v0113."
         )
+    raise DatabaseMigrationRequired(
+        "This external SQLite database has an unsupported migration lineage. "
+        "Keep the original unchanged and use a supported copy-only conversion "
+        "before startup."
+    )
