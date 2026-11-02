@@ -296,6 +296,15 @@ class AtlasDropInReportTests(unittest.TestCase):
         self.assertEqual(response.count("regenerate-response-button"), 1)
         self.assertEqual(response.count("transition continue-response-button"), 1)
         self.assertEqual(response.count("transition delete-response-button"), 1)
+        regenerate_block = response[
+            response.index("<Tooltip content={$i18n.t('Regenerate')}"):
+            response.index("<Tooltip content={$i18n.t('Delete')}")
+        ]
+        delete_block = response[response.index("<Tooltip content={$i18n.t('Delete')}"):]
+        self.assertIn("transition regenerate-response-button", regenerate_block)
+        self.assertNotIn("delete-response-button", regenerate_block)
+        self.assertIn("transition delete-response-button", delete_block)
+        self.assertNotIn("regenerate-response-button", delete_block)
         self.assertNotIn("regenerate-response-button", multi)
         self.assertIn('class="truncate text-left" title={title}', navbar)
 
