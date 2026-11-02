@@ -89,11 +89,16 @@
 
 	{#if !small}
 		<div class="flex flex-col justify-center -space-y-0.5 px-2.5 w-full">
-			<div class=" dark:text-gray-100 text-sm font-medium line-clamp-1 mb-1">
-				{decodeString(name)}
+			<div class="flex items-center gap-2 mb-1 min-w-0">
+				<div class="dark:text-gray-100 text-sm font-medium truncate flex-1">
+					{decodeString(name)}
+				</div>
+				{#if size !== undefined && size !== null}
+					<div class="text-gray-500 text-xs capitalize shrink-0">{formatFileSize(size)}</div>
+				{/if}
 			</div>
 
-			<div class=" flex justify-between text-gray-500 text-xs line-clamp-1">
+			<div class="text-gray-500 text-xs line-clamp-1">
 				{#if type === 'file'}
 					{$i18n.t('File')}
 				{:else if type === 'doc'}
@@ -102,9 +107,6 @@
 					{$i18n.t('Collection')}
 				{:else}
 					<span class=" capitalize line-clamp-1">{type}</span>
-				{/if}
-				{#if size}
-					<span class="capitalize">{formatFileSize(size)}</span>
 				{/if}
 			</div>
 		</div>

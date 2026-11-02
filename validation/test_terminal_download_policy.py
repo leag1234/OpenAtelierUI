@@ -102,6 +102,23 @@ class TerminalDownloadPolicyTests(unittest.TestCase):
         # The request spec forwards verified identity but never asserts file ownership.
         self.assertIn("terminal must", build_download_request.__doc__)
 
+    def test_legacy_connection_without_grants_is_available_to_verified_users(self):
+        legacy = connection()
+        legacy["config"] = {"chat_uploads": "filesystem"}
+        config = raw([legacy])
+        public = public_terminal_connections(config, self.user)
+        self.assertEqual(public[0]["id"], "synthetic_terminal")
+        self.assertEqual(public[0]["config"], {"chat_uploads": "filesystem"})
+        request = build_download_request(config, "synthetic_terminal", self.path, self.user)
+        self.assertEqual(request.headers["X-User-Id"], "member-1")
+        self.assertEqual(
+            build_download_request(
+                config, "synthetic_terminal", self.path,
+                types.SimpleNamespace(id="other", role="user"),
+            ).headers["X-User-Id"],
+            "other",
+        )
+
     def test_exact_user_grants_deny_other_identity_and_disabled_connection(self):
         self.assert_refused(raw([connection()]), user=types.SimpleNamespace(id="other", role="user"))
         self.assert_refused(raw([connection(enabled=False)]))

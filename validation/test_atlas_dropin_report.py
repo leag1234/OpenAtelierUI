@@ -139,6 +139,18 @@ class AtlasDropInReportTests(unittest.TestCase):
             self.assertIsInstance(response, FileResponse)
             self.assertEqual(Path(response.path), image.resolve())
 
+    def test_unknown_model_profile_image_serves_local_default(self):
+        with tempfile.TemporaryDirectory() as directory:
+            default_image = Path(directory) / "favicon.png"
+            default_image.write_bytes(b"synthetic-default-png")
+            routes = self.model_routes(directory)
+            Store.model = None
+            response = asyncio.run(routes["get_model_profile_image"](
+                "not-created-yet", types.SimpleNamespace(id="member", role="user")
+            ))
+            self.assertIsInstance(response, FileResponse)
+            self.assertEqual(Path(response.path), default_image.resolve())
+
     def test_admin_user_list_alias_precedes_dynamic_user_route(self):
         tree = ast.parse(USERS.read_text(encoding="utf-8"))
         get_users = next(node for node in tree.body if isinstance(node, ast.AsyncFunctionDef) and node.name == "get_users")
@@ -166,6 +178,15 @@ class AtlasDropInReportTests(unittest.TestCase):
             "tab-general",
         ):
             self.assertEqual(source.count(f'id="{element_id}"'), 1, element_id)
+
+    def test_composer_file_chip_exposes_name_then_size_siblings(self):
+        source = (SRC / "lib/components/common/FileItem.svelte").read_text(encoding="utf-8")
+        name = 'class="dark:text-gray-100 text-sm font-medium truncate flex-1"'
+        size = 'class="text-gray-500 text-xs capitalize shrink-0"'
+        self.assertEqual(source.count(name), 1)
+        self.assertGreater(source.index(size), source.index(name))
+        between = source[source.index(name):source.index(size)]
+        self.assertNotIn("</div>\n\t\t\t</div>", between)
 
 
 if __name__ == "__main__":

@@ -86,9 +86,14 @@ def _valid_url(value):
 
 def _grants(connection):
     config = connection["config"]
-    if (set(config) != {"chat_uploads", "access_grants"}
+    if (set(config) not in ({"chat_uploads"}, {"chat_uploads", "access_grants"})
             or config.get("chat_uploads") not in ("default", "filesystem")):
         _reject()
+    # Open WebUI's established terminal configuration predates connection
+    # grants. Preserve that verified-user contract as a wildcard connection;
+    # the terminal still receives X-User-Id and must enforce file ownership.
+    if "access_grants" not in config:
+        return ["*"]
     grants = config.get("access_grants")
     if type(grants) is not list or len(grants) > 32:
         _reject()

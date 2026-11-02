@@ -156,21 +156,21 @@ async def get_model_by_id(id: str, user=Depends(get_verified_user)):
 @router.get("/model/profile/image")
 async def get_model_profile_image(id: str, user=Depends(get_verified_user)):
     model = Models.get_model_by_id(id)
-    if not model:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=ERROR_MESSAGES.NOT_FOUND
-        )
-    if not (
-        user.role == "admin"
-        or model.user_id == user.id
-        or has_access(user.id, "read", model.access_control)
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
-        )
-
-    image_url = model.meta.profile_image_url or "/static/favicon.png"
+    if model:
+        if not (
+            user.role == "admin"
+            or model.user_id == user.id
+            or has_access(user.id, "read", model.access_control)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+            )
+        image_url = model.meta.profile_image_url or "/static/favicon.png"
+    else:
+        # Existing clients request the avatar before a model preset has been
+        # created. Return the local default without disclosing model state.
+        image_url = "/static/favicon.png"
     if image_url.startswith("data:image/"):
         try:
             header, encoded = image_url.split(",", 1)
