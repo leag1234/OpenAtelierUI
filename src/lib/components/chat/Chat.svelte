@@ -2182,7 +2182,7 @@
 							<MessageInput
 								{history}
 								{taskIds}
-								{selectedModels}
+								bind:selectedModels
 								bind:files
 								bind:prompt
 								bind:autoScroll
@@ -2233,7 +2233,7 @@
 						<div class="overflow-auto w-full h-full flex items-center">
 							<Placeholder
 								{history}
-								{selectedModels}
+								bind:selectedModels
 								bind:files
 								bind:prompt
 								bind:autoScroll

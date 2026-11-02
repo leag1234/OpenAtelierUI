@@ -39,7 +39,7 @@
 	export let chat;
 	export let history;
 	export let selectedModels;
-	export let showModelSelector = true;
+	export let showModelSelector = false;
 
 	let showShareChatModal = false;
 	let showDownloadChatModal = false;

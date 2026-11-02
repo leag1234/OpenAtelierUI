@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext, onMount } from 'svelte';
-	import { models, config, toolServers, tools } from '$lib/stores';
+	import { user, config, toolServers, tools } from '$lib/stores';
 
 	import { toast } from 'svelte-sonner';
 	import { deleteSharedChatById, getChatById, shareChatById } from '$lib/apis/chats';
@@ -12,6 +12,9 @@
 
 	export let show = false;
 	export let selectedToolIds = [];
+	export let webSearchEnabled = false;
+	export let imageGenerationEnabled = false;
+	export let codeInterpreterEnabled = false;
 
 	let selectedTools = [];
 
@@ -23,7 +26,7 @@
 <Modal bind:show size="md">
 	<div>
 		<div class=" flex justify-between dark:text-gray-300 px-5 pt-4 pb-0.5">
-			<div class=" text-lg font-medium self-center">{$i18n.t('Available Tools')}</div>
+			<div class=" text-lg font-medium self-center">{$i18n.t('Integrations')}</div>
 			<button
 				class="self-center"
 				on:click={() => {
@@ -41,6 +44,42 @@
 					/>
 				</svg>
 			</button>
+		</div>
+
+		<div class="px-5 py-3 w-full flex flex-col gap-2">
+			{#if $config?.features?.enable_web_search && ($user?.role === 'admin' || $user?.permissions?.features?.web_search)}
+				<button
+					type="button"
+					class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-800"
+					aria-pressed={webSearchEnabled}
+					on:click={() => (webSearchEnabled = !webSearchEnabled)}
+				>
+					<span>{$i18n.t('Web Search')}</span>
+					<span class="text-xs text-gray-500">{webSearchEnabled ? $i18n.t('On') : $i18n.t('Off')}</span>
+				</button>
+			{/if}
+			{#if $config?.features?.enable_image_generation && ($user?.role === 'admin' || $user?.permissions?.features?.image_generation)}
+				<button
+					type="button"
+					class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-800"
+					aria-pressed={imageGenerationEnabled}
+					on:click={() => (imageGenerationEnabled = !imageGenerationEnabled)}
+				>
+					<span>{$i18n.t('Image')}</span>
+					<span class="text-xs text-gray-500">{imageGenerationEnabled ? $i18n.t('On') : $i18n.t('Off')}</span>
+				</button>
+			{/if}
+			{#if $config?.features?.enable_code_interpreter && ($user?.role === 'admin' || $user?.permissions?.features?.code_interpreter)}
+				<button
+					type="button"
+					class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-800"
+					aria-pressed={codeInterpreterEnabled}
+					on:click={() => (codeInterpreterEnabled = !codeInterpreterEnabled)}
+				>
+					<span>{$i18n.t('Code Interpreter')}</span>
+					<span class="text-xs text-gray-500">{codeInterpreterEnabled ? $i18n.t('On') : $i18n.t('Off')}</span>
+				</button>
+			{/if}
 		</div>
 
 		{#if selectedTools.length > 0}

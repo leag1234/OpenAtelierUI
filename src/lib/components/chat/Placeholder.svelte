@@ -179,7 +179,7 @@
 			<div class="text-base font-normal @md:max-w-3xl w-full py-3 {atSelectedModel ? 'mt-2' : ''}">
 				<MessageInput
 					{history}
-					{selectedModels}
+					bind:selectedModels
 					bind:files
 					bind:prompt
 					bind:autoScroll

@@ -490,6 +490,86 @@
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 
+{#if !$showSidebar && !$mobile}
+	<nav
+		id="collapsed-navigation-rail"
+		aria-label="Primary navigation"
+		class="relative z-40 flex h-screen max-h-[100dvh] w-12 shrink-0 flex-col items-center justify-between border-r border-gray-100 bg-gray-50 py-2 text-gray-600 dark:border-gray-900 dark:bg-gray-950 dark:text-gray-300"
+	>
+		<div class="flex flex-col items-center gap-1">
+			<Tooltip content={$i18n.t('Open Sidebar')} placement="right">
+				<button
+					type="button"
+					class="rounded-xl p-2 hover:bg-gray-100 dark:hover:bg-gray-900"
+					aria-label={$i18n.t('Open Sidebar')}
+					on:click={() => showSidebar.set(true)}
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-5">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12" />
+					</svg>
+				</button>
+			</Tooltip>
+
+			<Tooltip content={$i18n.t('New Chat')} placement="right">
+				<a
+					href="/"
+					class="rounded-xl p-2 hover:bg-gray-100 dark:hover:bg-gray-900"
+					aria-label={$i18n.t('New Chat')}
+					on:click={() => {
+						selectedChatId = null;
+						chatId.set('');
+					}}
+				>
+					<PencilSquare className="size-5" strokeWidth="2" />
+				</a>
+			</Tooltip>
+
+			<Tooltip content={$i18n.t('Search')} placement="right">
+				<button
+					type="button"
+					class="rounded-xl p-2 hover:bg-gray-100 dark:hover:bg-gray-900"
+					aria-label={$i18n.t('Search')}
+					on:click={async () => {
+						showSidebar.set(true);
+						await tick();
+						document.querySelector('#chat-search input')?.focus();
+					}}
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="size-5">
+						<path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clip-rule="evenodd" />
+					</svg>
+				</button>
+			</Tooltip>
+
+			{#if $config?.features?.openatelier_private_notes}
+				<Tooltip content={$i18n.t('Notes')} placement="right">
+					<a href="/notes" class="rounded-xl p-2 hover:bg-gray-100 dark:hover:bg-gray-900" aria-label={$i18n.t('Notes')}>
+						<Document className="size-5" />
+					</a>
+				</Tooltip>
+			{/if}
+
+			{#if $user?.role === 'admin' || $user?.permissions?.workspace?.models || $user?.permissions?.workspace?.knowledge || $user?.permissions?.workspace?.prompts || $user?.permissions?.workspace?.tools}
+				<Tooltip content={$i18n.t('Workspace')} placement="right">
+					<a href="/workspace" class="rounded-xl p-2 hover:bg-gray-100 dark:hover:bg-gray-900" aria-label={$i18n.t('Workspace')}>
+						<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-5">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M6 10.5h2.25a2.25 2.25 0 0 0 2.25-2.25V6A2.25 2.25 0 0 0 8.25 3.75H6A2.25 2.25 0 0 0 3.75 6v2.25A2.25 2.25 0 0 0 6 10.5Zm0 9.75h2.25A2.25 2.25 0 0 0 10.5 18v-2.25a2.25 2.25 0 0 0-2.25-2.25H6a2.25 2.25 0 0 0-2.25 2.25V18A2.25 2.25 0 0 0 6 20.25Zm9.75-9.75H18a2.25 2.25 0 0 0 2.25-2.25V6A2.25 2.25 0 0 0 18 3.75h-2.25A2.25 2.25 0 0 0 13.5 6v2.25a2.25 2.25 0 0 0 2.25 2.25Z" />
+						</svg>
+					</a>
+				</Tooltip>
+			{/if}
+		</div>
+
+		{#if $user !== undefined && $user !== null}
+			<UserMenu role={$user?.role} className="max-w-[240px]">
+				<button type="button" class="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-gray-900" aria-label={$i18n.t('User menu')}>
+					<img src={$user?.profile_image_url} class="size-8 rounded-full object-cover" alt="User profile" />
+				</button>
+			</UserMenu>
+		{/if}
+	</nav>
+{/if}
+
 {#if $showSidebar}
 	<div
 		class=" {$isApp

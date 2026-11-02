@@ -25,6 +25,10 @@ USERS = ROOT / "backend/open_webui/routers/users.py"
 NOTES = ROOT / "backend/open_webui/routers/notes.py"
 OLLAMA = ROOT / "backend/open_webui/routers/ollama.py"
 SRC = ROOT / "src"
+CHAT_NAVBAR = SRC / "lib/components/chat/Navbar.svelte"
+MESSAGE_INPUT = SRC / "lib/components/chat/MessageInput.svelte"
+TOOL_SERVERS_MODAL = SRC / "lib/components/chat/ToolServersModal.svelte"
+SIDEBAR = SRC / "lib/components/layout/Sidebar.svelte"
 
 
 def extracted_functions(path, names, namespace):
@@ -204,6 +208,30 @@ class AtlasDropInReportTests(unittest.TestCase):
             "tab-general",
         ):
             self.assertEqual(source.count(f'id="{element_id}"'), 1, element_id)
+
+    def test_reference_like_composer_keeps_model_and_integrations_controls_together(self):
+        navbar = CHAT_NAVBAR.read_text(encoding="utf-8")
+        composer = MESSAGE_INPUT.read_text(encoding="utf-8")
+        integrations = TOOL_SERVERS_MODAL.read_text(encoding="utf-8")
+        self.assertIn("export let showModelSelector = false;", navbar)
+        self.assertEqual(
+            composer.count("<ModelSelector bind:selectedModels showSetDefault={false} />"),
+            1,
+        )
+        self.assertIn("aria-label={$i18n.t('Integrations')}", composer)
+        self.assertIn("bind:codeInterpreterEnabled", composer)
+        self.assertIn("bind:webSearchEnabled", composer)
+        self.assertIn("bind:imageGenerationEnabled", composer)
+        self.assertIn("aria-pressed={codeInterpreterEnabled}", integrations)
+        self.assertIn("aria-pressed={webSearchEnabled}", integrations)
+        self.assertIn("aria-pressed={imageGenerationEnabled}", integrations)
+
+    def test_collapsed_desktop_navigation_keeps_primary_journeys_discoverable(self):
+        sidebar = SIDEBAR.read_text(encoding="utf-8")
+        self.assertIn('id="collapsed-navigation-rail"', sidebar)
+        self.assertIn("{#if !$showSidebar && !$mobile}", sidebar)
+        for label in ("Open Sidebar", "New Chat", "Search", "Notes", "Workspace", "User menu"):
+            self.assertIn(f"$i18n.t('{label}')", sidebar)
 
     def test_composer_file_chip_exposes_name_then_size_siblings(self):
         source = (SRC / "lib/components/common/FileItem.svelte").read_text(encoding="utf-8")

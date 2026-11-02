@@ -46,13 +46,10 @@
 
 	import XMark from '../icons/XMark.svelte';
 	import Headphone from '../icons/Headphone.svelte';
-	import GlobeAlt from '../icons/GlobeAlt.svelte';
-	import PhotoSolid from '../icons/PhotoSolid.svelte';
-	import Photo from '../icons/Photo.svelte';
-	import CommandLine from '../icons/CommandLine.svelte';
 	import { KokoroWorker } from '$lib/workers/KokoroWorker';
 	import ToolServersModal from './ToolServersModal.svelte';
 	import Wrench from '../icons/Wrench.svelte';
+	import ModelSelector from './ModelSelector.svelte';
 
 	const i18n = getContext('i18n');
 
@@ -356,7 +353,13 @@
 
 <FilesOverlay show={dragged} />
 
-<ToolServersModal bind:show={showTools} {selectedToolIds} />
+<ToolServersModal
+	bind:show={showTools}
+	{selectedToolIds}
+	bind:webSearchEnabled
+	bind:imageGenerationEnabled
+	bind:codeInterpreterEnabled
+/>
 
 {#if loaded}
 	<div class="w-full font-primary">
@@ -1108,15 +1111,13 @@
 										</InputMenu>
 
 										<div class="flex gap-1 items-center overflow-x-auto scrollbar-none flex-1">
-											{#if toolServers.length + selectedToolIds.length > 0}
+											{#if $_user}
 												<Tooltip
-													content={$i18n.t('{{COUNT}} Available Tools', {
-														COUNT: toolServers.length + selectedToolIds.length
-													})}
+													content={$i18n.t('Integrations')}
 												>
 													<button
 														class="translate-y-[0.5px] flex gap-1 items-center text-gray-600 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200 rounded-lg p-1 self-center transition"
-														aria-label="Available Tools"
+														aria-label={$i18n.t('Integrations')}
 														type="button"
 														on:click={() => {
 															showTools = !showTools;
@@ -1124,75 +1125,21 @@
 													>
 														<Wrench className="size-4" strokeWidth="1.75" />
 
-														<span class="text-sm font-medium text-gray-600 dark:text-gray-300">
-															{toolServers.length + selectedToolIds.length}
+														<span class="hidden @xl:block text-sm font-medium text-gray-600 dark:text-gray-300">
+															{$i18n.t('Integrations')}
 														</span>
 													</button>
 												</Tooltip>
 											{/if}
 
-											{#if $_user}
-												{#if $config?.features?.enable_web_search && ($_user.role === 'admin' || $_user?.permissions?.features?.web_search)}
-													<Tooltip content={$i18n.t('Search the internet')} placement="top">
-														<button
-															on:click|preventDefault={() => (webSearchEnabled = !webSearchEnabled)}
-															type="button"
-															class="px-1.5 @xl:px-2.5 py-1.5 flex gap-1.5 items-center text-sm rounded-full font-medium transition-colors duration-300 focus:outline-hidden max-w-full overflow-hidden border {webSearchEnabled ||
-															($settings?.webSearch ?? false) === 'always'
-																? 'bg-blue-100 dark:bg-blue-500/20 border-blue-400/20 text-blue-500 dark:text-blue-400'
-																: 'bg-transparent border-transparent text-gray-600 dark:text-gray-300 border-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'}"
-														>
-															<GlobeAlt className="size-5" strokeWidth="1.75" />
-															<span
-																class="hidden @xl:block whitespace-nowrap overflow-hidden text-ellipsis translate-y-[0.5px]"
-																>{$i18n.t('Web Search')}</span
-															>
-														</button>
-													</Tooltip>
-												{/if}
-
-												{#if $config?.features?.enable_image_generation && ($_user.role === 'admin' || $_user?.permissions?.features?.image_generation)}
-													<Tooltip content={$i18n.t('Generate an image')} placement="top">
-														<button
-															on:click|preventDefault={() =>
-																(imageGenerationEnabled = !imageGenerationEnabled)}
-															type="button"
-															class="px-1.5 @xl:px-2.5 py-1.5 flex gap-1.5 items-center text-sm rounded-full font-medium transition-colors duration-300 focus:outline-hidden max-w-full overflow-hidden border {imageGenerationEnabled
-																? 'bg-gray-50 dark:bg-gray-400/10 border-gray-100 dark:border-gray-700 text-gray-600 dark:text-gray-400'
-																: 'bg-transparent border-transparent text-gray-600 dark:text-gray-300  hover:bg-gray-100 dark:hover:bg-gray-800 '}"
-														>
-															<Photo className="size-5" strokeWidth="1.75" />
-															<span
-																class="hidden @xl:block whitespace-nowrap overflow-hidden text-ellipsis translate-y-[0.5px]"
-																>{$i18n.t('Image')}</span
-															>
-														</button>
-													</Tooltip>
-												{/if}
-
-												{#if $config?.features?.enable_code_interpreter && ($_user.role === 'admin' || $_user?.permissions?.features?.code_interpreter)}
-													<Tooltip content={$i18n.t('Execute code for analysis')} placement="top">
-														<button
-															on:click|preventDefault={() =>
-																(codeInterpreterEnabled = !codeInterpreterEnabled)}
-															type="button"
-															class="px-1.5 @xl:px-2.5 py-1.5 flex gap-1.5 items-center text-sm rounded-full font-medium transition-colors duration-300 focus:outline-hidden max-w-full overflow-hidden border {codeInterpreterEnabled
-																? 'bg-gray-50 dark:bg-gray-400/10 border-gray-100  dark:border-gray-700 text-gray-600 dark:text-gray-400  '
-																: 'bg-transparent border-transparent text-gray-600 dark:text-gray-300  hover:bg-gray-100 dark:hover:bg-gray-800 '}"
-														>
-															<CommandLine className="size-5" strokeWidth="1.75" />
-															<span
-																class="hidden @xl:block whitespace-nowrap overflow-hidden text-ellipsis translate-y-[0.5px]"
-																>{$i18n.t('Code Interpreter')}</span
-															>
-														</button>
-													</Tooltip>
-												{/if}
-											{/if}
+											<!-- Built-in features are selected from the Integrations surface above. -->
 										</div>
 									</div>
 
-									<div class="self-end flex space-x-1 mr-1 shrink-0">
+									<div class="self-end flex items-center space-x-1 mr-1 shrink-0 min-w-0">
+										<div class="flex max-w-[13rem] @md:max-w-[18rem] min-w-0 items-center">
+											<ModelSelector bind:selectedModels showSetDefault={false} />
+										</div>
 										{#if (!history?.currentId || history.messages[history.currentId]?.done == true) && ($_user?.role === 'admin' || ($_user?.permissions?.chat?.stt ?? true))}
 											<Tooltip content={$i18n.t('Record voice')}>
 												<button
