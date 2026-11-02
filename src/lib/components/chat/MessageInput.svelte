@@ -108,6 +108,7 @@
 
 	let user = null;
 	export let placeholder = '';
+	export let exposeResponseControls = true;
 
 	let visionCapableModels = [];
 	$: visionCapableModels = [...(atSelectedModel ? [atSelectedModel] : selectedModels)].filter(
@@ -1125,9 +1126,7 @@
 													>
 														<Wrench className="size-4" strokeWidth="1.75" />
 
-													<span class="hidden @xl:block whitespace-nowrap text-sm font-medium text-gray-600 dark:text-gray-300">
-															{$i18n.t('Integrations')}
-														</span>
+												<span class="sr-only">{$i18n.t('Integrations')}</span>
 													</button>
 												</Tooltip>
 											{/if}
@@ -1189,7 +1188,7 @@
 											</Tooltip>
 										{/if}
 
-										{#if (taskIds && taskIds.length > 0) || (history.currentId && history.messages[history.currentId]?.done != true)}
+										{#if exposeResponseControls && ((taskIds && taskIds.length > 0) || (history.currentId && history.messages[history.currentId]?.done != true))}
 											<div class=" flex items-center">
 												<Tooltip content={$i18n.t('Stop')}>
 													<button

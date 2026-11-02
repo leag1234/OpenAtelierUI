@@ -13,7 +13,7 @@ from unittest.mock import patch
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import migrate_atlas_copy as coordinator
-from test_migrate_sqlite import build_source, build_template
+from test_migrate_sqlite import add_chat_file_link, build_source, build_template
 from test_openatelierui_instance import DockerDouble, IMAGE
 from validation import openatelierui_instance as instance
 
@@ -185,6 +185,55 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
         archived.close()
         self.assertEqual(len(self._note_rows(target / "webui.db")), 2)
         self.assertEqual(self.source.read_bytes(), before)
+
+    def test_realistic_auxiliary_domains_are_archived_without_blocking_core_copy(self):
+        add_chat_file_link(self.source)
+        db = sqlite3.connect(self.source)
+        db.executescript(
+            'DROP TABLE IF EXISTS folder; CREATE TABLE folder(id TEXT); INSERT INTO folder VALUES("folder-one");'
+            'DROP TABLE IF EXISTS shared_chat; CREATE TABLE shared_chat(id TEXT); INSERT INTO shared_chat VALUES("share-one");'
+            'DROP TABLE IF EXISTS feedback; CREATE TABLE feedback(id TEXT); INSERT INTO feedback VALUES("feedback-one");'
+            'DROP TABLE IF EXISTS api_key; CREATE TABLE api_key(id TEXT); INSERT INTO api_key VALUES("secret-record-not-activated");'
+            'DROP TABLE IF EXISTS calendar; CREATE TABLE calendar(id TEXT); INSERT INTO calendar VALUES("calendar-one");'
+            'DROP TABLE IF EXISTS "group"; CREATE TABLE "group"(id TEXT); INSERT INTO "group" VALUES("unsupported-group");'
+            'DROP TABLE IF EXISTS group_member; CREATE TABLE group_member(id TEXT);'
+        )
+        db.commit(); db.close()
+        before = self.source.read_bytes()
+        preview = self._run("preview", "realistic-aux")
+        self.assertTrue(preview["ok"], preview)
+        core_preview = json.loads((self.root / "realistic-aux-workspace" / "core-preview.json").read_text())
+        codes = {item["code"] for item in core_preview["blockers"]}
+        for code in (
+            "unsupported_nonempty_domain_folder", "unsupported_nonempty_domain_shared_chat",
+            "unsupported_nonempty_domain_feedback", "unsupported_nonempty_domain_api_key",
+            "unsupported_nonempty_domain_calendar", "source_schema_mismatch_group",
+        ):
+            self.assertIn(code, codes)
+        self.assertFalse(core_preview["fatal"])
+        result = self._run("convert", "realistic-aux-convert", allow_partial_copy=True)
+        self.assertTrue(result["ok"], result)
+        target = sqlite3.connect(self.root / "realistic-aux-convert-target" / "webui.db")
+        self.assertEqual(target.execute("SELECT COUNT(*) FROM user").fetchone()[0], 1)
+        self.assertEqual(target.execute("SELECT COUNT(*) FROM chat").fetchone()[0], 1)
+        target.close()
+        archive = next(self.root.glob("realistic-aux-convert-target.source-archive-*/source.sqlite"))
+        archived = sqlite3.connect(archive)
+        self.assertEqual(archived.execute("SELECT COUNT(*) FROM api_key").fetchone()[0], 1)
+        archived.close()
+        self.assertEqual(self.source.read_bytes(), before)
+
+    def test_cli_reports_concrete_existing_workspace_reason(self):
+        existing = self.root / "existing-workspace"
+        existing.mkdir()
+        script = Path(coordinator.__file__)
+        completed = subprocess.run([
+            sys.executable, str(script), "preview", "--source-db", str(self.source),
+            "--uploads-root", str(self.uploads), "--empty-old-target-template", str(self.template),
+            "--workspace-dir", str(existing),
+        ], text=True, capture_output=True)
+        self.assertEqual(completed.returncode, 2)
+        self.assertEqual(json.loads(completed.stdout)["reason"], "output_exists_or_unsafe")
 
 
     def test_cli_partial_conversion_requires_and_accepts_explicit_flag(self):

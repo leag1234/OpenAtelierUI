@@ -274,7 +274,11 @@ def run(mode, source_db, uploads_root, template_path, workspace_dir, target_dir=
         if schema is not None:
             _trim_stage(stage, schema, notes_map)
         flags = {name: bool(options.get(name, False)) for name in FLAGS}
-        core_report = core.preview(stage, full_uploads, template_copy, **flags)
+        flags["include_private_chat_metadata"] = True
+        core_report = core.preview(
+            stage, full_uploads, template_copy,
+            archive_unsupported_domains=True, **flags,
+        )
         _write_private(workspace / "core-preview.json", core_report)
         summary = {
             "ok": not bool(core_report.get("fatal")), "mode": mode,
@@ -291,7 +295,8 @@ def run(mode, source_db, uploads_root, template_path, workspace_dir, target_dir=
         if mode == "convert":
             core_report = core.convert(stage, full_uploads, template_copy, target,
                                       runtime_data_root=runtime_data_root,
-                                      include_history_sidecar=include_history_sidecar, **flags)
+                                      include_history_sidecar=include_history_sidecar,
+                                      archive_unsupported_domains=True, **flags)
             app_db = target / "webui.db"
             if notes_map:
                 merged = target / ".webui-notes-merged.db"
@@ -353,8 +358,14 @@ def main(argv=None):
                      getattr(args, "runtime_data_root", "/app/backend/data"),
                      getattr(args, "include_history_sidecar", False),
                      getattr(args, "allow_partial_copy", False), **options)
-    except (Refusal, core.MigrationError, notes.Refusal, OSError, ValueError):
-        result = {"ok": False, "status": "refused_input", "reason": "input_or_workspace_unavailable", "cutover": False}
+    except (Refusal, core.MigrationError, notes.Refusal, OSError, ValueError) as error:
+        reason = getattr(error, "code", None) or (str(error) if isinstance(error, Refusal) else None)
+        result = {
+            "ok": False,
+            "status": "refused_input",
+            "reason": reason or "input_or_workspace_unavailable",
+            "cutover": False,
+        }
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
     return 0 if result.get("ok") else 2
 

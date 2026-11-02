@@ -178,6 +178,7 @@
 
 			<div class="text-base font-normal @md:max-w-3xl w-full py-3 {atSelectedModel ? 'mt-2' : ''}">
 				<MessageInput
+					exposeResponseControls={false}
 					{history}
 					bind:selectedModels
 					bind:files

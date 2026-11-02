@@ -601,7 +601,7 @@ class ImporterTests(unittest.TestCase):
                 self.assertFalse(target.exists())
                 self.assertEqual((digest(self.source), digest(self.template)), (source_hash, template_hash))
 
-    def test_opt_in_refuses_ambiguous_idless_preview_match(self):
+    def test_opt_in_rebuilds_ambiguous_derived_preview_from_validated_graph(self):
         db = sqlite3.connect(self.source)
         raw = db.execute('SELECT chat FROM "chat" WHERE id="c1"').fetchone()[0]
         payload = json.loads(raw)
@@ -615,14 +615,13 @@ class ImporterTests(unittest.TestCase):
         db.execute('UPDATE "chat_message" SET parent_id="a" WHERE id="c1-b"')
         db.commit(); db.close()
         report = preview(self.source, self.uploads, self.template, include_private_chat_metadata=True)
-        self.assertTrue(report['fatal'])
-        self.assertIn('chat_preview_message_mismatch', {entry['code'] for entry in report['blockers']})
+        self.assertFalse(report['fatal'])
+        self.assertIn('chat_preview_rebuilt_from_selected_graph', {entry['code'] for entry in report['blockers']})
         target = self.root / 'ambiguous-derived-preview'
-        with self.assertRaises(MigrationError):
-            convert(self.source, self.uploads, self.template, target, include_private_chat_metadata=True)
-        self.assertFalse(target.exists())
+        convert(self.source, self.uploads, self.template, target, include_private_chat_metadata=True)
+        self.assertTrue(target.exists())
 
-    def test_opt_in_refuses_idless_preview_with_unmapped_fields(self):
+    def test_opt_in_rebuilds_derived_preview_with_unmapped_fields(self):
         db = sqlite3.connect(self.source)
         payload = json.loads(db.execute('SELECT chat FROM "chat" WHERE id="c1"').fetchone()[0])
         payload['messages'] = [{'role': 'user', 'content': 'Question', 'user_id': 'u1'}]
@@ -630,12 +629,11 @@ class ImporterTests(unittest.TestCase):
         db.commit(); db.close()
         source_hash, template_hash = digest(self.source), digest(self.template)
         report = preview(self.source, self.uploads, self.template, include_private_chat_metadata=True)
-        self.assertTrue(report['fatal'])
-        self.assertIn('chat_preview_message_mismatch', {entry['code'] for entry in report['blockers']})
+        self.assertFalse(report['fatal'])
+        self.assertIn('chat_preview_rebuilt_from_selected_graph', {entry['code'] for entry in report['blockers']})
         target = self.root / 'unmapped-preview-fields'
-        with self.assertRaises(MigrationError):
-            convert(self.source, self.uploads, self.template, target, include_private_chat_metadata=True)
-        self.assertFalse(target.exists())
+        convert(self.source, self.uploads, self.template, target, include_private_chat_metadata=True)
+        self.assertTrue(target.exists())
         self.assertEqual((digest(self.source), digest(self.template)), (source_hash, template_hash))
 
     def test_opt_in_does_not_clear_unrelated_partial_cutover_blockers(self):

@@ -40,13 +40,12 @@
 {/if}
 
 
-<div class="relative inline-flex max-w-full">
-	<button
-		class="p-1.5 {className} flex items-center gap-1 {colorClassName} {small
+<button
+	class="relative inline-flex max-w-full p-1.5 {className} items-center gap-1 {colorClassName} {small
 			? 'rounded-xl'
 			: 'rounded-2xl'} text-left"
-		type="button"
-		on:click={async () => {
+	type="button"
+	on:click={async () => {
 			if (item?.file?.data?.content) {
 				showModal = !showModal;
 			} else if (url) {
@@ -58,8 +57,8 @@
 			}
 
 			dispatch('click');
-		}}
-	>
+	}}
+>
 	{#if !small}
 		<div class="p-3 bg-black/20 dark:bg-white/10 text-white rounded-xl">
 			{#if !loading}
@@ -123,17 +122,16 @@
 		</Tooltip>
 	{/if}
 
-	</button>
-
 	{#if dismissible}
-		<button
-			class="absolute -top-1 -right-1 z-10 rounded-full border border-gray-200 bg-white text-black shadow-sm transition hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:hover:bg-gray-800"
-			type="button"
-			aria-label={$i18n.t('Remove file')}
-			on:click|stopPropagation={() => {
-				dispatch('dismiss');
-			}}
-		>
+		<div class="absolute -top-1 -right-1 z-10">
+			<button
+				class="rounded-full border border-gray-200 bg-white text-black shadow-sm transition hover:bg-gray-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:hover:bg-gray-800"
+				type="button"
+				aria-label={$i18n.t('Remove file')}
+				on:click|stopPropagation={() => {
+					dispatch('dismiss');
+				}}
+			>
 				<svg
 					xmlns="http://www.w3.org/2000/svg"
 					viewBox="0 0 20 20"
@@ -144,6 +142,7 @@
 						d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"
 					/>
 				</svg>
-		</button>
+			</button>
+		</div>
 	{/if}
-</div>
+</button>

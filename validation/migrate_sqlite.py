@@ -1382,7 +1382,11 @@ def _validate_chat(connection: sqlite3.Connection, report: dict, *, include_priv
                 if field in message and not _is_empty(message[field]):
                     _block(report, "unsupported_message_field_" + field, 1)
         if _resolve_chat_preview_ids(payload, nodes, include_private_chat_metadata) is None:
-            _block(report, "chat_preview_message_mismatch", 1, fatal=True)
+            if include_private_chat_metadata:
+                _block(report, "chat_preview_rebuilt_from_selected_graph", 1,
+                       detail="the derived preview is rebuilt from the validated selected message graph")
+            else:
+                _block(report, "chat_preview_message_mismatch", 1, fatal=True)
         for field in CHAT_UNSUPPORTED:
             if field in chat and not _is_empty(chat[field]):
                 # current_message_id is supported through chat.history.currentId.
@@ -1696,8 +1700,22 @@ def _private_chat_metadata_overrides(connection: sqlite3.Connection, report: dic
             continue
         flat_ids = _resolve_chat_preview_ids(payload, nodes, allow_derived=True)
         if flat_ids is None:
-            _block(report, "private_chat_metadata_flat_messages_invalid", 1, fatal=True)
-            continue
+            flat_ids = []
+            cursor = payload.get("history", {}).get("currentId")
+            seen = set()
+            while cursor is not None:
+                if cursor not in nodes or cursor in seen:
+                    _block(report, "private_chat_metadata_flat_messages_invalid", 1, fatal=True)
+                    author_invalid = True
+                    break
+                seen.add(cursor)
+                flat_ids.append(cursor)
+                cursor = nodes[cursor].get("parentId")
+            if author_invalid:
+                continue
+            flat_ids.reverse()
+            flat = [json.loads(json.dumps(nodes[node_id], ensure_ascii=False)) for node_id in flat_ids]
+            payload["messages"] = flat
         for item, node_id in zip(flat, flat_ids):
             if item.get("id") is None:
                 item["id"] = node_id
@@ -1783,7 +1801,8 @@ def _validate_old_group_target(template: Path, report: dict) -> None:
 
 
 def _validate_group_domains(
-    connection: sqlite3.Connection, report: dict, user_ids: set[str], template: Path
+    connection: sqlite3.Connection, report: dict, user_ids: set[str], template: Path,
+    *, archive_unsupported: bool = False,
 ) -> dict[str, list[str]]:
     """Validate the measured flat group profile and build legacy user_ids arrays."""
     tables = set(_tables(connection))
@@ -1804,10 +1823,12 @@ def _validate_group_domains(
         _block(report, "group_membership_schema_missing", 1, fatal=True)
         return {}
     if set(_columns(connection, "group")) != CURRENT_GROUP_COLUMNS:
-        _block(report, "source_schema_mismatch_group", 1, fatal=True)
+        _block(report, "source_schema_mismatch_group", 1, fatal=not archive_unsupported,
+               detail="unsupported group records remain only in the exact source archive")
         return {}
     if set(_columns(connection, "group_member")) != CURRENT_GROUP_MEMBER_COLUMNS:
-        _block(report, "source_schema_mismatch_group_member", 1, fatal=True)
+        _block(report, "source_schema_mismatch_group_member", 1, fatal=not archive_unsupported,
+               detail="unsupported group memberships remain only in the exact source archive")
         return {}
     _validate_old_group_target(template, report)
 
@@ -2298,6 +2319,7 @@ def _inspect_source(
     include_user_permissions: bool = False,
     include_identity_configuration: bool = False,
     include_function_history: bool = False,
+    archive_unsupported_domains: bool = False,
 ) -> dict:
     started = time.perf_counter()
     source = _db_path(source_db, label="source database")
@@ -2370,7 +2392,9 @@ def _inspect_source(
                 and not (table == "api_key" and include_api_keys)
                 and not (table == "chat_file" and include_private_chat_metadata)
             ):
-                _block(report, "unsupported_nonempty_domain_" + table, count, fatal=True)
+                _block(report, "unsupported_nonempty_domain_" + table, count,
+                       fatal=not archive_unsupported_domains,
+                       detail="records remain only in the exact source archive and are not activated")
         for table in ("config", "function_history"):
             if table in tables and _count(connection, table) and not (
                 table == "config"
@@ -2750,7 +2774,10 @@ def _inspect_source(
                     "old_defaults_verified": bool(verified),
                     "remaining_config_rows": remaining_config_rows,
                 }
-        group_memberships = _validate_group_domains(connection, report, user_ids, template)
+        group_memberships = _validate_group_domains(
+            connection, report, user_ids, template,
+            archive_unsupported=archive_unsupported_domains,
+        )
         object_access = _validate_object_domains(connection, report, user_ids, set(group_memberships))
         for table in COPYABLE_TABLES & set(tables):
             if "id" not in _columns(connection, table):
@@ -2781,6 +2808,7 @@ def inspect_source(
     include_user_permissions: bool = False,
     include_identity_configuration: bool = False,
     include_function_history: bool = False,
+    archive_unsupported_domains: bool = False,
 ) -> tuple[dict, list, dict, dict, dict]:
     """Inspect source inputs while preserving the original five-value API."""
     return _inspect_source(
@@ -2796,6 +2824,7 @@ def inspect_source(
         include_user_permissions=include_user_permissions,
         include_identity_configuration=include_identity_configuration,
         include_function_history=include_function_history,
+        archive_unsupported_domains=archive_unsupported_domains,
     )[:5]
 
 
@@ -2813,6 +2842,7 @@ def preview(
     include_user_permissions: bool = False,
     include_identity_configuration: bool = False,
     include_function_history: bool = False,
+    archive_unsupported_domains: bool = False,
 ) -> dict:
     report, _, _, _, _ = inspect_source(
         source_db,
@@ -2827,6 +2857,7 @@ def preview(
         include_user_permissions=include_user_permissions,
         include_identity_configuration=include_identity_configuration,
         include_function_history=include_function_history,
+        archive_unsupported_domains=archive_unsupported_domains,
     )
     return report
 
@@ -2985,6 +3016,7 @@ def convert(
     include_user_permissions: bool = False,
     include_identity_configuration: bool = False,
     include_function_history: bool = False,
+    archive_unsupported_domains: bool = False,
     failpoint: Callable[[str], None] | None = None,
 ) -> dict:
     started = time.perf_counter()
@@ -3001,6 +3033,7 @@ def convert(
         include_user_permissions=include_user_permissions,
         include_identity_configuration=include_identity_configuration,
         include_function_history=include_function_history,
+        archive_unsupported_domains=archive_unsupported_domains,
     )
     source = Path(source_db).resolve(strict=True)
     template = Path(old_template).resolve(strict=True)
