@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2026 Gaël Duval
 import json
+import hashlib
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -34,6 +35,76 @@ def add_notes(source):
         "note-two", "u1", "Private reminder", None, "null", 1700000002, 1700000003
     ))
     db.execute("INSERT INTO pinned_note VALUES('pin-one','u1','note-two',1700000004)")
+    db.commit()
+    db.close()
+
+
+def expand_realistic_copy(source, uploads):
+    """Expand the minimal fixture to the size and domains reported by Atlas."""
+    db = sqlite3.connect(source)
+    for index in range(2, 11):
+        user_id = f"u{index}"
+        email = f"u{index}@example.invalid"
+        db.execute("INSERT INTO auth VALUES (?,?,?,?,?,?)", (user_id, email, "bcrypt-placeholder", 1, None, None))
+        db.execute(
+            "INSERT INTO user VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (user_id, f"Synthetic User {index}", email, "user", "", "t", "t", "t", "{}", "{}", None, None, "{}", "{}", "{}"),
+        )
+    for index in range(2, 127):
+        chat_id = f"c{index}"
+        owner = f"u{((index - 1) % 10) + 1}"
+        question_id, answer_id = f"q{index}", f"a{index}"
+        messages = {
+            question_id: {"id": question_id, "parentId": None, "childrenIds": [answer_id], "role": "user", "content": f"Question {index}"},
+            answer_id: {"id": answer_id, "parentId": question_id, "childrenIds": [], "role": "assistant", "content": f"Answer {index}"},
+        }
+        payload = {
+            "messages": [{"id": question_id, "role": "user", "content": f"Question {index}"}],
+            "history": {"messages": messages, "currentId": answer_id},
+        }
+        db.execute(
+            "INSERT INTO chat VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (chat_id, owner, f"Synthetic chat {index}", "t", "t", None, 0, json.dumps(payload), 0, "{}", None, "{}", "{}", None, answer_id, "{}", None),
+        )
+        for node_id, node in messages.items():
+            db.execute(
+                "INSERT INTO chat_message VALUES (?,?,?,?,?,?,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL)",
+                (f"{chat_id}-{node_id}", chat_id, owner, node["role"], node["parentId"], json.dumps(node["content"])),
+            )
+    for index in range(2, 47):
+        file_id = f"f{index}"
+        owner = f"u{((index - 1) % 10) + 1}"
+        filename = f"synthetic-{index}.txt"
+        blob = f"synthetic fixture {index}\n".encode()
+        (uploads / f"{file_id}_{filename}").write_bytes(blob)
+        meta = json.dumps({"file_hash": hashlib.sha256(blob).hexdigest(), "size": len(blob)})
+        db.execute(
+            "INSERT INTO file VALUES (?,?,?,?,?,NULL,?,?,?)",
+            (file_id, owner, filename, meta, "t", "{}", "t", f"/app/data/uploads/{file_id}_{filename}"),
+        )
+    db.execute("CREATE TABLE chat_file(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,chat_id TEXT NOT NULL,file_id TEXT NOT NULL,message_id TEXT,created_at BIGINT NOT NULL,updated_at BIGINT NOT NULL)")
+    for index in range(1, 39):
+        chat_id, file_id = f"c{index}", f"f{index}"
+        owner = "u1" if index == 1 else f"u{((index - 1) % 10) + 1}"
+        message_id = "q" if index == 1 else f"q{index}"
+        db.execute("INSERT INTO chat_file VALUES (?,?,?,?,?,?,?)", (f"link{index}", owner, chat_id, file_id, message_id, 10, 11))
+        row = db.execute("SELECT chat FROM chat WHERE id=?", (chat_id,)).fetchone()
+        payload = json.loads(row[0])
+        filename = "synthetic.html" if index == 1 else f"synthetic-{index}.txt"
+        payload["history"]["messages"][message_id]["files"] = [{
+            "type": "file", "id": file_id, "url": file_id, "name": filename,
+            "status": "uploaded", "file": {"id": file_id, "user_id": owner, "filename": filename},
+        }]
+        db.execute("UPDATE chat SET chat=? WHERE id=?", (json.dumps(payload), chat_id))
+    db.executescript(
+        'DROP TABLE IF EXISTS folder; CREATE TABLE folder(id TEXT); INSERT INTO folder VALUES("folder-one"); INSERT INTO folder VALUES("folder-two");'
+        'DROP TABLE IF EXISTS shared_chat; CREATE TABLE shared_chat(id TEXT); INSERT INTO shared_chat VALUES("share-one");'
+        'DROP TABLE IF EXISTS feedback; CREATE TABLE feedback(id TEXT); INSERT INTO feedback VALUES("feedback-one");'
+        'DROP TABLE IF EXISTS api_key; CREATE TABLE api_key(id TEXT); INSERT INTO api_key VALUES("secret-record-not-activated");'
+        'DROP TABLE IF EXISTS calendar; CREATE TABLE calendar(id TEXT); INSERT INTO calendar VALUES("calendar-one");'
+        'DROP TABLE IF EXISTS "group"; CREATE TABLE "group"(id TEXT); INSERT INTO "group" VALUES("unsupported-group");'
+        'DROP TABLE IF EXISTS group_member; CREATE TABLE group_member(id TEXT);'
+    )
     db.commit()
     db.close()
 
@@ -187,18 +258,7 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
         self.assertEqual(self.source.read_bytes(), before)
 
     def test_realistic_auxiliary_domains_are_archived_without_blocking_core_copy(self):
-        add_chat_file_link(self.source)
-        db = sqlite3.connect(self.source)
-        db.executescript(
-            'DROP TABLE IF EXISTS folder; CREATE TABLE folder(id TEXT); INSERT INTO folder VALUES("folder-one");'
-            'DROP TABLE IF EXISTS shared_chat; CREATE TABLE shared_chat(id TEXT); INSERT INTO shared_chat VALUES("share-one");'
-            'DROP TABLE IF EXISTS feedback; CREATE TABLE feedback(id TEXT); INSERT INTO feedback VALUES("feedback-one");'
-            'DROP TABLE IF EXISTS api_key; CREATE TABLE api_key(id TEXT); INSERT INTO api_key VALUES("secret-record-not-activated");'
-            'DROP TABLE IF EXISTS calendar; CREATE TABLE calendar(id TEXT); INSERT INTO calendar VALUES("calendar-one");'
-            'DROP TABLE IF EXISTS "group"; CREATE TABLE "group"(id TEXT); INSERT INTO "group" VALUES("unsupported-group");'
-            'DROP TABLE IF EXISTS group_member; CREATE TABLE group_member(id TEXT);'
-        )
-        db.commit(); db.close()
+        expand_realistic_copy(self.source, self.uploads)
         before = self.source.read_bytes()
         preview = self._run("preview", "realistic-aux")
         self.assertTrue(preview["ok"], preview)
@@ -214,8 +274,9 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
         result = self._run("convert", "realistic-aux-convert", allow_partial_copy=True)
         self.assertTrue(result["ok"], result)
         target = sqlite3.connect(self.root / "realistic-aux-convert-target" / "webui.db")
-        self.assertEqual(target.execute("SELECT COUNT(*) FROM user").fetchone()[0], 1)
-        self.assertEqual(target.execute("SELECT COUNT(*) FROM chat").fetchone()[0], 1)
+        self.assertEqual(target.execute("SELECT COUNT(*) FROM user").fetchone()[0], 10)
+        self.assertEqual(target.execute("SELECT COUNT(*) FROM chat").fetchone()[0], 126)
+        self.assertEqual(target.execute("SELECT COUNT(*) FROM file").fetchone()[0], 46)
         target.close()
         archive = next(self.root.glob("realistic-aux-convert-target.source-archive-*/source.sqlite"))
         archived = sqlite3.connect(archive)
