@@ -26,6 +26,7 @@ NOTES = ROOT / "backend/open_webui/routers/notes.py"
 OLLAMA = ROOT / "backend/open_webui/routers/ollama.py"
 SRC = ROOT / "src"
 CHAT_NAVBAR = SRC / "lib/components/chat/Navbar.svelte"
+LAYOUT_NAVBAR = SRC / "lib/components/layout/Navbar.svelte"
 MESSAGE_INPUT = SRC / "lib/components/chat/MessageInput.svelte"
 TOOL_SERVERS_MODAL = SRC / "lib/components/chat/ToolServersModal.svelte"
 SIDEBAR = SRC / "lib/components/layout/Sidebar.svelte"
@@ -211,11 +212,16 @@ class AtlasDropInReportTests(unittest.TestCase):
 
     def test_reference_like_composer_keeps_model_and_integrations_controls_together(self):
         navbar = CHAT_NAVBAR.read_text(encoding="utf-8")
+        layout_navbar = LAYOUT_NAVBAR.read_text(encoding="utf-8")
         composer = MESSAGE_INPUT.read_text(encoding="utf-8")
         integrations = TOOL_SERVERS_MODAL.read_text(encoding="utf-8")
         self.assertIn("export let showModelSelector = false;", navbar)
         self.assertIn(
             'class="md:hidden mr-1 self-start flex flex-none items-center', navbar
+        )
+        self.assertIn(
+            'class="md:hidden mr-1 self-start flex flex-none items-center',
+            layout_navbar,
         )
         self.assertEqual(
             composer.count("<ModelSelector bind:selectedModels showSetDefault={false} />"),
