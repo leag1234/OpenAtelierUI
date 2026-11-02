@@ -23,6 +23,7 @@ MAIN = ROOT / "backend/open_webui/main.py"
 MODELS = ROOT / "backend/open_webui/routers/models.py"
 USERS = ROOT / "backend/open_webui/routers/users.py"
 NOTES = ROOT / "backend/open_webui/routers/notes.py"
+OLLAMA = ROOT / "backend/open_webui/routers/ollama.py"
 SRC = ROOT / "src"
 
 
@@ -187,6 +188,22 @@ class AtlasDropInReportTests(unittest.TestCase):
         self.assertGreater(source.index(size), source.index(name))
         between = source[source.index(name):source.index(size)]
         self.assertNotIn("</div>\n\t\t\t</div>", between)
+
+    def test_ollama_version_route_requires_verified_identity(self):
+        tree = ast.parse(OLLAMA.read_text(encoding="utf-8"))
+        route = next(
+            node for node in tree.body
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "get_ollama_versions"
+        )
+        user_index = next(
+            index for index, argument in enumerate(route.args.args)
+            if argument.arg == "user"
+        )
+        default_index = user_index - (len(route.args.args) - len(route.args.defaults))
+        default = route.args.defaults[default_index]
+        self.assertIsInstance(default, ast.Call)
+        self.assertEqual(default.func.id, "Depends")
+        self.assertEqual(default.args[0].id, "get_verified_user")
 
 
 if __name__ == "__main__":

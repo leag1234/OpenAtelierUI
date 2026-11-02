@@ -461,7 +461,11 @@ async def get_ollama_tags(
 
 @router.get("/api/version")
 @router.get("/api/version/{url_idx}")
-async def get_ollama_versions(request: Request, url_idx: Optional[int] = None):
+async def get_ollama_versions(
+    request: Request,
+    url_idx: Optional[int] = None,
+    user=Depends(get_verified_user),
+):
     if request.app.state.config.ENABLE_OLLAMA_API:
         if url_idx is None:
             # returns lowest version
