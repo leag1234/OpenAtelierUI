@@ -82,6 +82,26 @@ assert.strictEqual(chatTaskStopPath('saved/chat 1'), '/api/tasks/chat/saved%2Fch
     async () => ({status:false}), async () => { current = false; return {task_ids:[]}; }, () => current
   );
   assert.strictEqual(navigatedDuringList.state, 'navigated');
+  const readySocket = {connected:true,id:'session-ready'};
+  assert.strictEqual((await waitForConnectedSocket(readySocket, 5)).id, 'session-ready');
+  const listeners = {};
+  const reconnectingSocket = {
+    connected:false, disconnected:true, id:undefined,
+    on: (name, handler) => { listeners[name] = handler; },
+    off: (name, handler) => { if (listeners[name] === handler) delete listeners[name]; },
+    connect: () => setTimeout(() => {
+      reconnectingSocket.connected = true;
+      reconnectingSocket.disconnected = false;
+      reconnectingSocket.id = 'session-after-restart';
+      listeners.connect();
+    }, 2)
+  };
+  assert.strictEqual((await waitForConnectedSocket(reconnectingSocket, 50)).id, 'session-after-restart');
+  assert.deepStrictEqual(Object.keys(listeners), []);
+  const neverSocket = {connected:false,disconnected:false,id:undefined,on:()=>{},off:()=>{}};
+  let timeoutError;
+  try { await waitForConnectedSocket(neverSocket, 2); } catch (error) { timeoutError = error; }
+  assert.ok(/socket_reconnect_timeout/.test(String(timeoutError)));
   process.stdout.write(JSON.stringify({bound:bound.length, ids:normalizeTaskIds({task_id:'ok'}).length, listCalls}));
 })().catch((error) => { process.stderr.write(String(error)); process.exitCode = 1; });
 """
@@ -107,6 +127,8 @@ assert.strictEqual(chatTaskStopPath('saved/chat 1'), '/api/tasks/chat/saved%2Fch
         self.assertIn("chatResultMatchesCurrent(stoppingChatId, $chatId)", chat)
         self.assertIn("let fetchedChat;", chat)
         self.assertIn("if (chatResultMatchesCurrent(requestedChatId, $chatId)) await goto('/')", chat)
+        self.assertIn("connectedSocket = await waitForConnectedSocket(get(socket))", chat)
+        self.assertIn("session_id: connectedSocket.id", chat)
 
     def _chat_function(self, name):
         source = CHAT.read_text(encoding="utf-8")

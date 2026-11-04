@@ -159,6 +159,26 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
         self.assertEqual((self.source.read_bytes(), (self.uploads / "f1_synthetic.html").read_bytes(), self.template.read_bytes()),
                          (source_before, upload_before, template_before))
 
+    def test_preview_accepts_referenced_upload_above_old_sixteen_mib_bound(self):
+        payload = b"A" * (17 * 1024 * 1024)
+        upload = self.uploads / "f1_synthetic.html"
+        upload.write_bytes(payload)
+        db = sqlite3.connect(self.source)
+        db.execute(
+            "UPDATE file SET meta=? WHERE id='f1'",
+            (json.dumps({"file_hash": hashlib.sha256(payload).hexdigest(), "size": len(payload)}),),
+        )
+        db.commit()
+        db.close()
+
+        result = self._run("preview", "above-old-limit")
+
+        self.assertTrue(result["ok"], result)
+        self.assertGreater(result["input_bytes"], 16 * 1024 * 1024)
+        self.assertEqual(result["upload_bytes"], len(payload))
+        self.assertEqual(result["upload_limit_bytes"], coordinator.core.MAX_UPLOAD_BYTES)
+        self.assertEqual(hashlib.sha256(upload.read_bytes()).hexdigest(), hashlib.sha256(payload).hexdigest())
+
     def test_convert_merges_exact_note_values_and_pins_after_core_import(self):
         source_before, template_before = self.source.read_bytes(), self.template.read_bytes()
         upload_before = (self.uploads / "f1_synthetic.html").read_bytes()

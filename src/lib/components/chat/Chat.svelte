@@ -20,7 +20,8 @@
 		mergeTaskIds,
 		normalizeTaskIds,
 		requestSavedChatStop,
-		selectChatEventChannel
+		selectChatEventChannel,
+		waitForConnectedSocket
 	} from '$lib/utils/chat-session';
 	import { clearChatDraft, readChatDraft, saveChatDraft } from '$lib/utils/chat-draft';
 
@@ -1556,6 +1557,20 @@
 	const sendPromptSocket = async (_history, model, responseMessageId, _chatId) => {
 		const responseMessage = _history.messages[responseMessageId];
 		const userMessage = _history.messages[responseMessage.parentId];
+		let connectedSocket;
+		try {
+			connectedSocket = await waitForConnectedSocket(get(socket));
+		} catch (_error) {
+			if (!chatResultMatchesCurrent(_chatId, $chatId)) return;
+			const content = 'The server connection did not recover. Please retry.';
+			toast.error($i18n.t(content));
+			responseMessage.error = { content };
+			responseMessage.done = true;
+			history.messages[responseMessageId] = responseMessage;
+			history.currentId = responseMessageId;
+			return;
+		}
+		if (!chatResultMatchesCurrent(_chatId, $chatId)) return;
 
 		let files = JSON.parse(JSON.stringify(chatFiles));
 		files.push(
@@ -1693,7 +1708,7 @@
 				},
 				model_item: $models.find((m) => m.id === model.id),
 
-				session_id: $socket?.id,
+				session_id: connectedSocket.id,
 				chat_id: $chatId,
 				id: responseMessageId,
 

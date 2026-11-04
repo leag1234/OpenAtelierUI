@@ -45,7 +45,11 @@ _HISTORY_SPEC.loader.exec_module(_HISTORY_MODULE)
 write_history_sidecar = _HISTORY_MODULE.write_history_sidecar
 
 
-MAX_INPUT_BYTES = 16 * 1024 * 1024
+MAX_DATABASE_BYTES = 8 * 1024 * 1024 * 1024
+MAX_UPLOAD_BYTES = 512 * 1024 * 1024 * 1024
+MAX_UPLOAD_FILES = 250_000
+# Compatibility alias for callers that bound a single SQLite input.
+MAX_INPUT_BYTES = MAX_DATABASE_BYTES
 APP_TABLES = {"auth", "user", "chat", "chat_message", "file", "function", "tool", "model"}
 COPYABLE_TABLES = {"auth", "user", "chat", "file", "function", "tool", "model"}
 MARKER_TABLES = {"alembic_version", "migratehistory"}
@@ -940,7 +944,7 @@ def _sidecars(path: Path) -> list[str]:
     return [str(Path(str(path) + suffix)) for suffix in ("-wal", "-shm", "-journal") if Path(str(path) + suffix).exists()]
 
 
-def _db_path(path: str | Path, *, label: str, max_bytes: int | None = MAX_INPUT_BYTES) -> Path:
+def _db_path(path: str | Path, *, label: str, max_bytes: int | None = MAX_DATABASE_BYTES) -> Path:
     candidate = Path(path)
     if candidate.is_symlink() or not candidate.is_file():
         raise MigrationError("invalid_database_path", f"{label} must be a regular non-symlink file")
@@ -949,7 +953,11 @@ def _db_path(path: str | Path, *, label: str, max_bytes: int | None = MAX_INPUT_
     if sidecars:
         raise MigrationError("ambiguous_sqlite_state", f"{label} has SQLite sidecars; use a stopped, checkpointed snapshot")
     if max_bytes is not None and candidate.stat().st_size > max_bytes:
-        raise MigrationError("input_too_large", f"{label} exceeds the {max_bytes}-byte input bound")
+        raise MigrationError(
+            "input_too_large",
+            f"{label} exceeds the configured byte bound",
+            {"measured_database_bytes": candidate.stat().st_size, "database_limit_bytes": max_bytes},
+        )
     return candidate
 
 
@@ -1039,7 +1047,10 @@ def _metrics(started: float, input_bytes: int) -> dict:
         "process_peak_rss_bytes": _resource_bytes(),
         "process_peak_rss_platform_units": "bytes" if sys.platform == "darwin" else "KiB converted to bytes",
         "input_bytes": input_bytes,
-        "input_limit_bytes": MAX_INPUT_BYTES,
+        "input_limit_bytes": MAX_DATABASE_BYTES + MAX_UPLOAD_BYTES,
+        "database_limit_bytes": MAX_DATABASE_BYTES,
+        "upload_limit_bytes": MAX_UPLOAD_BYTES,
+        "upload_file_limit": MAX_UPLOAD_FILES,
     }
 
 
@@ -1255,7 +1266,7 @@ def _source_file_rows(connection: sqlite3.Connection, uploads_root: str | Path, 
             continue
         size = candidate.stat().st_size
         total_bytes += size
-        if total_bytes > MAX_INPUT_BYTES:
+        if total_bytes > MAX_UPLOAD_BYTES:
             _block(report, "dataset_too_large", total_bytes, fatal=True)
             continue
         meta = row.get("meta")
@@ -2559,8 +2570,8 @@ def _inspect_source(
                     and valid_required.get("chat_message") and valid_required.get("user"))
             else {}
         )
-        if source.stat().st_size + report.get("upload_bytes", 0) > MAX_INPUT_BYTES:
-            _block(report, "dataset_too_large", source.stat().st_size + report.get("upload_bytes", 0), fatal=True)
+        if len(file_rows) > MAX_UPLOAD_FILES:
+            _block(report, "upload_file_count_too_large", len(file_rows), fatal=True)
         auth_ids = {row[0] for row in connection.execute('SELECT id FROM "auth"')} if valid_required.get("auth") else set()
         user_ids = {row[0] for row in connection.execute('SELECT id FROM "user"')} if valid_required.get("user") else set()
         if valid_required.get("auth") and valid_required.get("user") and auth_ids != user_ids:
@@ -3187,7 +3198,7 @@ def convert(
         report["metrics"]["archive_bytes"] = _dir_size(archive_attempt)
         report["metrics"]["target_bytes"] = _dir_size(attempt)
         output_bytes = report["metrics"]["archive_bytes"] + report["metrics"]["target_bytes"]
-        output_limit = 4 * report["metrics"]["input_bytes"] + MAX_INPUT_BYTES
+        output_limit = 4 * report["metrics"]["input_bytes"] + MAX_DATABASE_BYTES
         report["metrics"]["output_bytes"] = output_bytes
         report["metrics"]["candidate_payload_bytes"] = output_bytes
         report["metrics"]["provisional_output_limit_bytes"] = output_limit

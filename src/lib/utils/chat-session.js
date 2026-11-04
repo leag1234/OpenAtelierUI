@@ -19,6 +19,37 @@ export function bindChatEventChannel(socket, handler, config) {
 	};
 }
 
+export function waitForConnectedSocket(socket, timeoutMs = 15000) {
+	if (!socket) return Promise.reject(new Error('socket_unavailable'));
+	if (socket.connected && typeof socket.id === 'string' && socket.id.length > 0) {
+		return Promise.resolve(socket);
+	}
+
+	return new Promise((resolve, reject) => {
+		let settled = false;
+		const finish = (error) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			socket.off('connect', onConnect);
+			socket.off('connect_error', onConnectError);
+			if (error) reject(error);
+			else resolve(socket);
+		};
+		const onConnect = () => {
+			if (typeof socket.id === 'string' && socket.id.length > 0) finish();
+		};
+		const onConnectError = () => {
+			// Socket.IO owns reconnection. Keep the bounded waiter active until a
+			// later successful connect or the deadline.
+		};
+		const timer = setTimeout(() => finish(new Error('socket_reconnect_timeout')), timeoutMs);
+		socket.on('connect', onConnect);
+		socket.on('connect_error', onConnectError);
+		if (typeof socket.connect === 'function' && socket.disconnected) socket.connect();
+	});
+}
+
 export function normalizeTaskIds(response) {
 	const ids = response && Array.isArray(response.task_ids) ? response.task_ids : [];
 	const normalized = ids.filter((id) => typeof id === 'string' && id.length > 0);

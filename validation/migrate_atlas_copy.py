@@ -22,7 +22,7 @@ if str(HERE) not in sys.path:
 import import_private_notes as notes
 import migrate_sqlite as core
 
-MAX_UPLOAD_FILES = 4096
+MAX_UPLOAD_FILES = core.MAX_UPLOAD_FILES
 CHUNK = 64 * 1024
 FLAGS = ("include_private_chat_metadata", "include_named_tool_configuration", "include_user_profile_fields",
          "include_api_keys", "include_api_key_configuration", "include_openai_configuration",
@@ -30,7 +30,9 @@ FLAGS = ("include_private_chat_metadata", "include_named_tool_configuration", "i
 
 
 class Refusal(Exception):
-    def __init__(self, code): self.code = code
+    def __init__(self, code, **details):
+        self.code = code
+        self.details = details
 
 
 def _hash(path):
@@ -86,8 +88,12 @@ def _upload_manifest(root):
                 raise Refusal("unsupported_upload_tree")
             size = file_info.st_size
             total += size
-            if len(entries) >= MAX_UPLOAD_FILES or total > core.MAX_INPUT_BYTES:
-                raise Refusal("resource_limit")
+            if len(entries) >= MAX_UPLOAD_FILES:
+                raise Refusal("upload_file_count_limit", measured_files=len(entries) + 1,
+                              upload_file_limit=MAX_UPLOAD_FILES)
+            if total > core.MAX_UPLOAD_BYTES:
+                raise Refusal("upload_size_limit", measured_upload_bytes=total,
+                              upload_limit_bytes=core.MAX_UPLOAD_BYTES)
             entries.append((entry.name, size, _hash(item), (file_info.st_dev, file_info.st_ino, file_info.st_mtime_ns)))
     except UnicodeError:
         raise Refusal("unsupported_upload_tree") from None
@@ -248,16 +254,22 @@ def run(mode, source_db, uploads_root, template_path, workspace_dir, target_dir=
     _disjoint(outputs, [source, template, uploads.resolve(strict=True)])
     source_hash, template_hash = core._digest(source), core._digest(template)
     upload_before = _upload_manifest(uploads)
-    if source.stat().st_size + upload_before[1] > core.MAX_INPUT_BYTES:
-        raise Refusal("resource_limit")
+    database_bytes = source.stat().st_size
+    upload_bytes = upload_before[1]
+    template_bytes = template.stat().st_size
+    estimated_workspace_bytes = 4 * (database_bytes + upload_bytes + template_bytes) + 64 * 1024 * 1024
+    workspace_free_bytes = shutil.disk_usage(workspace.parent).free
+    if workspace_free_bytes < estimated_workspace_bytes:
+        raise Refusal("insufficient_free_space", measured_free_bytes=workspace_free_bytes,
+                      required_free_bytes=estimated_workspace_bytes)
     workspace.mkdir(mode=0o700)
     try:
         full_source = workspace / "source.sqlite"
-        copied_db = _copy_regular(source, full_source, core.MAX_INPUT_BYTES)
+        copied_db = _copy_regular(source, full_source, core.MAX_DATABASE_BYTES)
         full_uploads = workspace / "uploads"
         copied_uploads = _copy_uploads(uploads, full_uploads, upload_before)
         template_copy = workspace / "old-template.sqlite"
-        _copy_regular(template, template_copy, core.MAX_INPUT_BYTES)
+        _copy_regular(template, template_copy, core.MAX_DATABASE_BYTES)
         if core._digest(template_copy) != template_hash:
             raise Refusal("source_changed")
         notes_map, schema = _note_snapshot(full_source)
@@ -270,7 +282,7 @@ def run(mode, source_db, uploads_root, template_path, workspace_dir, target_dir=
             "cutover": False,
         })
         stage = workspace / "core-staging.sqlite"
-        _copy_regular(full_source, stage, core.MAX_INPUT_BYTES)
+        _copy_regular(full_source, stage, core.MAX_DATABASE_BYTES)
         if schema is not None:
             _trim_stage(stage, schema, notes_map)
         flags = {name: bool(options.get(name, False)) for name in FLAGS}
@@ -287,6 +299,11 @@ def run(mode, source_db, uploads_root, template_path, workspace_dir, target_dir=
             "uploads_manifest_sha256": upload_before[2], "note_count": note_count,
             "pinned_note_count": pin_count, "core_blocker_count": len(core_report.get("blockers", [])),
             "target_created": False,
+            "database_bytes": database_bytes, "upload_bytes": upload_bytes,
+            "input_bytes": database_bytes + upload_bytes,
+            "database_limit_bytes": core.MAX_DATABASE_BYTES,
+            "upload_limit_bytes": core.MAX_UPLOAD_BYTES,
+            "upload_file_count": len(upload_before[0]), "upload_file_limit": MAX_UPLOAD_FILES,
         }
         if mode == "convert" and not summary["ok"]:
             raise Refusal("fatal_core_input")
@@ -330,6 +347,10 @@ def run(mode, source_db, uploads_root, template_path, workspace_dir, target_dir=
                    "error_type": type(error).__name__,
                    "error_location": f"{Path(last_frame.filename).name}:{last_frame.lineno}",
                    "cutover": False, "source_sha256": source_hash, "template_sha256": template_hash}
+        if isinstance(error, Refusal):
+            failure.update(error.details)
+        elif isinstance(error, core.MigrationError):
+            failure.update(error.report)
         try:
             _write_private(workspace / "failure.json", failure)
         except OSError:
@@ -366,6 +387,10 @@ def main(argv=None):
             "reason": reason or "input_or_workspace_unavailable",
             "cutover": False,
         }
+        if isinstance(error, Refusal):
+            result.update(error.details)
+        elif isinstance(error, core.MigrationError):
+            result.update(error.report)
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
     return 0 if result.get("ok") else 2
 
