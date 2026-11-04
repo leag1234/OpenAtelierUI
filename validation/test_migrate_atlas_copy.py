@@ -159,7 +159,7 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
         self.assertEqual((self.source.read_bytes(), (self.uploads / "f1_synthetic.html").read_bytes(), self.template.read_bytes()),
                          (source_before, upload_before, template_before))
 
-    def test_preview_accepts_referenced_upload_above_old_sixteen_mib_bound(self):
+    def test_convert_accepts_referenced_upload_above_old_sixteen_mib_bound(self):
         payload = b"A" * (17 * 1024 * 1024)
         upload = self.uploads / "f1_synthetic.html"
         upload.write_bytes(payload)
@@ -171,9 +171,10 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
         db.commit()
         db.close()
 
-        result = self._run("preview", "above-old-limit")
+        result = self._run("convert", "above-old-limit")
 
         self.assertTrue(result["ok"], result)
+        self.assertTrue(result["target_created"])
         self.assertGreater(result["input_bytes"], 16 * 1024 * 1024)
         self.assertEqual(result["upload_bytes"], len(payload))
         self.assertEqual(result["upload_limit_bytes"], coordinator.core.MAX_UPLOAD_BYTES)
