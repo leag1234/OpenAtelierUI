@@ -277,6 +277,7 @@ class AtlasDropInReportTests(unittest.TestCase):
         between = source[source.index(name):source.index(size)]
         self.assertNotIn("</div>\n\t\t\t</div>", between)
         self.assertIn("{dismissible ? 'pr-5' : ''}", source)
+        self.assertIn('class="flex min-w-0 flex-1 flex-col justify-center', source)
         self.assertIn("aria-label={$i18n.t('Remove file')}", source)
         self.assertIn("focus-visible:outline-blue-600", source)
         self.assertNotIn("group-hover:visible invisible", source)
@@ -307,6 +308,10 @@ class AtlasDropInReportTests(unittest.TestCase):
         self.assertNotIn("regenerate-response-button", delete_block)
         self.assertNotIn("regenerate-response-button", multi)
         self.assertIn('class="truncate text-left" title={title}', navbar)
+        stop_start = composer.index('id="stop-response-button"')
+        stop_context = composer[max(0, stop_start - 250):stop_start + 500]
+        self.assertNotIn("<Tooltip", stop_context)
+        self.assertIn("title={$i18n.t('Stop')}", stop_context)
 
     def test_ollama_version_route_requires_verified_identity(self):
         tree = ast.parse(OLLAMA.read_text(encoding="utf-8"))

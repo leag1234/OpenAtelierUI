@@ -84,7 +84,7 @@
 	{/if}
 
 	{#if !small}
-		<div class="flex flex-col justify-center -space-y-0.5 px-2.5 w-full">
+		<div class="flex min-w-0 flex-1 flex-col justify-center -space-y-0.5 px-2.5">
 			<div class="flex items-center gap-2 mb-1 min-w-0 {dismissible ? 'pr-5' : ''}">
 				<div class="dark:text-gray-100 text-sm font-medium truncate flex-1">
 					{decodeString(name)}
@@ -108,7 +108,7 @@
 		</div>
 	{:else}
 		<Tooltip content={decodeString(name)} className="flex flex-col w-full" placement="top-start">
-			<div class="flex flex-col justify-center -space-y-0.5 px-2.5 w-full">
+			<div class="flex min-w-0 flex-1 flex-col justify-center -space-y-0.5 px-2.5">
 				<div class=" dark:text-gray-100 text-sm flex justify-between items-center">
 					{#if loading}
 						<div class=" shrink-0 mr-2">

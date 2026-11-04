@@ -1189,12 +1189,12 @@
 										{/if}
 
 										{#if exposeResponseControls && ((taskIds && taskIds.length > 0) || (history.currentId && history.messages[history.currentId]?.done != true))}
-											<div class=" flex items-center">
-												<Tooltip content={$i18n.t('Stop')}>
+											<div class="flex items-center">
 													<button
 														id="stop-response-button"
 														class="bg-white hover:bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-800 transition rounded-full p-1.5"
 														aria-label={$i18n.t('Stop')}
+														title={$i18n.t('Stop')}
 														on:click={() => {
 															stopResponse();
 														}}
@@ -1212,7 +1212,6 @@
 															/>
 														</svg>
 													</button>
-												</Tooltip>
 											</div>
 										{:else if prompt === '' && files.length === 0 && ($_user?.role === 'admin' || ($_user?.permissions?.chat?.call ?? true))}
 											<div class=" flex items-center">
