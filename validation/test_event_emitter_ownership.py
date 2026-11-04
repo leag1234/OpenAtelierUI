@@ -97,7 +97,7 @@ class EventEmitterOwnershipTests(unittest.TestCase):
         if self.previous_flag is not None:
             os.environ["OPENATELIER_EVENT_CHANNEL_COMPAT"] = self.previous_flag
 
-    def test_foreign_and_malformed_sessions_are_filtered_with_legacy_channel_once(self):
+    def test_foreign_and_malformed_sessions_are_filtered_on_both_channels(self):
         emitter = self.get_event_emitter({
             "user_id": "user-a",
             "session_id": "foreign",
@@ -106,8 +106,8 @@ class EventEmitterOwnershipTests(unittest.TestCase):
         })
         event = {"type": "progress", "data": {"status": "working"}}
         asyncio.run(emitter(event))
-        self.assertEqual(len(self.socket.emissions), 2)
-        self.assertEqual({item[0] for item in self.socket.emissions}, {"chat-events"})
+        self.assertEqual(len(self.socket.emissions), 4)
+        self.assertEqual({item[0] for item in self.socket.emissions}, {"chat-events", "events"})
         self.assertEqual({item[2] for item in self.socket.emissions}, {"own-a", "own-b"})
         for _, envelope, _ in self.socket.emissions:
             self.assertEqual(envelope, {
@@ -122,8 +122,7 @@ class EventEmitterOwnershipTests(unittest.TestCase):
         self.assertEqual(self.session_pool.lookups.count("own-b"), 2)
         self.assertEqual(self.session_pool.lookups.count("foreign"), 2)
 
-    def test_opt_in_alias_emits_same_envelope_once_on_each_channel(self):
-        os.environ["OPENATELIER_EVENT_CHANNEL_COMPAT"] = "1"
+    def test_alias_emits_same_envelope_once_on_each_channel_without_flag(self):
         emitter = self.get_event_emitter({
             "user_id": "user-a",
             "session_id": "own-a",
@@ -167,7 +166,7 @@ class EventEmitterOwnershipTests(unittest.TestCase):
         })
         status = {"type": "status", "data": {"description": "working"}}
         asyncio.run(emitter(status))
-        self.assertEqual(len(self.socket.emissions), 2)
+        self.assertEqual(len(self.socket.emissions), 4)
         self.assertEqual(len(self.chats.status_updates), 1)
         self.assertEqual(
             self.chats.status_updates[0],

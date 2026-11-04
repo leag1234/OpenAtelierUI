@@ -408,8 +408,11 @@ def get_event_emitter(request_info, update_db=True):
                 "data": event_data,
             }
             await sio.emit("chat-events", envelope, to=session_id)
-            if os.environ.get("OPENATELIER_EVENT_CHANNEL_COMPAT") == "1":
-                await sio.emit("events", envelope, to=session_id)
+            # Passive completion/progress listeners in the established API use
+            # the legacy channel. Emitting the same authorized envelope on both
+            # channels keeps current clients and those integrations synchronized;
+            # interactive calls still select exactly one response channel below.
+            await sio.emit("events", envelope, to=session_id)
 
         if update_db:
             if "type" in event_data and event_data["type"] == "status":
