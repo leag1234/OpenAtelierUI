@@ -416,6 +416,99 @@ class ImporterTests(unittest.TestCase):
                 self.assertTrue(report['fatal'])
                 self.assertIn(blocker, {item['code'] for item in report['blockers']})
 
+    def test_timezone_column_is_preserved_in_user_settings(self):
+        db = sqlite3.connect(self.source)
+        db.execute('ALTER TABLE "user" ADD COLUMN timezone TEXT')
+        db.execute('UPDATE "user" SET timezone=?', ('Europe/Paris',))
+        db.commit(); db.close()
+        report = preview(self.source, self.uploads, self.template)
+        self.assertFalse(report['fatal'], report)
+        self.assertEqual(report['user_timezones']['preserved_count'], 1)
+        self.assertNotIn('unsupported_user_field_timezone', {item['code'] for item in report['blockers']})
+        target = self.root / 'timezone-target'
+        converted = convert(self.source, self.uploads, self.template, target)
+        self.assertFalse(converted['fatal'], converted)
+        db = sqlite3.connect(target / 'webui.db')
+        settings = json.loads(db.execute('SELECT settings FROM "user" WHERE id="u1"').fetchone()[0])
+        db.close()
+        self.assertEqual(settings['timezone'], 'Europe/Paris')
+
+    def test_timezone_column_rejects_invalid_or_conflicting_values(self):
+        cases = (
+            ('bad\x00zone', '{}', 'invalid_user_timezone'),
+            ('Europe/Paris', '{"timezone":"UTC"}', 'user_timezone_settings_conflict'),
+        )
+        for index, (timezone, settings, code) in enumerate(cases):
+            with self.subTest(code=code):
+                source = self.root / f'timezone-invalid-{index}.db'
+                uploads = self.root / f'timezone-invalid-{index}-uploads'
+                build_source(source, uploads)
+                db = sqlite3.connect(source)
+                db.execute('ALTER TABLE "user" ADD COLUMN timezone TEXT')
+                db.execute('UPDATE "user" SET timezone=?,settings=?', (timezone, settings))
+                db.commit(); db.close()
+                report = preview(source, uploads, self.template)
+                self.assertTrue(report['fatal'])
+                self.assertIn(code, {item['code'] for item in report['blockers']})
+
+    def test_usage_disagreement_is_archive_only_under_explicit_partial_mode(self):
+        db = sqlite3.connect(self.source)
+        payload = json.loads(db.execute('SELECT chat FROM "chat" WHERE id="c1"').fetchone()[0])
+        payload['history']['messages']['b']['usage'] = {'prompt_tokens': 7, 'completion_tokens': 2}
+        db.execute('UPDATE chat SET chat=? WHERE id="c1"', (json.dumps(payload),))
+        db.execute('UPDATE chat_message SET usage=? WHERE id="c1-b"',
+                   (json.dumps({'prompt_tokens': 9, 'completion_tokens': 2}),))
+        db.commit(); db.close()
+        strict = preview(self.source, self.uploads, self.template, include_private_chat_metadata=True)
+        self.assertTrue(strict['fatal'])
+        archive = preview(
+            self.source,
+            self.uploads,
+            self.template,
+            include_private_chat_metadata=True,
+            archive_unsupported_domains=True,
+        )
+        mismatch = next(item for item in archive['blockers']
+                        if item['code'] == 'private_chat_metadata_message_field_mismatch_usage')
+        self.assertFalse(archive['fatal'], archive)
+        self.assertFalse(mismatch['fatal'])
+        target = self.root / 'usage-archive-target'
+        converted = convert(
+            self.source,
+            self.uploads,
+            self.template,
+            target,
+            include_private_chat_metadata=True,
+            archive_unsupported_domains=True,
+        )
+        self.assertFalse(converted['fatal'], converted)
+        db = sqlite3.connect(target / 'webui.db')
+        graph = json.loads(db.execute('SELECT chat FROM chat WHERE id="c1"').fetchone()[0])
+        db.close()
+        self.assertEqual(graph['history']['messages']['b']['usage'],
+                         {'prompt_tokens': 7, 'completion_tokens': 2})
+
+        unsafe_source = self.root / 'usage-unsafe-graph.db'
+        unsafe_uploads = self.root / 'usage-unsafe-graph-uploads'
+        build_source(unsafe_source, unsafe_uploads)
+        db = sqlite3.connect(unsafe_source)
+        payload = json.loads(db.execute('SELECT chat FROM "chat" WHERE id="c1"').fetchone()[0])
+        payload['history']['messages']['b']['usage'] = ['not', 'a', 'mapping']
+        db.execute('UPDATE chat SET chat=? WHERE id="c1"', (json.dumps(payload),))
+        db.execute('UPDATE chat_message SET usage=? WHERE id="c1-b"',
+                   (json.dumps({'prompt_tokens': 9}),))
+        db.commit(); db.close()
+        unsafe = preview(
+            unsafe_source,
+            unsafe_uploads,
+            self.template,
+            include_private_chat_metadata=True,
+            archive_unsupported_domains=True,
+        )
+        self.assertTrue(unsafe['fatal'])
+        self.assertIn('private_chat_metadata_invalid_message_usage',
+                      {item['code'] for item in unsafe['blockers']})
+
     def test_opt_in_message_metadata_malformed_values_refuse(self):
         cases = (
             ('done', 'yes', 'private_chat_metadata_invalid_message_done'),

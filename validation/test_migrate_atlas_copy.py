@@ -42,14 +42,16 @@ def add_notes(source):
 def expand_realistic_copy(source, uploads):
     """Expand the minimal fixture to the size and domains reported by Atlas."""
     db = sqlite3.connect(source)
+    db.execute('ALTER TABLE "user" ADD COLUMN timezone TEXT')
     for index in range(2, 11):
         user_id = f"u{index}"
         email = f"u{index}@example.invalid"
         db.execute("INSERT INTO auth VALUES (?,?,?,?,?,?)", (user_id, email, "bcrypt-placeholder", 1, None, None))
         db.execute(
-            "INSERT INTO user VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (user_id, f"Synthetic User {index}", email, "user", "", "t", "t", "t", "{}", "{}", None, None, "{}", "{}", "{}"),
+            "INSERT INTO user VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (user_id, f"Synthetic User {index}", email, "user", "", "t", "t", "t", "{}", "{}", None, None, "{}", "{}", "{}", None),
         )
+        db.execute('UPDATE "user" SET timezone=? WHERE id=?', (f"Etc/GMT+{index - 1}", user_id))
     for index in range(2, 127):
         chat_id = f"c{index}"
         owner = f"u{((index - 1) % 10) + 1}"
@@ -59,9 +61,18 @@ def expand_realistic_copy(source, uploads):
             answer_id: {"id": answer_id, "parentId": question_id, "childrenIds": [], "role": "assistant", "content": f"Answer {index}"},
         }
         payload = {
-            "messages": [{"id": question_id, "role": "user", "content": f"Question {index}"}],
+            "messages": (
+                [{"legacy_preview": True}]
+                if index in {2, 3, 4}
+                else [messages[question_id], messages[answer_id]]
+            ),
             "history": {"messages": messages, "currentId": answer_id},
         }
+        if index == 17:
+            payload["history"]["messages"][answer_id]["usage"] = {
+                "prompt_tokens": 999,
+                "completion_tokens": 2,
+            }
         db.execute(
             "INSERT INTO chat VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (chat_id, owner, f"Synthetic chat {index}", "t", "t", None, 0, json.dumps(payload), 0, "{}", None, "{}", "{}", None, answer_id, "{}", None),
@@ -95,7 +106,7 @@ def expand_realistic_copy(source, uploads):
             (file_id, owner, filename, meta, "t", "{}", "t", f"/app/data/uploads/{file_id}_{filename}"),
         )
     db.execute("CREATE TABLE chat_file(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,chat_id TEXT NOT NULL,file_id TEXT NOT NULL,message_id TEXT,created_at BIGINT NOT NULL,updated_at BIGINT NOT NULL)")
-    for index in range(1, 39):
+    for index in range(1, 2):
         chat_id, file_id = f"c{index}", f"f{index}"
         owner = "u1" if index == 1 else f"u{((index - 1) % 10) + 1}"
         message_id = "q" if index == 1 else f"q{index}"
@@ -119,6 +130,11 @@ def expand_realistic_copy(source, uploads):
     )
     db.execute("UPDATE chat SET folder_id='folder-one' WHERE id='c2'")
     db.execute("UPDATE chat SET share_id='share-one' WHERE id='c3'")
+    db.execute("UPDATE chat SET folder_id='folder-two',share_id='share-one' WHERE id='c4'")
+    db.execute("INSERT INTO access_grant VALUES ('round7-grant','tool','tool-private','user','u1','read',12)")
+    first = json.loads(db.execute("SELECT chat FROM chat WHERE id='c1'").fetchone()[0])
+    first["messages"] = [first["history"]["messages"][node_id] for node_id in ("q", "b")]
+    db.execute("UPDATE chat SET chat=? WHERE id='c1'", (json.dumps(first),))
     db.commit()
     db.close()
 
@@ -305,6 +321,23 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
             "unsupported_nonempty_domain_calendar", "source_schema_mismatch_group",
         ):
             self.assertIn(code, codes)
+        self.assertEqual(core_preview["user_timezones"]["preserved_count"], 9)
+        self.assertEqual(len(core_preview["blockers"]), 15)
+        self.assertEqual(
+            sum(item["code"] == "chat_preview_rebuilt_from_selected_graph"
+                for item in core_preview["blockers"]),
+            3,
+        )
+        self.assertEqual(
+            sum(item["code"] == "private_chat_metadata_requires_unshared_unfoldered_chat"
+                for item in core_preview["blockers"]),
+            3,
+        )
+        self.assertEqual(
+            sum(item["code"] == "private_chat_metadata_message_field_mismatch_usage"
+                for item in core_preview["blockers"]),
+            1,
+        )
         self.assertFalse(core_preview["fatal"])
         result = self._run("convert", "realistic-aux-convert", allow_partial_copy=True)
         self.assertTrue(result["ok"], result)
@@ -314,15 +347,27 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
         self.assertEqual(target.execute("SELECT COUNT(*) FROM file").fetchone()[0], 46)
         self.assertEqual(target.execute("SELECT folder_id,share_id FROM chat WHERE id='c2'").fetchone(), (None, None))
         self.assertEqual(target.execute("SELECT folder_id,share_id FROM chat WHERE id='c3'").fetchone(), (None, None))
+        self.assertEqual(target.execute("SELECT folder_id,share_id FROM chat WHERE id='c4'").fetchone(), (None, None))
+        timezone_rows = target.execute(
+            "SELECT settings FROM user WHERE id<>'u1' ORDER BY id"
+        ).fetchall()
+        self.assertEqual(len(timezone_rows), 9)
+        self.assertTrue(all(json.loads(row[0]).get("timezone") for row in timezone_rows))
         copied = json.loads(target.execute("SELECT chat FROM chat WHERE id='c17'").fetchone()[0])
         answer = copied["history"]["messages"]["a17"]
         self.assertEqual(answer["statusHistory"], [{"action": "tool", "done": True}])
-        self.assertEqual(answer["usage"], {"prompt_tokens": 17, "completion_tokens": 2})
+        self.assertEqual(answer["usage"], {"prompt_tokens": 999, "completion_tokens": 2})
         self.assertEqual(answer["error"], {"message": "synthetic prior error"})
         target.close()
         archive = next(self.root.glob("realistic-aux-convert-target.source-archive-*/source.sqlite"))
         archived = sqlite3.connect(archive)
         self.assertEqual(archived.execute("SELECT COUNT(*) FROM api_key").fetchone()[0], 1)
+        self.assertEqual(
+            json.loads(archived.execute(
+                "SELECT usage FROM chat_message WHERE id='c17-a17'"
+            ).fetchone()[0]),
+            {"prompt_tokens": 17, "completion_tokens": 2},
+        )
         archived.close()
         self.assertEqual(self.source.read_bytes(), before)
 

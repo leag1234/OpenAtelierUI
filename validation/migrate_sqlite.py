@@ -114,6 +114,7 @@ IMPORTED_USER_PROFILE_FIELDS = {"bio", "gender", "date_of_birth"}
 IMPORTED_USER_PROFILE_TYPES = {"bio": "TEXT", "gender": "TEXT", "date_of_birth": "DATE"}
 MAX_IMPORTED_USER_BIO_BYTES = 8192
 MAX_IMPORTED_USER_GENDER_BYTES = 128
+MAX_USER_TIMEZONE_BYTES = 255
 MAX_IMPORTED_API_KEY_ROWS = 1000
 MAX_API_KEY_CONFIG_VALUE_BYTES = 16 * 1024
 MAX_USER_PERMISSIONS_CONFIG_BYTES = 16 * 1024
@@ -266,6 +267,74 @@ def _message_done_value(value: object) -> bool:
     if type(value) is str:
         return value in ("true", "1")
     return False
+
+
+def _user_timezone_settings_overrides(
+    connection: sqlite3.Connection,
+    report: dict | None = None,
+) -> dict[str, str]:
+    """Preserve the later plain timezone column in the old target settings JSON."""
+    if "user" not in _tables(connection) or "timezone" not in _columns(connection, "user"):
+        return {}
+    overrides: dict[str, str] = {}
+    for row in connection.execute('SELECT id,settings,timezone FROM "user" ORDER BY id'):
+        timezone = row["timezone"]
+        if _is_empty(timezone):
+            continue
+        valid_timezone = type(timezone) is str
+        if valid_timezone:
+            try:
+                encoded_timezone = timezone.encode("utf-8", errors="strict")
+                valid_timezone = (
+                    0 < len(encoded_timezone) <= MAX_USER_TIMEZONE_BYTES
+                    and timezone == timezone.strip()
+                    and not any(ord(char) < 32 or ord(char) == 127 for char in timezone)
+                )
+            except UnicodeError:
+                valid_timezone = False
+        try:
+            settings = json.loads(
+                row["settings"] or "{}",
+                object_pairs_hook=_reject_duplicate_json_keys,
+                parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
+            ) if isinstance(row["settings"], str) else row["settings"]
+        except (TypeError, ValueError, UnicodeError, _DuplicateConfigJSONKey):
+            settings = None
+        conflict = (
+            isinstance(settings, dict)
+            and "timezone" in settings
+            and settings["timezone"] != timezone
+        )
+        if not valid_timezone or not isinstance(settings, dict) or conflict:
+            if report is not None:
+                code = "user_timezone_settings_conflict" if conflict else "invalid_user_timezone"
+                _block(report, code, 1, fatal=True)
+                continue
+            raise MigrationError(
+                "user_timezone_validation_changed",
+                "user timezone/settings changed after successful preview",
+            )
+        settings = dict(settings)
+        settings["timezone"] = timezone
+        try:
+            overrides[row["id"]] = json.dumps(
+                settings, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+            )
+        except (TypeError, ValueError, UnicodeError):
+            if report is not None:
+                _block(report, "invalid_user_timezone", 1, fatal=True)
+                continue
+            raise MigrationError(
+                "user_timezone_validation_changed",
+                "user timezone/settings changed after successful preview",
+            )
+    if report is not None and overrides:
+        report["user_timezones"] = {
+            "preserved_count": len(overrides),
+            "target_representation": "user.settings.timezone",
+            "source_column_retained_in_archive": True,
+        }
+    return overrides
 
 
 def _load_pinned_old_defaults() -> tuple[dict, str, str]:
@@ -1763,15 +1832,36 @@ def _private_chat_metadata_overrides(
                     author_invalid = True
                     break
                 parsed, encoded_bytes = decoded
-                json_bytes += encoded_bytes
+                selected_value = parsed
+                selected_bytes = encoded_bytes
+                if graph_field in node:
+                    graph_decoded = _bounded_message_json(node[graph_field], source_field, report)
+                    if graph_decoded is None:
+                        author_invalid = True
+                        break
+                    selected_value, selected_bytes = graph_decoded
+                json_bytes += selected_bytes
                 if json_bytes > MAX_MESSAGE_JSON_TOTAL_BYTES:
                     _block(report, "private_chat_metadata_message_json_too_large", 1, fatal=True)
                     author_invalid = True
                     break
-                if graph_field in node and node[graph_field] != parsed:
-                    _block(report, "private_chat_metadata_message_field_mismatch_" + source_field, 1, fatal=True)
-                    author_invalid = True
-                    break
+                if graph_field in node and selected_value != parsed:
+                    _block(
+                        report,
+                        "private_chat_metadata_message_field_mismatch_" + source_field,
+                        1,
+                        fatal=not archive_unsupported_domains,
+                        detail=(
+                            "validated selected-graph value is preserved; the divergent normalized row "
+                            "remains only in the exact source archive"
+                            if archive_unsupported_domains else None
+                        ),
+                    )
+                    if not archive_unsupported_domains:
+                        author_invalid = True
+                        break
+                    node[graph_field] = selected_value
+                    continue
                 node[graph_field] = parsed
             if author_invalid:
                 break
@@ -1830,9 +1920,20 @@ def _private_chat_metadata_overrides(
             for graph_field in MESSAGE_JSON_FIELDS.values():
                 if graph_field in source_node:
                     if graph_field in item and item[graph_field] != source_node[graph_field]:
-                        _block(report, "private_chat_metadata_flat_message_mismatch_" + graph_field, 1, fatal=True)
-                        author_invalid = True
-                        break
+                        _block(
+                            report,
+                            "private_chat_metadata_flat_message_mismatch_" + graph_field,
+                            1,
+                            fatal=not archive_unsupported_domains,
+                            detail=(
+                                "validated selected-graph value replaces the derived preview value; "
+                                "the original remains in the exact source archive"
+                                if archive_unsupported_domains else None
+                            ),
+                        )
+                        if not archive_unsupported_domains:
+                            author_invalid = True
+                            break
                     item[graph_field] = json.loads(json.dumps(source_node[graph_field], ensure_ascii=False))
             if author_invalid:
                 break
@@ -2563,6 +2664,7 @@ def _inspect_source(
                             if not _valid_nullable_profile_date(row["date_of_birth"]):
                                 _block(report, "invalid_user_profile_date_of_birth", 1, fatal=True)
                                 profile_fields_verified = False
+            timezone_settings = _user_timezone_settings_overrides(connection, report)
             for row in connection.execute('SELECT * FROM "user"'):
                 for field in USER_UNSUPPORTED & set(columns):
                     if (
@@ -2570,6 +2672,8 @@ def _inspect_source(
                         and profile_fields_verified
                         and field in IMPORTED_USER_PROFILE_FIELDS
                     ):
+                        continue
+                    if field == "timezone" and row["id"] in timezone_settings:
                         continue
                     if not _is_empty(row[field]):
                         fatal = field in {"oauth", "scim"}
@@ -3009,12 +3113,13 @@ def _copy_domains(
             "gender": "gender",
             "date_of_birth": "date_of_birth",
         })
+    timezone_settings = _user_timezone_settings_overrides(source)
     counts["user"] = _insert_rows(
         source,
         target,
         "user",
         user_mapping,
-        {"api_key": api_key_overrides or {}},
+        {"api_key": api_key_overrides or {}, "settings": timezone_settings},
     )
     file_paths = {row["id"]: str(runtime_data_root / "uploads" / (row["id"] + "_" + row["filename"])) for row in upload_rows}
     copied_chat = {}
@@ -3227,6 +3332,31 @@ def convert(
             readback_counts = {table: _count(target_readback, table) for table in COPYABLE_TABLES}
             if named_tool_config_data is not None:
                 readback_counts["config"] = _count(target_readback, "config")
+            if report.get("user_timezones", {}).get("preserved_count"):
+                source_timezone = _connect_ro(source)
+                try:
+                    expected_settings = {
+                        identity: json.loads(value)
+                        for identity, value in _user_timezone_settings_overrides(source_timezone).items()
+                    }
+                finally:
+                    source_timezone.close()
+                actual_settings = {
+                    row[0]: json.loads(row[1]) if isinstance(row[1], str) else row[1]
+                    for row in target_readback.execute(
+                        'SELECT id,settings FROM "user" WHERE id IN ({}) ORDER BY id'.format(
+                            ",".join("?" for _ in expected_settings)
+                        ),
+                        tuple(expected_settings),
+                    )
+                }
+                if actual_settings != expected_settings:
+                    raise MigrationError(
+                        "user_timezone_readback_mismatch",
+                        "prepared user timezone settings failed exact readback verification",
+                        report,
+                    )
+                report["user_timezones"]["target_readback_exact"] = True
             if include_user_profile_fields:
                 source_profile = _connect_ro(source)
                 try:
