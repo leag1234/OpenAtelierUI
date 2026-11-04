@@ -48,7 +48,11 @@
 	import NotificationToast from '$lib/components/NotificationToast.svelte';
 	import AppSidebar from '$lib/components/app/AppSidebar.svelte';
 	import { chatCompletion } from '$lib/apis/openai';
-	import { bindChatEventChannel, selectChatEventChannel } from '$lib/utils/chat-session';
+	import {
+		bindChatEventChannel,
+		registerConnectedSocketUser,
+		selectChatEventChannel
+	} from '$lib/utils/chat-session';
 
 	setContext('i18n', i18n);
 
@@ -80,6 +84,7 @@
 
 		_socket.on('connect', () => {
 			console.log('connected', _socket.id);
+			registerConnectedSocketUser(_socket, localStorage.token);
 		});
 
 		_socket.on('reconnect_attempt', (attempt) => {
@@ -579,7 +584,7 @@
 
 					if (sessionUser) {
 						// Save Session User to Store
-						$socket.emit('user-join', { auth: { token: sessionUser.token } });
+						registerConnectedSocketUser($socket, sessionUser.token);
 
 						await user.set(sessionUser);
 						await config.set(await getBackendConfig());

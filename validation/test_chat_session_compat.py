@@ -38,6 +38,14 @@ const handler = () => {};
 const binding = bindChatEventChannel(socket, handler, {event_call_channel:'events'});
 binding.cleanup();
 assert.deepStrictEqual(bound.map(row => row.slice(0,2)), [['on','events'],['off','events']]);
+const registrations = [];
+const registrationSocket = {emit:(event,payload)=>registrations.push([event,payload])};
+assert.strictEqual(registerConnectedSocketUser(registrationSocket, 'synthetic-token'), true);
+assert.deepStrictEqual(registrations, [['user-join',{auth:{token:'synthetic-token'}}]]);
+for (const [socketValue, token] of [[null,'synthetic-token'], [{},'synthetic-token'], [registrationSocket,''], [registrationSocket,null]]) {
+  assert.strictEqual(registerConnectedSocketUser(socketValue, token), false);
+}
+assert.strictEqual(registrations.length, 1);
 assert.strictEqual(normalizeTaskIds({task_id:'legacy'}).join(','), 'legacy');
 assert.deepStrictEqual(normalizeTaskIds({task_ids:['a','',null,'a',4], task_id:'b'}), ['a','b']);
 assert.deepStrictEqual(mergeTaskIds(['a','a'], {task_ids:['b'],task_id:'a'}), ['a','b']);
@@ -129,6 +137,7 @@ assert.strictEqual(chatTaskStopPath('saved/chat 1'), '/api/tasks/chat/saved%2Fch
         self.assertIn("if (chatResultMatchesCurrent(requestedChatId, $chatId)) await goto('/')", chat)
         self.assertIn("connectedSocket = await waitForConnectedSocket(get(socket))", chat)
         self.assertIn("session_id: connectedSocket.id", chat)
+        self.assertIn("registerConnectedSocketUser(_socket, localStorage.token)", layout)
 
     def _chat_function(self, name):
         source = CHAT.read_text(encoding="utf-8")

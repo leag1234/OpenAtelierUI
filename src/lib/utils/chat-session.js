@@ -19,6 +19,20 @@ export function bindChatEventChannel(socket, handler, config) {
 	};
 }
 
+export function registerConnectedSocketUser(socket, token) {
+	if (
+		!socket ||
+		typeof socket.emit !== 'function' ||
+		typeof token !== 'string' ||
+		token.length === 0
+	) {
+		return false;
+	}
+
+	socket.emit('user-join', { auth: { token } });
+	return true;
+}
+
 export function waitForConnectedSocket(socket, timeoutMs = 15000) {
 	if (!socket) return Promise.reject(new Error('socket_unavailable'));
 	if (socket.connected && typeof socket.id === 'string' && socket.id.length > 0) {
