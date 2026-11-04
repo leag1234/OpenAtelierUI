@@ -106,6 +106,24 @@ assert.strictEqual(chatTaskStopPath('saved/chat 1'), '/api/tasks/chat/saved%2Fch
   };
   assert.strictEqual((await waitForConnectedSocket(reconnectingSocket, 50)).id, 'session-after-restart');
   assert.deepStrictEqual(Object.keys(listeners), []);
+  const acknowledged = await confirmConnectedSocketUser({
+    emit: (event, payload, callback) => {
+      assert.strictEqual(event, 'user-join');
+      assert.deepStrictEqual(payload, {auth:{token:'synthetic-token'}});
+      setTimeout(() => callback({id:'synthetic-user',name:'Synthetic User'}), 2);
+    }
+  }, 'synthetic-token', 50);
+  assert.strictEqual(acknowledged.id, 'synthetic-user');
+  let rejectedRegistration;
+  try {
+    await confirmConnectedSocketUser({emit:(_event,_payload,callback)=>callback(null)}, 'synthetic-token', 50);
+  } catch (error) { rejectedRegistration = error; }
+  assert.ok(/socket_registration_rejected/.test(String(rejectedRegistration)));
+  let registrationTimeout;
+  try {
+    await confirmConnectedSocketUser({emit:()=>{}}, 'synthetic-token', 2);
+  } catch (error) { registrationTimeout = error; }
+  assert.ok(/socket_registration_timeout/.test(String(registrationTimeout)));
   const neverSocket = {connected:false,disconnected:false,id:undefined,on:()=>{},off:()=>{}};
   let timeoutError;
   try { await waitForConnectedSocket(neverSocket, 2); } catch (error) { timeoutError = error; }
@@ -136,6 +154,7 @@ assert.strictEqual(chatTaskStopPath('saved/chat 1'), '/api/tasks/chat/saved%2Fch
         self.assertIn("let fetchedChat;", chat)
         self.assertIn("if (chatResultMatchesCurrent(requestedChatId, $chatId)) await goto('/')", chat)
         self.assertIn("connectedSocket = await waitForConnectedSocket(get(socket))", chat)
+        self.assertIn("await confirmConnectedSocketUser(connectedSocket, localStorage.token)", chat)
         self.assertIn("session_id: connectedSocket.id", chat)
         self.assertIn("registerConnectedSocketUser(_socket, localStorage.token)", layout)
 

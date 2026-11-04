@@ -16,6 +16,7 @@
 	import {
 		bindChatEventChannel,
 		chatResultMatchesCurrent,
+		confirmConnectedSocketUser,
 		isEphemeralChatId,
 		mergeTaskIds,
 		normalizeTaskIds,
@@ -1560,6 +1561,7 @@
 		let connectedSocket;
 		try {
 			connectedSocket = await waitForConnectedSocket(get(socket));
+			await confirmConnectedSocketUser(connectedSocket, localStorage.token);
 		} catch (_error) {
 			if (!chatResultMatchesCurrent(_chatId, $chatId)) return;
 			const content = 'The server connection did not recover. Please retry.';

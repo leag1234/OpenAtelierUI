@@ -196,6 +196,27 @@ MESSAGE_UNSUPPORTED = {
     "error", "usage", "created_at", "updated_at", "context_summary", "meta",
 }
 MESSAGE_GRAPH_FIELDS = {"done", "created_at", "updated_at", "model_id"}
+MESSAGE_JSON_FIELDS = {
+    "output": "output",
+    "files": "files",
+    "sources": "sources",
+    "embeds": "embeds",
+    "status_history": "statusHistory",
+    "error": "error",
+    "usage": "usage",
+    "context_summary": "contextSummary",
+    "meta": "meta",
+}
+MESSAGE_JSON_EXPECTED_TYPES = {
+    "files": list,
+    "sources": list,
+    "embeds": list,
+    "status_history": list,
+    "usage": dict,
+    "meta": dict,
+}
+MAX_MESSAGE_JSON_FIELD_BYTES = 1024 * 1024
+MAX_MESSAGE_JSON_TOTAL_BYTES = 4 * 1024 * 1024
 MAX_MESSAGE_MODEL_ID_BYTES = 256
 MAX_MESSAGE_TIMESTAMP = 2534023007999999999
 
@@ -1388,7 +1409,7 @@ def _validate_chat(connection: sqlite3.Connection, report: dict, *, include_priv
             if message.get("role") not in {"user", "assistant", "system", "tool", "function"}:
                 _block(report, "unsupported_message_role", 1, fatal=True)
             for field in MESSAGE_UNSUPPORTED:
-                if include_private_chat_metadata and field in MESSAGE_GRAPH_FIELDS:
+                if include_private_chat_metadata and (field in MESSAGE_GRAPH_FIELDS or field in MESSAGE_JSON_FIELDS):
                     continue
                 if field in message and not _is_empty(message[field]):
                     _block(report, "unsupported_message_field_" + field, 1)
@@ -1593,7 +1614,29 @@ def _safe_chat_file_id(value) -> bool:
     return len(encoded) <= 256 and not any(ord(char) < 32 or 127 <= ord(char) < 160 for char in value)
 
 
-def _private_chat_metadata_overrides(connection: sqlite3.Connection, report: dict) -> dict[str, dict[str, str]]:
+def _bounded_message_json(value, field: str, report: dict):
+    try:
+        parsed = json.loads(
+            value,
+            parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
+        ) if isinstance(value, str) else value
+        encoded = json.dumps(parsed, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
+    except (TypeError, ValueError, UnicodeError):
+        _block(report, "private_chat_metadata_invalid_message_" + field, 1, fatal=True)
+        return None
+    expected = MESSAGE_JSON_EXPECTED_TYPES.get(field)
+    if (expected is not None and not isinstance(parsed, expected)) or len(encoded) > MAX_MESSAGE_JSON_FIELD_BYTES:
+        _block(report, "private_chat_metadata_invalid_message_" + field, 1, fatal=True)
+        return None
+    return parsed, len(encoded)
+
+
+def _private_chat_metadata_overrides(
+    connection: sqlite3.Connection,
+    report: dict,
+    *,
+    archive_unsupported_domains: bool = False,
+) -> dict[str, dict[str, str]]:
     """Prepare only same-owner private chat JSON and the namespaced read marker."""
     profiles = {}
     for row in connection.execute('SELECT id,name FROM "user"'):
@@ -1603,9 +1646,21 @@ def _private_chat_metadata_overrides(connection: sqlite3.Connection, report: dic
     for chat in (dict(row) for row in connection.execute('SELECT * FROM "chat" ORDER BY id')):
         chat_id = chat.get("id")
         owner_id = chat.get("user_id")
-        if chat.get("share_id") is not None or chat.get("folder_id") is not None:
-            _block(report, "private_chat_metadata_requires_unshared_unfoldered_chat", 1, fatal=True)
-            continue
+        clear_share = chat.get("share_id") is not None
+        clear_folder = chat.get("folder_id") is not None
+        if clear_share or clear_folder:
+            _block(
+                report,
+                "private_chat_metadata_requires_unshared_unfoldered_chat",
+                1,
+                fatal=not archive_unsupported_domains,
+                detail=(
+                    "the copied chat is made private and unfoldered; original sharing and folder metadata "
+                    "remain only in the exact source archive"
+                ),
+            )
+            if not archive_unsupported_domains:
+                continue
         if not isinstance(owner_id, str) or owner_id not in profiles:
             _block(report, "private_chat_metadata_owner_profile_missing", 1, fatal=True)
             continue
@@ -1698,6 +1753,28 @@ def _private_chat_metadata_overrides(connection: sqlite3.Connection, report: dic
                     node[field] = value
             if author_invalid:
                 break
+            json_bytes = 0
+            for source_field, graph_field in MESSAGE_JSON_FIELDS.items():
+                value = message.get(source_field)
+                if value is None or _is_empty(value):
+                    continue
+                decoded = _bounded_message_json(value, source_field, report)
+                if decoded is None:
+                    author_invalid = True
+                    break
+                parsed, encoded_bytes = decoded
+                json_bytes += encoded_bytes
+                if json_bytes > MAX_MESSAGE_JSON_TOTAL_BYTES:
+                    _block(report, "private_chat_metadata_message_json_too_large", 1, fatal=True)
+                    author_invalid = True
+                    break
+                if graph_field in node and node[graph_field] != parsed:
+                    _block(report, "private_chat_metadata_message_field_mismatch_" + source_field, 1, fatal=True)
+                    author_invalid = True
+                    break
+                node[graph_field] = parsed
+            if author_invalid:
+                break
             if node.get("role") == "user":
                 node["user_id"] = owner_id
                 node["user"] = dict(profiles[owner_id])
@@ -1750,6 +1827,15 @@ def _private_chat_metadata_overrides(connection: sqlite3.Connection, report: dic
                 item["user"] = dict(profiles[owner_id])
             else:
                 item.pop("user", None)
+            for graph_field in MESSAGE_JSON_FIELDS.values():
+                if graph_field in source_node:
+                    if graph_field in item and item[graph_field] != source_node[graph_field]:
+                        _block(report, "private_chat_metadata_flat_message_mismatch_" + graph_field, 1, fatal=True)
+                        author_invalid = True
+                        break
+                    item[graph_field] = json.loads(json.dumps(source_node[graph_field], ensure_ascii=False))
+            if author_invalid:
+                break
         if author_invalid:
             continue
         marker = {"version": PRIVATE_CHAT_META_VERSION, "last_read_at": read_at}
@@ -1760,6 +1846,8 @@ def _private_chat_metadata_overrides(connection: sqlite3.Connection, report: dic
         overrides[chat_id] = {
             "chat": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
             "meta": json.dumps(metadata, ensure_ascii=False, separators=(",", ":")),
+            "share_id": None if clear_share else chat.get("share_id"),
+            "folder_id": None if clear_folder else chat.get("folder_id"),
         }
     if not report["fatal"]:
         report["private_chat_metadata"] = {
@@ -2565,7 +2653,11 @@ def _inspect_source(
             _validate_chat_file_links(connection, report, file_rows)
         _validate_chat(connection, report, include_private_chat_metadata=include_private_chat_metadata)
         private_chat_overrides = (
-            _private_chat_metadata_overrides(connection, report)
+            _private_chat_metadata_overrides(
+                connection,
+                report,
+                archive_unsupported_domains=archive_unsupported_domains,
+            )
             if (include_private_chat_metadata and not report["fatal"] and valid_required.get("chat")
                     and valid_required.get("chat_message") and valid_required.get("user"))
             else {}
@@ -2940,7 +3032,9 @@ def _copy_domains(
         "created_at": "created_at", "updated_at": "updated_at", "chat": "chat", "pinned": "pinned",
         "meta": "meta", "folder_id": "folder_id",
     }, {"chat": copied_chat or {chat_id: value["chat"] for chat_id, value in (private_chat_overrides or {}).items()},
-        "meta": {chat_id: value["meta"] for chat_id, value in (private_chat_overrides or {}).items()}})
+        "meta": {chat_id: value["meta"] for chat_id, value in (private_chat_overrides or {}).items()},
+        "share_id": {chat_id: value["share_id"] for chat_id, value in (private_chat_overrides or {}).items()},
+        "folder_id": {chat_id: value["folder_id"] for chat_id, value in (private_chat_overrides or {}).items()}})
     counts["file"] = _insert_rows(source, target, "file", {
         "id": "id", "user_id": "user_id", "filename": "filename", "meta": "meta", "created_at": "created_at",
         "hash": "hash", "data": "data", "updated_at": "updated_at", "path": None, "access_control": None,

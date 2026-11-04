@@ -416,7 +416,7 @@ class ImporterTests(unittest.TestCase):
                 self.assertTrue(report['fatal'])
                 self.assertIn(blocker, {item['code'] for item in report['blockers']})
 
-    def test_opt_in_message_metadata_malformed_values_refuse_and_other_fields_stay_unsupported(self):
+    def test_opt_in_message_metadata_malformed_values_refuse(self):
         cases = (
             ('done', 'yes', 'private_chat_metadata_invalid_message_done'),
             ('created_at', '-1', 'private_chat_metadata_invalid_message_created_at'),
@@ -434,11 +434,47 @@ class ImporterTests(unittest.TestCase):
                 self.assertIn(code, {item['code'] for item in report['blockers']})
         db = sqlite3.connect(self.source)
         db.execute("UPDATE chat_message SET done=NULL,created_at=NULL,updated_at=NULL,model_id=NULL")
-        db.execute("UPDATE chat_message SET output='unsupported' WHERE id='c1-b'")
+        db.execute("UPDATE chat_message SET usage='[1]' WHERE id='c1-b'")
         db.commit(); db.close()
         report = preview(self.source, self.uploads, self.template, include_private_chat_metadata=True)
+        self.assertTrue(report['fatal'])
+        self.assertIn('private_chat_metadata_invalid_message_usage', {item['code'] for item in report['blockers']})
+
+    def test_opt_in_preserves_bounded_ordinary_message_json_metadata(self):
+        values = {
+            'output': {'tool': 'synthetic', 'result': [1, 2]},
+            'files': [{'type': 'file', 'id': 'f1', 'name': 'synthetic.html'}],
+            'sources': [{'name': 'Synthetic source', 'url': 'https://example.invalid/source'}],
+            'embeds': [{'title': 'Synthetic embed'}],
+            'status_history': [{'action': 'knowledge_search', 'done': True}],
+            'error': {'message': 'Synthetic prior error'},
+            'usage': {'prompt_tokens': 3, 'completion_tokens': 5},
+            'context_summary': {'summary': 'Synthetic context'},
+            'meta': {'synthetic': True},
+        }
+        db = sqlite3.connect(self.source)
+        assignments = ','.join(f'{field}=?' for field in values)
+        db.execute(
+            f'UPDATE chat_message SET {assignments} WHERE id=?',
+            tuple(json.dumps(value) for value in values.values()) + ('c1-b',),
+        )
+        db.commit(); db.close()
+        target = self.root / 'message-json-target'
+        report = convert(
+            self.source,
+            self.uploads,
+            self.template,
+            target,
+            include_private_chat_metadata=True,
+        )
         self.assertFalse(report['fatal'])
-        self.assertIn('unsupported_message_field_output', {item['code'] for item in report['blockers']})
+        db = sqlite3.connect(target / 'webui.db')
+        graph = json.loads(db.execute("SELECT chat FROM chat WHERE id='c1'").fetchone()[0])
+        db.close()
+        answer = graph['history']['messages']['b']
+        expected_names = {'status_history': 'statusHistory', 'context_summary': 'contextSummary'}
+        for source_name, value in values.items():
+            self.assertEqual(answer[expected_names.get(source_name, source_name)], value)
 
     def test_opt_in_private_chat_metadata_preserves_branches_authors_and_read_marker(self):
         add_second_private_chat(self.source)

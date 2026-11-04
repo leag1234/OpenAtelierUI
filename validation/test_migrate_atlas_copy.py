@@ -71,6 +71,18 @@ def expand_realistic_copy(source, uploads):
                 "INSERT INTO chat_message VALUES (?,?,?,?,?,?,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL)",
                 (f"{chat_id}-{node_id}", chat_id, owner, node["role"], node["parentId"], json.dumps(node["content"])),
             )
+            if node["role"] == "assistant":
+                db.execute(
+                    "UPDATE chat_message SET output=?,status_history=?,usage=?,files=?,error=? WHERE id=?",
+                    (
+                        json.dumps({"tool": "synthetic", "result": index}),
+                        json.dumps([{"action": "tool", "done": True}]),
+                        json.dumps({"prompt_tokens": index, "completion_tokens": 2}),
+                        json.dumps([]),
+                        json.dumps({"message": "synthetic prior error"}) if index % 17 == 0 else None,
+                        f"{chat_id}-{node_id}",
+                    ),
+                )
     for index in range(2, 47):
         file_id = f"f{index}"
         owner = f"u{((index - 1) % 10) + 1}"
@@ -105,6 +117,8 @@ def expand_realistic_copy(source, uploads):
         'DROP TABLE IF EXISTS "group"; CREATE TABLE "group"(id TEXT); INSERT INTO "group" VALUES("unsupported-group");'
         'DROP TABLE IF EXISTS group_member; CREATE TABLE group_member(id TEXT);'
     )
+    db.execute("UPDATE chat SET folder_id='folder-one' WHERE id='c2'")
+    db.execute("UPDATE chat SET share_id='share-one' WHERE id='c3'")
     db.commit()
     db.close()
 
@@ -298,6 +312,13 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
         self.assertEqual(target.execute("SELECT COUNT(*) FROM user").fetchone()[0], 10)
         self.assertEqual(target.execute("SELECT COUNT(*) FROM chat").fetchone()[0], 126)
         self.assertEqual(target.execute("SELECT COUNT(*) FROM file").fetchone()[0], 46)
+        self.assertEqual(target.execute("SELECT folder_id,share_id FROM chat WHERE id='c2'").fetchone(), (None, None))
+        self.assertEqual(target.execute("SELECT folder_id,share_id FROM chat WHERE id='c3'").fetchone(), (None, None))
+        copied = json.loads(target.execute("SELECT chat FROM chat WHERE id='c17'").fetchone()[0])
+        answer = copied["history"]["messages"]["a17"]
+        self.assertEqual(answer["statusHistory"], [{"action": "tool", "done": True}])
+        self.assertEqual(answer["usage"], {"prompt_tokens": 17, "completion_tokens": 2})
+        self.assertEqual(answer["error"], {"message": "synthetic prior error"})
         target.close()
         archive = next(self.root.glob("realistic-aux-convert-target.source-archive-*/source.sqlite"))
         archived = sqlite3.connect(archive)

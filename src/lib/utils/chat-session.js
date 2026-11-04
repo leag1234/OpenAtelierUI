@@ -33,6 +33,43 @@ export function registerConnectedSocketUser(socket, token) {
 	return true;
 }
 
+export function confirmConnectedSocketUser(socket, token, timeoutMs = 5000) {
+	if (
+		!socket ||
+		typeof socket.emit !== 'function' ||
+		typeof token !== 'string' ||
+		token.length === 0
+	) {
+		return Promise.reject(new Error('socket_registration_unavailable'));
+	}
+
+	return new Promise((resolve, reject) => {
+		let settled = false;
+		const finish = (error, acknowledgement) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			if (error) reject(error);
+			else resolve(acknowledgement);
+		};
+		const timer = setTimeout(
+			() => finish(new Error('socket_registration_timeout')),
+			timeoutMs
+		);
+		socket.emit('user-join', { auth: { token } }, (acknowledgement) => {
+			if (
+				acknowledgement &&
+				typeof acknowledgement.id === 'string' &&
+				acknowledgement.id.length > 0
+			) {
+				finish(null, acknowledgement);
+			} else {
+				finish(new Error('socket_registration_rejected'));
+			}
+		});
+	});
+}
+
 export function waitForConnectedSocket(socket, timeoutMs = 15000) {
 	if (!socket) return Promise.reject(new Error('socket_unavailable'));
 	if (socket.connected && typeof socket.id === 'string' && socket.id.length > 0) {
