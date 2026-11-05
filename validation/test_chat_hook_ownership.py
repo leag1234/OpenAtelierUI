@@ -76,6 +76,7 @@ class ChatHookOwnershipTests(unittest.TestCase):
             "HTTPException": HTTPError,
             "status": type("Status", (), {"HTTP_404_NOT_FOUND": 404, "HTTP_400_BAD_REQUEST": 400}),
             "Chats": self.chats,
+            "_authorize_direct_model": lambda _request, item, _form, _user: item,
             "chat_completed_handler": completed,
             "chat_action_handler": action,
         })

@@ -204,6 +204,12 @@ def access_grants_for_acl(access_control, resource_type, resource_id, created_at
 
 
 def _route_namespace():
+    class HistoryNotFound(Exception):
+        pass
+
+    class HistoryUnavailable(Exception):
+        pass
+
     return {
         "Depends": lambda value: value,
         "get_verified_user": lambda: None,
@@ -221,6 +227,11 @@ def _route_namespace():
         "Models": ModelStore,
         "has_access": has_access,
         "access_grants_for_acl": access_grants_for_acl,
+        "DATA_DIR": pathlib.Path("/synthetic-data"),
+        "DATABASE_URL": "sqlite:////synthetic-data/webui.db",
+        "HistoryNotFound": HistoryNotFound,
+        "HistoryUnavailable": HistoryUnavailable,
+        "get_imported_model_current_version_id": lambda *_args: (_ for _ in ()).throw(HistoryNotFound()),
     }
 
 

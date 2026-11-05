@@ -90,9 +90,17 @@ def _source_head(connection: sqlite3.Connection) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _known_missing_model_version(connection: sqlite3.Connection, missing: set[str]) -> bool:
-    """Accept the measured v0.11.3 active-model shape without inventing history."""
-    return missing == {"version_id"} and _source_head(connection) == V0113_ALEMBIC_HEAD
+def _known_missing_object_version(
+    connection: sqlite3.Connection,
+    kind: str,
+    missing: set[str],
+) -> bool:
+    """Accept the measured v0.11.3 tool/model shape without inventing history."""
+    return (
+        kind in {"tool", "model"}
+        and missing == {"version_id"}
+        and _source_head(connection) == V0113_ALEMBIC_HEAD
+    )
 
 TARGET_REQUIRED = {
     "alembic_version": {"version_num"},
@@ -100,7 +108,7 @@ TARGET_REQUIRED = {
     "user": {"id", "name", "email", "role", "profile_image_url", "api_key", "created_at", "updated_at", "last_active_at", "settings", "info", "oauth_sub"},
     "chat": {"id", "user_id", "title", "created_at", "updated_at", "share_id", "archived", "chat", "pinned", "meta", "folder_id"},
     "file": {"id", "user_id", "filename", "meta", "created_at", "hash", "data", "updated_at", "path", "access_control"},
-    "folder": {"id", "parent_id", "user_id", "name", "items", "meta", "is_expanded", "created_at", "updated_at"},
+    "folder": {"id", "parent_id", "user_id", "name", "items", "meta", "data", "is_expanded", "created_at", "updated_at"},
     "function": {"id", "user_id", "name", "type", "content", "meta", "created_at", "updated_at", "valves", "is_active", "is_global"},
     "tool": {"id", "user_id", "name", "content", "specs", "meta", "valves", "access_control", "updated_at", "created_at"},
     "model": {"id", "user_id", "base_model_id", "name", "params", "meta", "access_control", "is_active", "updated_at", "created_at"},
@@ -1817,15 +1825,43 @@ def _bounded_message_json(value, field: str, report: dict):
     return parsed, len(encoded)
 
 
-FOLDER_REQUIRED = {"id", "parent_id", "user_id", "name", "items", "meta", "is_expanded", "created_at", "updated_at"}
+FOLDER_LEGACY_COLUMNS = {
+    "id", "parent_id", "user_id", "name", "items", "meta", "is_expanded",
+    "created_at", "updated_at",
+}
+FOLDER_V0113_COLUMNS = FOLDER_LEGACY_COLUMNS | {"data"}
+MAX_FOLDER_JSON_BYTES = 1024 * 1024
+
+
+def _parse_nullable_folder_json(value, field: str, report: dict):
+    """Return a bounded JSON container, treating JSON null as SQL NULL."""
+    if value is None:
+        return None
+    try:
+        parsed = json.loads(value) if isinstance(value, str) else value
+        if parsed is None:
+            return None
+        encoded = json.dumps(
+            parsed,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeError):
+        _block(report, "invalid_folder_" + field, 1, fatal=True)
+        return None
+    if not isinstance(parsed, (dict, list)) or len(encoded) > MAX_FOLDER_JSON_BYTES:
+        _block(report, "invalid_folder_" + field, 1, fatal=True)
+        return None
+    return parsed
 
 
 def _validate_folders(connection: sqlite3.Connection, report: dict, user_ids: set[str]) -> None:
     """Validate the representable folder forest and its chat references."""
     if "folder" not in _tables(connection):
         return
-    expected = FOLDER_REQUIRED
-    if set(_columns(connection, "folder")) != expected:
+    columns = set(_columns(connection, "folder"))
+    if columns not in (FOLDER_LEGACY_COLUMNS, FOLDER_V0113_COLUMNS):
         _block(report, "source_schema_mismatch_folder", 1, fatal=True)
         return
     rows = [dict(row) for row in connection.execute('SELECT * FROM "folder" ORDER BY id')]
@@ -1846,18 +1882,9 @@ def _validate_folders(connection: sqlite3.Connection, report: dict, user_ids: se
             _block(report, "invalid_folder_name", 1, fatal=True)
         if row.get("is_expanded") not in (0, 1, False, True, None):
             _block(report, "invalid_folder_expanded_flag", 1, fatal=True)
-        for field in ("items", "meta"):
-            value = row.get(field)
-            if value is None:
-                continue
-            try:
-                parsed = json.loads(value) if isinstance(value, str) else value
-                encoded = json.dumps(parsed, allow_nan=False, separators=(",", ":")).encode("utf-8")
-            except (TypeError, ValueError, UnicodeError):
-                _block(report, "invalid_folder_" + field, 1, fatal=True)
-                continue
-            if not isinstance(parsed, (dict, list)) or len(encoded) > 1024 * 1024:
-                _block(report, "invalid_folder_" + field, 1, fatal=True)
+        for field in ("items", "meta", "data"):
+            if field in columns:
+                _parse_nullable_folder_json(row.get(field), field, report)
     for identity, row in by_id.items():
         parent = row.get("parent_id")
         if parent is not None:
@@ -2307,7 +2334,7 @@ def _validate_object_domains(
             missing == {"version_id"}
             and (
                 _count(connection, kind) == 0
-                or (kind == "model" and _known_missing_model_version(connection, missing))
+                or _known_missing_object_version(connection, kind, missing)
             )
         )
         if (missing and not allowed_missing_version) or cols - (required | {"version_id"}):
@@ -2758,7 +2785,7 @@ def _inspect_source(
                 and missing == {"version_id"}
                 and (
                     _count(connection, table) == 0
-                    or (table == "model" and _known_missing_model_version(connection, missing))
+                    or _known_missing_object_version(connection, table, missing)
                 )
             )
             if table not in tables or (missing and not allowed_missing_version):
@@ -2802,7 +2829,7 @@ def _inspect_source(
                     and missing == {"version_id"}
                     and (
                         _count(connection, name) == 0
-                        or (name == "model" and _known_missing_model_version(connection, missing))
+                        or _known_missing_object_version(connection, name, missing)
                     )
                 )
             )
@@ -3278,6 +3305,23 @@ def _insert_rows(source: sqlite3.Connection, target: sqlite3.Connection, table: 
     return len(source_rows)
 
 
+def _folder_json_overrides(source: sqlite3.Connection) -> dict[str, dict]:
+    """Canonicalize validated folder JSON and map JSON null to SQL NULL."""
+    columns = set(_columns(source, "folder"))
+    fields = [field for field in ("items", "meta", "data") if field in columns]
+    overrides = {field: {} for field in fields}
+    for row in source.execute('SELECT * FROM "folder" ORDER BY id'):
+        for field in fields:
+            value = row[field]
+            parsed = json.loads(value) if isinstance(value, str) else value
+            overrides[field][row["id"]] = (
+                None
+                if parsed is None
+                else json.dumps(parsed, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+            )
+    return overrides
+
+
 def _copy_domains(
     source: sqlite3.Connection,
     target: sqlite3.Connection,
@@ -3316,11 +3360,13 @@ def _copy_domains(
         user_mapping,
         {"api_key": api_key_overrides or {}, "settings": timezone_settings},
     )
+    source_folder_columns = set(_columns(source, "folder"))
     counts["folder"] = _insert_rows(source, target, "folder", {
         "id": "id", "parent_id": "parent_id", "user_id": "user_id", "name": "name",
-        "items": "items", "meta": "meta", "is_expanded": "is_expanded",
+        "items": "items", "meta": "meta", "data": "data" if "data" in source_folder_columns else None,
+        "is_expanded": "is_expanded",
         "created_at": "created_at", "updated_at": "updated_at",
-    })
+    }, _folder_json_overrides(source))
     file_paths = {row["id"]: str(runtime_data_root / "uploads" / (row["id"] + "_" + row["filename"])) for row in upload_rows}
     copied_chat = {}
     for chat_id, values in (private_chat_overrides or {}).items():

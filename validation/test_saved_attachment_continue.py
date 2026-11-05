@@ -35,7 +35,11 @@ def extract_arrow(source: str, name: str) -> str:
 def extract_messages_list(source: str) -> str:
     start = source.index("export const createMessagesList = ")
     end = source.index("\n};", start) + 3
-    return source[start:end].replace("export const ", "const ", 1)
+    return (
+        source[start:end]
+        .replace("export const ", "const ", 1)
+        .replace("message?.parentId", "message && message.parentId")
+    )
 
 
 class SavedAttachmentContinueTests(unittest.TestCase):
@@ -47,6 +51,13 @@ class SavedAttachmentContinueTests(unittest.TestCase):
         block_start = chat_source.index("\t\tlet files = JSON.parse(JSON.stringify(chatFiles));", chat_source.index("const sendPromptSocket"))
         block_end = chat_source.index("\n\t\tscrollToBottom();", block_start)
         file_selection = chat_source[block_start:block_end]
+        # The workstation's system Node can predate optional chaining. This
+        # fixture-only rewrite preserves the exercised selection semantics.
+        file_selection = (
+            file_selection
+            .replace("userMessage?.files ?? []", "(userMessage && userMessage.files) || []")
+            .replace("responseMessage?.files ?? []", "(responseMessage && responseMessage.files) || []")
+        )
         self.assertIn("files: (files?.length ?? 0) > 0 ? files : undefined", chat_source)
         self.assertIn('"files": form_data.get("files", None)', (BASE / "backend/open_webui/main.py").read_text(encoding="utf-8"))
 
@@ -56,7 +67,7 @@ const assert = require('assert');
 const selectedFile = {type:'file', id:'synthetic-owned-file', name:'Community workshop.txt', status:'uploaded'};
 const unselectedFile = {type:'file', id:'synthetic-other-branch-file', name:'Other branch.txt', status:'uploaded'};
 const chatContent = {files:[selectedFile]};
-let chatFiles = chatContent?.files ?? [];
+let chatFiles = chatContent && chatContent.files ? chatContent.files : [];
 const history = {currentId:'selected-answer', messages:{
   root:{id:'root', parentId:null, role:'user', content:'Question', files:[selectedFile]},
   'selected-answer':{id:'selected-answer', parentId:'root', role:'assistant', content:'Answer', files:[]},

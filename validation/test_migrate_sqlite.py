@@ -38,7 +38,7 @@ def build_source(path: Path, uploads: Path, *, blocked: bool = False, bad_chat: 
       CREATE TABLE chat(id TEXT, user_id TEXT, title TEXT, created_at TEXT, updated_at TEXT, share_id TEXT, archived INTEGER, chat TEXT, pinned INTEGER, meta TEXT, folder_id TEXT, tasks TEXT, summary TEXT, last_read_at INTEGER, current_message_id TEXT, variables TEXT, timer_at TEXT);
       CREATE TABLE chat_message(id TEXT, chat_id TEXT, user_id TEXT, role TEXT, parent_id TEXT, content TEXT, output TEXT, model_id TEXT, files TEXT, sources TEXT, embeds TEXT, done TEXT, status_history TEXT, error TEXT, usage TEXT, created_at TEXT, updated_at TEXT, context_summary TEXT, meta TEXT);
       CREATE TABLE file(id TEXT, user_id TEXT, filename TEXT, meta TEXT, created_at TEXT, hash TEXT, data TEXT, updated_at TEXT, path TEXT);
-      CREATE TABLE folder(id TEXT PRIMARY KEY,parent_id TEXT,user_id TEXT,name TEXT,items JSON,meta JSON,is_expanded BOOLEAN,created_at BIGINT,updated_at BIGINT);
+      CREATE TABLE folder(id TEXT PRIMARY KEY,parent_id TEXT,user_id TEXT,name TEXT,items JSON,meta JSON,data JSON,is_expanded BOOLEAN,created_at BIGINT,updated_at BIGINT);
       CREATE TABLE function(id TEXT, user_id TEXT, name TEXT, type TEXT, content TEXT, meta TEXT, created_at TEXT, updated_at TEXT, valves TEXT, is_active INTEGER, is_global INTEGER, version_id TEXT);
       CREATE TABLE function_history(id TEXT, function_id TEXT, content TEXT);
       CREATE TABLE tool(id TEXT, user_id TEXT, name TEXT, content TEXT, specs TEXT, meta TEXT, valves TEXT, updated_at INTEGER, created_at INTEGER, version_id TEXT);
@@ -111,7 +111,7 @@ def build_template(path: Path) -> None:
       CREATE TABLE user(id TEXT, name TEXT, email TEXT, role TEXT, profile_image_url TEXT, api_key TEXT, created_at TEXT, updated_at TEXT, last_active_at TEXT, settings TEXT, info TEXT, oauth_sub TEXT);
       CREATE TABLE chat(id TEXT, user_id TEXT, title TEXT, created_at TEXT, updated_at TEXT, share_id TEXT, archived INTEGER, chat TEXT, pinned INTEGER, meta TEXT, folder_id TEXT);
       CREATE TABLE file(id TEXT, user_id TEXT, filename TEXT, meta TEXT, created_at TEXT, hash TEXT, data TEXT, updated_at TEXT, path TEXT, access_control TEXT);
-      CREATE TABLE folder(id TEXT PRIMARY KEY,parent_id TEXT,user_id TEXT,name TEXT,items JSON,meta JSON,is_expanded BOOLEAN,created_at BIGINT,updated_at BIGINT);
+      CREATE TABLE folder(id TEXT PRIMARY KEY,parent_id TEXT,user_id TEXT,name TEXT,items JSON,meta JSON,data JSON,is_expanded BOOLEAN,created_at BIGINT,updated_at BIGINT);
       CREATE TABLE function(id TEXT, user_id TEXT, name TEXT, type TEXT, content TEXT, meta TEXT, created_at TEXT, updated_at TEXT, valves TEXT, is_active INTEGER, is_global INTEGER);
       CREATE TABLE tool(id TEXT, user_id TEXT, name TEXT, content TEXT, specs TEXT, meta TEXT, valves TEXT, access_control TEXT, updated_at INTEGER, created_at INTEGER);
       CREATE TABLE model(id TEXT, user_id TEXT, base_model_id TEXT, name TEXT, params TEXT, meta TEXT, access_control TEXT, is_active INTEGER, updated_at INTEGER, created_at INTEGER);

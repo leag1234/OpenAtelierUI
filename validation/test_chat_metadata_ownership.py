@@ -142,6 +142,7 @@ class ChatMetadataOwnershipTests(unittest.TestCase):
             "ProviderErrorResponse": ProviderErrorResponse,
             "StreamingResponse": StreamingResponse,
             "log": LogStub(),
+            "_authorize_direct_model": lambda _request, item, _form, _user: item,
         }
         self.route = extract(MAIN_SOURCE, {"chat_completion"}, namespace)["chat_completion"]
 

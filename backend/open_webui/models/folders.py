@@ -29,6 +29,7 @@ class Folder(Base):
     name = Column(Text)
     items = Column(JSON, nullable=True)
     meta = Column(JSON, nullable=True)
+    data = Column(JSON, nullable=True)
     is_expanded = Column(Boolean, default=False)
     created_at = Column(BigInteger)
     updated_at = Column(BigInteger)
@@ -41,6 +42,7 @@ class FolderModel(BaseModel):
     name: str
     items: Optional[dict] = None
     meta: Optional[dict] = None
+    data: Optional[dict] = None
     is_expanded: bool = False
     created_at: int
     updated_at: int

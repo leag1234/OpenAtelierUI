@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import importlib.util
+import json
 from pathlib import Path
 import sqlite3
 import sys
@@ -40,11 +41,11 @@ class FolderMigrationSafetyTests(unittest.TestCase):
         build_source(self.source, self.uploads)
         build_template(self.template)
 
-    def add_folder(self, identity="folder", parent=None, owner="u1"):
+    def add_folder(self, identity="folder", parent=None, owner="u1", *, items="[]", meta="{}", data="{}"):
         db = sqlite3.connect(self.source)
         db.execute(
-            "INSERT INTO folder VALUES (?,?,?,?,?,?,?,?,?)",
-            (identity, parent, owner, identity, "[]", "{}", 0, 10, 11),
+            "INSERT INTO folder VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (identity, parent, owner, identity, items, meta, data, 0, 10, 11),
         )
         db.commit()
         db.close()
@@ -74,6 +75,50 @@ class FolderMigrationSafetyTests(unittest.TestCase):
         codes = self.blocker_codes()
         self.assertIn("folder_owner_missing", codes)
         self.assertIn("chat_folder_owner_mismatch", codes)
+
+    def test_v0113_json_null_and_data_are_preserved(self):
+        folder_data = {"files": ["f1"], "system_prompt": "Synthetic prompt", "model_ids": ["model-private"]}
+        self.add_folder(items="null", meta="null", data=json.dumps(folder_data))
+        db = sqlite3.connect(self.source)
+        db.execute("UPDATE chat SET folder_id='folder' WHERE id='c1'")
+        db.commit()
+        db.close()
+        report = migrate_sqlite.convert(self.source, self.uploads, self.template, self.root / "target")
+        self.assertFalse(report["fatal"])
+        target = sqlite3.connect(self.root / "target" / "webui.db")
+        row = target.execute("SELECT items,meta,data FROM folder WHERE id='folder'").fetchone()
+        target.close()
+        self.assertEqual(row[0:2], (None, None))
+        self.assertEqual(json.loads(row[2]), folder_data)
+
+    def test_legacy_nine_column_folder_shape_remains_supported(self):
+        db = sqlite3.connect(self.source)
+        db.execute("ALTER TABLE folder RENAME TO folder_current")
+        db.execute("CREATE TABLE folder(id TEXT PRIMARY KEY,parent_id TEXT,user_id TEXT,name TEXT,items JSON,meta JSON,is_expanded BOOLEAN,created_at BIGINT,updated_at BIGINT)")
+        db.execute("DROP TABLE folder_current")
+        db.execute("INSERT INTO folder VALUES ('legacy',NULL,'u1','Legacy','[]','{}',0,10,11)")
+        db.commit()
+        db.close()
+        self.assertNotIn("source_schema_mismatch_folder", self.blocker_codes())
+
+    def test_unknown_folder_column_is_fatal(self):
+        db = sqlite3.connect(self.source)
+        db.execute("ALTER TABLE folder ADD COLUMN unknown_future_value TEXT")
+        db.commit()
+        db.close()
+        self.assertIn("source_schema_mismatch_folder", self.blocker_codes())
+
+    def test_scalar_folder_data_is_fatal(self):
+        self.add_folder(data='"not-an-object"')
+        self.assertIn("invalid_folder_data", self.blocker_codes())
+
+    def test_malformed_folder_data_is_fatal(self):
+        self.add_folder(data='{"files": [}')
+        self.assertIn("invalid_folder_data", self.blocker_codes())
+
+    def test_oversized_folder_data_is_fatal(self):
+        self.add_folder(data=json.dumps({"value": "x" * migrate_sqlite.MAX_FOLDER_JSON_BYTES}))
+        self.assertIn("invalid_folder_data", self.blocker_codes())
 
 
 class BrowserContractSourceTests(unittest.TestCase):

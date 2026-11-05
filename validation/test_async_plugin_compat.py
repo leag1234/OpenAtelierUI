@@ -184,6 +184,9 @@ def load_main(
         "ProviderErrorResponse": type("ProviderErrorResponse", (), {}),
         "StreamingResponse": streaming_response_class or type("StreamingResponse", (), {}),
         "log": type("Log", (), {"debug": staticmethod(lambda *_args: None)})(),
+        # Direct-model authorization is covered independently. Keep this
+        # source-extracted compatibility harness focused on async dispatch.
+        "_authorize_direct_model": lambda _request, item, _form, _user: item,
     }
     route = extract_functions(
         MAIN_SOURCE,
@@ -384,6 +387,7 @@ class AsyncPluginCompatTests(unittest.TestCase):
                     "create_task": self.tasks["create_task"],
                     "ProviderErrorResponse": type("ProviderErrorResponse", (), {}),
                     "log": type("Log", (), {"debug": staticmethod(lambda *_args: None)})(),
+                    "_authorize_direct_model": lambda _request, item, _form, _user: item,
                 },
             )
             request = FakeRequest({"synthetic-pipe": model})
