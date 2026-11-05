@@ -51,7 +51,17 @@ def expand_realistic_copy(source, uploads):
             "INSERT INTO user VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (user_id, f"Synthetic User {index}", email, "user", "", "t", "t", "t", "{}", "{}", None, None, "{}", "{}", "{}", None),
         )
-        db.execute('UPDATE "user" SET timezone=? WHERE id=?', (f"Etc/GMT+{index - 1}", user_id))
+        timezone = (
+            sqlite3.Binary(b"legacy-not-text") if index == 2
+            else "bad\x00zone" if index == 3
+            else f"Etc/GMT+{index - 1}"
+        )
+        settings = (
+            '{"theme":"dark"}' if index == 2
+            else '{"notifications":true}' if index == 3
+            else "{}"
+        )
+        db.execute('UPDATE "user" SET timezone=?,settings=? WHERE id=?', (timezone, settings, user_id))
     for index in range(2, 127):
         chat_id = f"c{index}"
         owner = f"u{((index - 1) % 10) + 1}"
@@ -128,13 +138,14 @@ def expand_realistic_copy(source, uploads):
         'DROP TABLE IF EXISTS "group"; CREATE TABLE "group"(id TEXT); INSERT INTO "group" VALUES("unsupported-group");'
         'DROP TABLE IF EXISTS group_member; CREATE TABLE group_member(id TEXT);'
     )
-    db.execute("UPDATE chat SET folder_id='folder-one' WHERE id='c2'")
-    db.execute("UPDATE chat SET share_id='share-one' WHERE id='c3'")
-    db.execute("UPDATE chat SET folder_id='folder-two',share_id='share-one' WHERE id='c4'")
     db.execute("INSERT INTO access_grant VALUES ('round7-grant','tool','tool-private','user','u1','read',12)")
     first = json.loads(db.execute("SELECT chat FROM chat WHERE id='c1'").fetchone()[0])
     first["messages"] = [first["history"]["messages"][node_id] for node_id in ("q", "b")]
     db.execute("UPDATE chat SET chat=? WHERE id='c1'", (json.dumps(first),))
+    db.execute(
+        "UPDATE chat_message SET usage=? WHERE id='c17-a17'",
+        (json.dumps({"prompt_tokens": 999, "completion_tokens": 2}),),
+    )
     db.commit()
     db.close()
 
@@ -321,24 +332,24 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
             "unsupported_nonempty_domain_calendar", "source_schema_mismatch_group",
         ):
             self.assertIn(code, codes)
-        self.assertEqual(core_preview["user_timezones"]["preserved_count"], 9)
-        self.assertEqual(len(core_preview["blockers"]), 15)
+        self.assertEqual(core_preview["user_timezones"]["preserved_count"], 7)
+        self.assertEqual(core_preview["user_timezones"]["reset_to_existing_or_default_count"], 2)
+        self.assertEqual(len(core_preview["blockers"]), 13)
         self.assertEqual(
             sum(item["code"] == "chat_preview_rebuilt_from_selected_graph"
                 for item in core_preview["blockers"]),
             3,
         )
         self.assertEqual(
-            sum(item["code"] == "private_chat_metadata_requires_unshared_unfoldered_chat"
-                for item in core_preview["blockers"]),
-            3,
+            sum(item["code"] == "invalid_user_timezone" for item in core_preview["blockers"]),
+            2,
         )
-        self.assertEqual(
-            sum(item["code"] == "private_chat_metadata_message_field_mismatch_usage"
-                for item in core_preview["blockers"]),
-            1,
+        self.assertNotIn(
+            "unsupported_user_field_timezone",
+            {item["code"] for item in core_preview["blockers"]},
         )
         self.assertFalse(core_preview["fatal"])
+        self.assertEqual(preview["core_fatal_blocker_count"], 0)
         result = self._run("convert", "realistic-aux-convert", allow_partial_copy=True)
         self.assertTrue(result["ok"], result)
         target = sqlite3.connect(self.root / "realistic-aux-convert-target" / "webui.db")
@@ -349,10 +360,17 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
         self.assertEqual(target.execute("SELECT folder_id,share_id FROM chat WHERE id='c3'").fetchone(), (None, None))
         self.assertEqual(target.execute("SELECT folder_id,share_id FROM chat WHERE id='c4'").fetchone(), (None, None))
         timezone_rows = target.execute(
-            "SELECT settings FROM user WHERE id<>'u1' ORDER BY id"
+            "SELECT settings FROM user WHERE id IN ('u4','u5','u6','u7','u8','u9','u10') ORDER BY id"
         ).fetchall()
-        self.assertEqual(len(timezone_rows), 9)
+        self.assertEqual(len(timezone_rows), 7)
         self.assertTrue(all(json.loads(row[0]).get("timezone") for row in timezone_rows))
+        reset_rows = target.execute(
+            "SELECT id,settings FROM user WHERE id IN ('u2','u3') ORDER BY id"
+        ).fetchall()
+        self.assertEqual(
+            [(row[0], json.loads(row[1])) for row in reset_rows],
+            [("u2", {"theme": "dark"}), ("u3", {"notifications": True})],
+        )
         copied = json.loads(target.execute("SELECT chat FROM chat WHERE id='c17'").fetchone()[0])
         answer = copied["history"]["messages"]["a17"]
         self.assertEqual(answer["statusHistory"], [{"action": "tool", "done": True}])
@@ -366,7 +384,7 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
             json.loads(archived.execute(
                 "SELECT usage FROM chat_message WHERE id='c17-a17'"
             ).fetchone()[0]),
-            {"prompt_tokens": 17, "completion_tokens": 2},
+            {"prompt_tokens": 999, "completion_tokens": 2},
         )
         archived.close()
         self.assertEqual(self.source.read_bytes(), before)

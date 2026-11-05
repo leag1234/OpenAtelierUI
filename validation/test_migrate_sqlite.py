@@ -451,6 +451,55 @@ class ImporterTests(unittest.TestCase):
                 self.assertTrue(report['fatal'])
                 self.assertIn(code, {item['code'] for item in report['blockers']})
 
+    def test_archive_mode_resets_only_invalid_timezone_and_preserves_other_settings(self):
+        db = sqlite3.connect(self.source)
+        db.execute('ALTER TABLE "user" ADD COLUMN timezone')
+        db.execute(
+            'UPDATE "user" SET timezone=?,settings=?',
+            (sqlite3.Binary(b'not-text'), '{"theme":"dark","compact":true}'),
+        )
+        db.commit(); db.close()
+        strict = preview(self.source, self.uploads, self.template)
+        self.assertTrue(strict['fatal'])
+        archived = preview(
+            self.source,
+            self.uploads,
+            self.template,
+            archive_unsupported_domains=True,
+        )
+        self.assertFalse(archived['fatal'], archived)
+        codes = [item['code'] for item in archived['blockers']]
+        self.assertEqual(codes.count('invalid_user_timezone'), 1)
+        self.assertNotIn('unsupported_user_field_timezone', codes)
+        self.assertEqual(archived['user_timezones']['reset_to_existing_or_default_count'], 1)
+        target = self.root / 'timezone-archive-target'
+        converted = convert(
+            self.source,
+            self.uploads,
+            self.template,
+            target,
+            archive_unsupported_domains=True,
+        )
+        self.assertFalse(converted['fatal'], converted)
+        db = sqlite3.connect(target / 'webui.db')
+        settings = json.loads(db.execute('SELECT settings FROM "user" WHERE id="u1"').fetchone()[0])
+        db.close()
+        self.assertEqual(settings, {'theme': 'dark', 'compact': True})
+
+    def test_archive_mode_keeps_malformed_settings_fatal(self):
+        db = sqlite3.connect(self.source)
+        db.execute('ALTER TABLE "user" ADD COLUMN timezone TEXT')
+        db.execute('UPDATE "user" SET timezone=?,settings=?', ('Europe/Paris', '[]'))
+        db.commit(); db.close()
+        report = preview(
+            self.source,
+            self.uploads,
+            self.template,
+            archive_unsupported_domains=True,
+        )
+        self.assertTrue(report['fatal'])
+        self.assertIn('invalid_user_settings', {item['code'] for item in report['blockers']})
+
     def test_usage_disagreement_is_archive_only_under_explicit_partial_mode(self):
         db = sqlite3.connect(self.source)
         payload = json.loads(db.execute('SELECT chat FROM "chat" WHERE id="c1"').fetchone()[0])

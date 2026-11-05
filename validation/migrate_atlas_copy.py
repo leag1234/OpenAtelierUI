@@ -298,6 +298,9 @@ def run(mode, source_db, uploads_root, template_path, workspace_dir, target_dir=
             "cutover": False, "source_sha256": source_hash,
             "uploads_manifest_sha256": upload_before[2], "note_count": note_count,
             "pinned_note_count": pin_count, "core_blocker_count": len(core_report.get("blockers", [])),
+            "core_fatal_blocker_count": sum(
+                1 for item in core_report.get("blockers", []) if item.get("fatal")
+            ),
             "target_created": False,
             "database_bytes": database_bytes, "upload_bytes": upload_bytes,
             "input_bytes": database_bytes + upload_bytes,

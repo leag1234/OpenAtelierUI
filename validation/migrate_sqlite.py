@@ -272,11 +272,16 @@ def _message_done_value(value: object) -> bool:
 def _user_timezone_settings_overrides(
     connection: sqlite3.Connection,
     report: dict | None = None,
+    *,
+    archive_invalid: bool = False,
+    handled_ids: set[str] | None = None,
 ) -> dict[str, str]:
     """Preserve the later plain timezone column in the old target settings JSON."""
     if "user" not in _tables(connection) or "timezone" not in _columns(connection, "user"):
         return {}
     overrides: dict[str, str] = {}
+    reset_count = 0
+    conflict_count = 0
     for row in connection.execute('SELECT id,settings,timezone FROM "user" ORDER BY id'):
         timezone = row["timezone"]
         if _is_empty(timezone):
@@ -305,9 +310,35 @@ def _user_timezone_settings_overrides(
             and "timezone" in settings
             and settings["timezone"] != timezone
         )
-        if not valid_timezone or not isinstance(settings, dict) or conflict:
+        if not isinstance(settings, dict):
             if report is not None:
-                code = "user_timezone_settings_conflict" if conflict else "invalid_user_timezone"
+                _block(
+                    report,
+                    "invalid_user_settings",
+                    1,
+                    fatal=True,
+                    detail="the existing settings object is malformed; dropping it would corrupt unrelated user preferences",
+                )
+                continue
+            raise MigrationError(
+                "user_timezone_validation_changed",
+                "user timezone/settings changed after successful preview",
+            )
+        if not valid_timezone or conflict:
+            code = "user_timezone_settings_conflict" if conflict else "invalid_user_timezone"
+            if archive_invalid:
+                if handled_ids is not None:
+                    handled_ids.add(row["id"])
+                if conflict:
+                    conflict_count += 1
+                    detail = "the valid settings timezone is preserved; the conflicting source column remains only in the exact source archive"
+                else:
+                    reset_count += 1
+                    detail = "the invalid source timezone remains only in the exact source archive; the copied user uses the existing setting or target default"
+                if report is not None:
+                    _block(report, code, 1, detail=detail)
+                continue
+            if report is not None:
                 _block(report, code, 1, fatal=True)
                 continue
             raise MigrationError(
@@ -328,9 +359,13 @@ def _user_timezone_settings_overrides(
                 "user_timezone_validation_changed",
                 "user timezone/settings changed after successful preview",
             )
-    if report is not None and overrides:
+        if handled_ids is not None:
+            handled_ids.add(row["id"])
+    if report is not None and (overrides or reset_count or conflict_count):
         report["user_timezones"] = {
             "preserved_count": len(overrides),
+            "reset_to_existing_or_default_count": reset_count,
+            "conflicting_column_archived_count": conflict_count,
             "target_representation": "user.settings.timezone",
             "source_column_retained_in_archive": True,
         }
@@ -2664,7 +2699,13 @@ def _inspect_source(
                             if not _valid_nullable_profile_date(row["date_of_birth"]):
                                 _block(report, "invalid_user_profile_date_of_birth", 1, fatal=True)
                                 profile_fields_verified = False
-            timezone_settings = _user_timezone_settings_overrides(connection, report)
+            handled_timezone_ids: set[str] = set()
+            timezone_settings = _user_timezone_settings_overrides(
+                connection,
+                report,
+                archive_invalid=archive_unsupported_domains,
+                handled_ids=handled_timezone_ids,
+            )
             for row in connection.execute('SELECT * FROM "user"'):
                 for field in USER_UNSUPPORTED & set(columns):
                     if (
@@ -2673,7 +2714,7 @@ def _inspect_source(
                         and field in IMPORTED_USER_PROFILE_FIELDS
                     ):
                         continue
-                    if field == "timezone" and row["id"] in timezone_settings:
+                    if field == "timezone" and row["id"] in handled_timezone_ids:
                         continue
                     if not _is_empty(row[field]):
                         fatal = field in {"oauth", "scim"}
@@ -3099,6 +3140,7 @@ def _copy_domains(
     named_tool_config_data: dict | None = None,
     include_user_profile_fields: bool = False,
     api_key_overrides: dict[str, str] | None = None,
+    archive_unsupported_domains: bool = False,
 ) -> dict:
     counts = {}
     counts["auth"] = _insert_rows(source, target, "auth", {"id": "id", "email": "email", "password": "password", "active": "active"})
@@ -3113,7 +3155,10 @@ def _copy_domains(
             "gender": "gender",
             "date_of_birth": "date_of_birth",
         })
-    timezone_settings = _user_timezone_settings_overrides(source)
+    timezone_settings = _user_timezone_settings_overrides(
+        source,
+        archive_invalid=archive_unsupported_domains,
+    )
     counts["user"] = _insert_rows(
         source,
         target,
@@ -3308,6 +3353,7 @@ def convert(
                 named_tool_config_data=named_tool_config_data,
                 include_user_profile_fields=include_user_profile_fields,
                 api_key_overrides=api_key_overrides,
+                archive_unsupported_domains=archive_unsupported_domains,
             )
             if failpoint:
                 failpoint("after_rows_before_commit")
@@ -3337,7 +3383,10 @@ def convert(
                 try:
                     expected_settings = {
                         identity: json.loads(value)
-                        for identity, value in _user_timezone_settings_overrides(source_timezone).items()
+                        for identity, value in _user_timezone_settings_overrides(
+                            source_timezone,
+                            archive_invalid=archive_unsupported_domains,
+                        ).items()
                     }
                 finally:
                     source_timezone.close()
