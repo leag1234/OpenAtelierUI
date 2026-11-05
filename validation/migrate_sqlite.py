@@ -115,6 +115,7 @@ IMPORTED_USER_PROFILE_TYPES = {"bio": "TEXT", "gender": "TEXT", "date_of_birth":
 MAX_IMPORTED_USER_BIO_BYTES = 8192
 MAX_IMPORTED_USER_GENDER_BYTES = 128
 MAX_USER_TIMEZONE_BYTES = 255
+MAX_USER_SETTINGS_BYTES = 256 * 1024
 MAX_IMPORTED_API_KEY_ROWS = 1000
 MAX_API_KEY_CONFIG_VALUE_BYTES = 16 * 1024
 MAX_USER_PERMISSIONS_CONFIG_BYTES = 16 * 1024
@@ -230,14 +231,16 @@ class MigrationError(Exception):
 
 
 class _DuplicateConfigJSONKey(ValueError):
-    pass
+    def __init__(self, key: object):
+        super().__init__("duplicate JSON key")
+        self.key = key
 
 
 def _reject_duplicate_json_keys(pairs):
     result = {}
     for key, value in pairs:
         if key in result:
-            raise _DuplicateConfigJSONKey
+            raise _DuplicateConfigJSONKey(key)
         result[key] = value
     return result
 
@@ -280,14 +283,15 @@ def _user_timezone_settings_overrides(
     if "user" not in _tables(connection) or "timezone" not in _columns(connection, "user"):
         return {}
     overrides: dict[str, str] = {}
+    preserved_count = 0
     reset_count = 0
     conflict_count = 0
+    settings_reset_count = 0
     for row in connection.execute('SELECT id,settings,timezone FROM "user" ORDER BY id'):
         timezone = row["timezone"]
-        if _is_empty(timezone):
-            continue
-        valid_timezone = type(timezone) is str
-        if valid_timezone:
+        has_timezone = not _is_empty(timezone)
+        valid_timezone = has_timezone and type(timezone) is str
+        if has_timezone and valid_timezone:
             try:
                 encoded_timezone = timezone.encode("utf-8", errors="strict")
                 valid_timezone = (
@@ -297,33 +301,93 @@ def _user_timezone_settings_overrides(
                 )
             except UnicodeError:
                 valid_timezone = False
+        settings_reason = None
+        settings_key = "$"
+        raw_settings = row["settings"]
         try:
-            settings = json.loads(
-                row["settings"] or "{}",
-                object_pairs_hook=_reject_duplicate_json_keys,
-                parse_constant=lambda token: (_ for _ in ()).throw(ValueError(token)),
-            ) if isinstance(row["settings"], str) else row["settings"]
-        except (TypeError, ValueError, UnicodeError, _DuplicateConfigJSONKey):
+            if isinstance(raw_settings, str):
+                if len(raw_settings.encode("utf-8", errors="strict")) > MAX_USER_SETTINGS_BYTES:
+                    settings = None
+                    settings_reason = "size_limit"
+                else:
+                    settings = json.loads(
+                        raw_settings or "{}",
+                        object_pairs_hook=_reject_duplicate_json_keys,
+                        parse_constant=lambda token: (_ for _ in ()).throw(ValueError("non-finite JSON constant")),
+                    )
+            elif raw_settings is None:
+                settings = {}
+            else:
+                settings = raw_settings
+        except _DuplicateConfigJSONKey as error:
             settings = None
+            settings_reason = "duplicate_key"
+            if (
+                isinstance(error.key, str)
+                and error.key
+                and len(error.key.encode("utf-8", errors="replace")) <= 128
+                and not any(ord(char) < 32 or ord(char) == 127 for char in error.key)
+            ):
+                settings_key = error.key
+        except (TypeError, ValueError, UnicodeError):
+            settings = None
+            settings_reason = "invalid_json"
+        if settings_reason is None and not isinstance(settings, dict):
+            settings_reason = "non_object_root"
         conflict = (
+            has_timezone
+            and
             isinstance(settings, dict)
             and "timezone" in settings
             and settings["timezone"] != timezone
         )
         if not isinstance(settings, dict):
+            if handled_ids is not None:
+                handled_ids.add(row["id"])
+            diagnostic = {"settings_key": settings_key, "reason": settings_reason or "invalid_root"}
+            if not archive_invalid:
+                if report is not None:
+                    _block(
+                        report,
+                        "invalid_user_settings",
+                        1,
+                        fatal=True,
+                        detail="the existing settings root is not a bounded JSON object",
+                        diagnostic=diagnostic,
+                    )
+                    continue
+                raise MigrationError(
+                    "user_timezone_validation_changed",
+                    "user timezone/settings changed after successful preview",
+                )
+            replacement = {}
+            settings_reset_count += 1
+            if has_timezone and valid_timezone:
+                replacement["timezone"] = timezone
+                preserved_count += 1
+            elif has_timezone:
+                reset_count += 1
+                if report is not None:
+                    _block(
+                        report,
+                        "invalid_user_timezone",
+                        1,
+                        detail="the invalid source timezone remains only in the exact source archive; the copied user uses the target default",
+                    )
+            overrides[row["id"]] = json.dumps(
+                replacement, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+            )
             if report is not None:
                 _block(
                     report,
-                    "invalid_user_settings",
+                    "invalid_user_settings_reset",
                     1,
-                    fatal=True,
-                    detail="the existing settings object is malformed; dropping it would corrupt unrelated user preferences",
+                    detail="the invalid settings root remains only in the exact source archive; copied settings use safe defaults",
+                    diagnostic=diagnostic,
                 )
-                continue
-            raise MigrationError(
-                "user_timezone_validation_changed",
-                "user timezone/settings changed after successful preview",
-            )
+            continue
+        if not has_timezone:
+            continue
         if not valid_timezone or conflict:
             code = "user_timezone_settings_conflict" if conflict else "invalid_user_timezone"
             if archive_invalid:
@@ -347,6 +411,7 @@ def _user_timezone_settings_overrides(
             )
         settings = dict(settings)
         settings["timezone"] = timezone
+        preserved_count += 1
         try:
             overrides[row["id"]] = json.dumps(
                 settings, ensure_ascii=False, allow_nan=False, separators=(",", ":")
@@ -361,13 +426,19 @@ def _user_timezone_settings_overrides(
             )
         if handled_ids is not None:
             handled_ids.add(row["id"])
-    if report is not None and (overrides or reset_count or conflict_count):
+    if report is not None and (preserved_count or reset_count or conflict_count):
         report["user_timezones"] = {
-            "preserved_count": len(overrides),
+            "preserved_count": preserved_count,
             "reset_to_existing_or_default_count": reset_count,
             "conflicting_column_archived_count": conflict_count,
             "target_representation": "user.settings.timezone",
             "source_column_retained_in_archive": True,
+        }
+    if report is not None and settings_reset_count:
+        report["user_settings"] = {
+            "reset_to_defaults_count": settings_reset_count,
+            "source_payload_retained_in_archive": True,
+            "diagnostics_include_values": False,
         }
     return overrides
 
@@ -1179,10 +1250,20 @@ def _metrics(started: float, input_bytes: int) -> dict:
     }
 
 
-def _block(report: dict, code: str, count: int, *, fatal: bool = False, detail: str | None = None) -> None:
+def _block(
+    report: dict,
+    code: str,
+    count: int,
+    *,
+    fatal: bool = False,
+    detail: str | None = None,
+    diagnostic: dict[str, str] | None = None,
+) -> None:
     item = {"code": code, "count": int(count), "fatal": fatal}
     if detail:
         item["detail"] = detail
+    if diagnostic:
+        item["diagnostic"] = diagnostic
     report["blockers"].append(item)
     if fatal:
         report["fatal"] = True
@@ -3378,7 +3459,7 @@ def convert(
             readback_counts = {table: _count(target_readback, table) for table in COPYABLE_TABLES}
             if named_tool_config_data is not None:
                 readback_counts["config"] = _count(target_readback, "config")
-            if report.get("user_timezones", {}).get("preserved_count"):
+            if report.get("user_timezones") or report.get("user_settings"):
                 source_timezone = _connect_ro(source)
                 try:
                     expected_settings = {
@@ -3405,7 +3486,10 @@ def convert(
                         "prepared user timezone settings failed exact readback verification",
                         report,
                     )
-                report["user_timezones"]["target_readback_exact"] = True
+                if report.get("user_timezones"):
+                    report["user_timezones"]["target_readback_exact"] = True
+                if report.get("user_settings"):
+                    report["user_settings"]["target_readback_exact"] = True
             if include_user_profile_fields:
                 source_profile = _connect_ro(source)
                 try:

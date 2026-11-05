@@ -486,10 +486,56 @@ class ImporterTests(unittest.TestCase):
         db.close()
         self.assertEqual(settings, {'theme': 'dark', 'compact': True})
 
-    def test_archive_mode_keeps_malformed_settings_fatal(self):
+    def test_archive_mode_resets_invalid_settings_without_exposing_values(self):
+        cases = (
+            ('[]', '$', 'non_object_root'),
+            ('{"theme":"private-value","theme":"second-value"}', 'theme', 'duplicate_key'),
+            ('{"theme":', '$', 'invalid_json'),
+        )
+        for index, (settings, key, reason) in enumerate(cases):
+            with self.subTest(reason=reason):
+                source = self.root / f'settings-invalid-{index}.db'
+                uploads = self.root / f'settings-invalid-{index}-uploads'
+                build_source(source, uploads)
+                db = sqlite3.connect(source)
+                db.execute('ALTER TABLE "user" ADD COLUMN timezone TEXT')
+                db.execute('UPDATE "user" SET timezone=?,settings=?', ('Europe/Paris', settings))
+                db.commit(); db.close()
+                strict = preview(source, uploads, self.template)
+                self.assertTrue(strict['fatal'])
+                fatal = next(item for item in strict['blockers'] if item['code'] == 'invalid_user_settings')
+                self.assertEqual(fatal['diagnostic'], {'settings_key': key, 'reason': reason})
+                self.assertNotIn('private-value', json.dumps(strict))
+                archived = preview(
+                    source,
+                    uploads,
+                    self.template,
+                    archive_unsupported_domains=True,
+                )
+                self.assertFalse(archived['fatal'], archived)
+                reset = next(item for item in archived['blockers'] if item['code'] == 'invalid_user_settings_reset')
+                self.assertEqual(reset['diagnostic'], {'settings_key': key, 'reason': reason})
+                self.assertNotIn('unsupported_user_field_timezone', {item['code'] for item in archived['blockers']})
+                self.assertEqual(archived['user_settings']['reset_to_defaults_count'], 1)
+                target = self.root / f'settings-invalid-{index}-target'
+                converted = convert(
+                    source,
+                    uploads,
+                    self.template,
+                    target,
+                    archive_unsupported_domains=True,
+                )
+                self.assertFalse(converted['fatal'], converted)
+                self.assertTrue(converted['user_settings']['target_readback_exact'])
+                db = sqlite3.connect(target / 'webui.db')
+                copied = json.loads(db.execute('SELECT settings FROM "user" WHERE id="u1"').fetchone()[0])
+                db.close()
+                self.assertEqual(copied, {'timezone': 'Europe/Paris'})
+
+    def test_archive_mode_resets_invalid_settings_and_invalid_timezone_to_empty_object(self):
         db = sqlite3.connect(self.source)
-        db.execute('ALTER TABLE "user" ADD COLUMN timezone TEXT')
-        db.execute('UPDATE "user" SET timezone=?,settings=?', ('Europe/Paris', '[]'))
+        db.execute('ALTER TABLE "user" ADD COLUMN timezone')
+        db.execute('UPDATE "user" SET timezone=?,settings=?', (sqlite3.Binary(b'bad-zone'), '[]'))
         db.commit(); db.close()
         report = preview(
             self.source,
@@ -497,8 +543,55 @@ class ImporterTests(unittest.TestCase):
             self.template,
             archive_unsupported_domains=True,
         )
-        self.assertTrue(report['fatal'])
-        self.assertIn('invalid_user_settings', {item['code'] for item in report['blockers']})
+        self.assertFalse(report['fatal'], report)
+        codes = [item['code'] for item in report['blockers']]
+        self.assertEqual(codes.count('invalid_user_settings_reset'), 1)
+        self.assertEqual(codes.count('invalid_user_timezone'), 1)
+        self.assertNotIn('unsupported_user_field_timezone', codes)
+        target = self.root / 'settings-and-timezone-invalid-target'
+        converted = convert(
+            self.source,
+            self.uploads,
+            self.template,
+            target,
+            archive_unsupported_domains=True,
+        )
+        self.assertFalse(converted['fatal'], converted)
+        self.assertTrue(converted['user_settings']['target_readback_exact'])
+        db = sqlite3.connect(target / 'webui.db')
+        copied = json.loads(db.execute('SELECT settings FROM "user" WHERE id="u1"').fetchone()[0])
+        db.close()
+        self.assertEqual(copied, {})
+
+    def test_archive_mode_resets_invalid_settings_without_timezone_column_value(self):
+        db = sqlite3.connect(self.source)
+        db.execute('ALTER TABLE "user" ADD COLUMN timezone TEXT')
+        db.execute('UPDATE "user" SET timezone=NULL,settings=?', ('[]',))
+        db.commit(); db.close()
+        strict = preview(self.source, self.uploads, self.template)
+        self.assertTrue(strict['fatal'])
+        report = preview(
+            self.source,
+            self.uploads,
+            self.template,
+            archive_unsupported_domains=True,
+        )
+        self.assertFalse(report['fatal'], report)
+        self.assertNotIn('user_timezones', report)
+        self.assertEqual(report['user_settings']['reset_to_defaults_count'], 1)
+        target = self.root / 'settings-invalid-no-timezone-target'
+        converted = convert(
+            self.source,
+            self.uploads,
+            self.template,
+            target,
+            archive_unsupported_domains=True,
+        )
+        self.assertTrue(converted['user_settings']['target_readback_exact'])
+        db = sqlite3.connect(target / 'webui.db')
+        copied = json.loads(db.execute('SELECT settings FROM "user" WHERE id="u1"').fetchone()[0])
+        db.close()
+        self.assertEqual(copied, {})
 
     def test_usage_disagreement_is_archive_only_under_explicit_partial_mode(self):
         db = sqlite3.connect(self.source)

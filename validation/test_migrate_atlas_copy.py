@@ -56,11 +56,7 @@ def expand_realistic_copy(source, uploads):
             else "bad\x00zone" if index == 3
             else f"Etc/GMT+{index - 1}"
         )
-        settings = (
-            '{"theme":"dark"}' if index == 2
-            else '{"notifications":true}' if index == 3
-            else "{}"
-        )
+        settings = '[]' if index == 2 else '{"theme":"x","theme":"y"}' if index == 3 else "{}"
         db.execute('UPDATE "user" SET timezone=?,settings=? WHERE id=?', (timezone, settings, user_id))
     for index in range(2, 127):
         chat_id = f"c{index}"
@@ -334,7 +330,7 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
             self.assertIn(code, codes)
         self.assertEqual(core_preview["user_timezones"]["preserved_count"], 7)
         self.assertEqual(core_preview["user_timezones"]["reset_to_existing_or_default_count"], 2)
-        self.assertEqual(len(core_preview["blockers"]), 13)
+        self.assertEqual(len(core_preview["blockers"]), 15)
         self.assertEqual(
             sum(item["code"] == "chat_preview_rebuilt_from_selected_graph"
                 for item in core_preview["blockers"]),
@@ -342,6 +338,10 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
         )
         self.assertEqual(
             sum(item["code"] == "invalid_user_timezone" for item in core_preview["blockers"]),
+            2,
+        )
+        self.assertEqual(
+            sum(item["code"] == "invalid_user_settings_reset" for item in core_preview["blockers"]),
             2,
         )
         self.assertNotIn(
@@ -352,6 +352,10 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
         self.assertEqual(preview["core_fatal_blocker_count"], 0)
         result = self._run("convert", "realistic-aux-convert", allow_partial_copy=True)
         self.assertTrue(result["ok"], result)
+        converted_report = json.loads(
+            (self.root / "realistic-aux-convert-workspace" / "core-convert.json").read_text()
+        )
+        self.assertTrue(converted_report["user_settings"]["target_readback_exact"])
         target = sqlite3.connect(self.root / "realistic-aux-convert-target" / "webui.db")
         self.assertEqual(target.execute("SELECT COUNT(*) FROM user").fetchone()[0], 10)
         self.assertEqual(target.execute("SELECT COUNT(*) FROM chat").fetchone()[0], 126)
@@ -369,7 +373,7 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
         ).fetchall()
         self.assertEqual(
             [(row[0], json.loads(row[1])) for row in reset_rows],
-            [("u2", {"theme": "dark"}), ("u3", {"notifications": True})],
+            [("u2", {}), ("u3", {})],
         )
         copied = json.loads(target.execute("SELECT chat FROM chat WHERE id='c17'").fetchone()[0])
         answer = copied["history"]["messages"]["a17"]
