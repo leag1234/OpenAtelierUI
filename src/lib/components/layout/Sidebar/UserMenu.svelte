@@ -25,7 +25,7 @@
 		dispatch('change', state);
 	}}
 >
-	<DropdownMenu.Trigger>
+	<DropdownMenu.Trigger aria-haspopup="menu">
 		<slot />
 	</DropdownMenu.Trigger>
 

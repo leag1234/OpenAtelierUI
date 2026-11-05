@@ -28,6 +28,7 @@ from pydantic import BaseModel
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_access, has_permission
 from open_webui.utils.access_grants import access_control_for_grants, access_grants_for_acl
+from open_webui.utils.model_compat import resolve_model_update_id
 from open_webui.env import DATA_DIR, DATABASE_URL, STATIC_DIR
 
 
@@ -315,10 +316,17 @@ async def toggle_model_by_id(id: str, user=Depends(get_verified_user)):
 
 @router.post("/model/update")
 async def update_model_by_id(
-    id: str,
     form_data: ModelForm,
+    id: Optional[str] = None,
     user=Depends(get_verified_user),
 ):
+    try:
+        id = resolve_model_update_id(id, form_data.id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Model id in query and request body must match",
+        ) from None
     model = Models.get_model_by_id(id)
 
     if not model:

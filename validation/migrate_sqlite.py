@@ -50,8 +50,8 @@ MAX_UPLOAD_BYTES = 512 * 1024 * 1024 * 1024
 MAX_UPLOAD_FILES = 250_000
 # Compatibility alias for callers that bound a single SQLite input.
 MAX_INPUT_BYTES = MAX_DATABASE_BYTES
-APP_TABLES = {"auth", "user", "chat", "chat_message", "file", "function", "tool", "model"}
-COPYABLE_TABLES = {"auth", "user", "chat", "file", "function", "tool", "model"}
+APP_TABLES = {"auth", "user", "chat", "chat_message", "file", "folder", "function", "tool", "model"}
+COPYABLE_TABLES = {"auth", "user", "chat", "file", "folder", "function", "tool", "model"}
 MARKER_TABLES = {"alembic_version", "migratehistory"}
 V0113_ALEMBIC_HEAD = "d4c1a8e37b62"
 KNOWN_TABLES = {
@@ -100,6 +100,7 @@ TARGET_REQUIRED = {
     "user": {"id", "name", "email", "role", "profile_image_url", "api_key", "created_at", "updated_at", "last_active_at", "settings", "info", "oauth_sub"},
     "chat": {"id", "user_id", "title", "created_at", "updated_at", "share_id", "archived", "chat", "pinned", "meta", "folder_id"},
     "file": {"id", "user_id", "filename", "meta", "created_at", "hash", "data", "updated_at", "path", "access_control"},
+    "folder": {"id", "parent_id", "user_id", "name", "items", "meta", "is_expanded", "created_at", "updated_at"},
     "function": {"id", "user_id", "name", "type", "content", "meta", "created_at", "updated_at", "valves", "is_active", "is_global"},
     "tool": {"id", "user_id", "name", "content", "specs", "meta", "valves", "access_control", "updated_at", "created_at"},
     "model": {"id", "user_id", "base_model_id", "name", "params", "meta", "access_control", "is_active", "updated_at", "created_at"},
@@ -1816,6 +1817,73 @@ def _bounded_message_json(value, field: str, report: dict):
     return parsed, len(encoded)
 
 
+FOLDER_REQUIRED = {"id", "parent_id", "user_id", "name", "items", "meta", "is_expanded", "created_at", "updated_at"}
+
+
+def _validate_folders(connection: sqlite3.Connection, report: dict, user_ids: set[str]) -> None:
+    """Validate the representable folder forest and its chat references."""
+    if "folder" not in _tables(connection):
+        return
+    expected = FOLDER_REQUIRED
+    if set(_columns(connection, "folder")) != expected:
+        _block(report, "source_schema_mismatch_folder", 1, fatal=True)
+        return
+    rows = [dict(row) for row in connection.execute('SELECT * FROM "folder" ORDER BY id')]
+    by_id: dict[str, dict] = {}
+    for row in rows:
+        identity = row.get("id")
+        owner = row.get("user_id")
+        parent = row.get("parent_id")
+        if not isinstance(identity, str) or not identity or identity in by_id:
+            _block(report, "invalid_folder_id", 1, fatal=True)
+            continue
+        by_id[identity] = row
+        if owner not in user_ids:
+            _block(report, "folder_owner_missing", 1, fatal=True)
+        if parent is not None and (not isinstance(parent, str) or not parent):
+            _block(report, "invalid_folder_parent", 1, fatal=True)
+        if not isinstance(row.get("name"), str) or not row["name"].strip() or len(row["name"].encode("utf-8")) > 4096:
+            _block(report, "invalid_folder_name", 1, fatal=True)
+        if row.get("is_expanded") not in (0, 1, False, True, None):
+            _block(report, "invalid_folder_expanded_flag", 1, fatal=True)
+        for field in ("items", "meta"):
+            value = row.get(field)
+            if value is None:
+                continue
+            try:
+                parsed = json.loads(value) if isinstance(value, str) else value
+                encoded = json.dumps(parsed, allow_nan=False, separators=(",", ":")).encode("utf-8")
+            except (TypeError, ValueError, UnicodeError):
+                _block(report, "invalid_folder_" + field, 1, fatal=True)
+                continue
+            if not isinstance(parsed, (dict, list)) or len(encoded) > 1024 * 1024:
+                _block(report, "invalid_folder_" + field, 1, fatal=True)
+    for identity, row in by_id.items():
+        parent = row.get("parent_id")
+        if parent is not None:
+            if parent not in by_id:
+                _block(report, "folder_parent_missing", 1, fatal=True)
+            elif by_id[parent].get("user_id") != row.get("user_id"):
+                _block(report, "folder_parent_owner_mismatch", 1, fatal=True)
+        seen = {identity}
+        cursor = parent
+        while cursor is not None and cursor in by_id:
+            if cursor in seen:
+                _block(report, "folder_parent_cycle", 1, fatal=True)
+                break
+            seen.add(cursor)
+            cursor = by_id[cursor].get("parent_id")
+    if "chat" in _tables(connection):
+        for chat_id, owner, folder_id in connection.execute(
+            'SELECT id,user_id,folder_id FROM "chat" WHERE folder_id IS NOT NULL'
+        ):
+            folder = by_id.get(folder_id)
+            if folder is None:
+                _block(report, "chat_folder_missing", 1, fatal=True)
+            elif folder.get("user_id") != owner:
+                _block(report, "chat_folder_owner_mismatch", 1, fatal=True)
+
+
 def _private_chat_metadata_overrides(
     connection: sqlite3.Connection,
     report: dict,
@@ -1832,7 +1900,7 @@ def _private_chat_metadata_overrides(
         chat_id = chat.get("id")
         owner_id = chat.get("user_id")
         clear_share = chat.get("share_id") is not None
-        clear_folder = chat.get("folder_id") is not None
+        clear_folder = False
         if clear_share or clear_folder:
             _block(
                 report,
@@ -2917,6 +2985,7 @@ def _inspect_source(
             known_users = {row[0] for row in connection.execute('SELECT id FROM "user"')}
             if any(row[0] not in known_users for row in connection.execute('SELECT user_id FROM "chat"')):
                 _block(report, "chat_owner_missing", 1, fatal=True)
+            _validate_folders(connection, report, known_users)
         if include_named_tool_configuration or include_api_key_configuration or include_openai_configuration or include_user_permissions or include_identity_configuration:
             config_rows = report["table_counts"].get("config", 0)
             verified = False
@@ -3247,6 +3316,11 @@ def _copy_domains(
         user_mapping,
         {"api_key": api_key_overrides or {}, "settings": timezone_settings},
     )
+    counts["folder"] = _insert_rows(source, target, "folder", {
+        "id": "id", "parent_id": "parent_id", "user_id": "user_id", "name": "name",
+        "items": "items", "meta": "meta", "is_expanded": "is_expanded",
+        "created_at": "created_at", "updated_at": "updated_at",
+    })
     file_paths = {row["id"]: str(runtime_data_root / "uploads" / (row["id"] + "_" + row["filename"])) for row in upload_rows}
     copied_chat = {}
     for chat_id, values in (private_chat_overrides or {}).items():

@@ -74,6 +74,20 @@ export const initI18n = (defaultLocale?: string | undefined) => {
 const i18n = createI18nStore(i18next);
 const isLoadingStore = createIsLoadingStore(i18next);
 
+// Stable, consumer-neutral browser bridge. Integrations should use the
+// documented static module rather than depending on generated chunk names.
+if (typeof window !== 'undefined') {
+	const globalWindow = window as typeof window & {
+		OpenAtelierUI?: { i18nStore?: typeof i18n; i18next?: i18nType };
+	};
+	globalWindow.OpenAtelierUI = {
+		...globalWindow.OpenAtelierUI,
+		i18nStore: i18n,
+		i18next
+	};
+	window.dispatchEvent(new CustomEvent('openatelierui:i18n-ready'));
+}
+
 export const getLanguages = async () => {
 	const languages = (await import(`./locales/languages.json`)).default;
 	return languages;

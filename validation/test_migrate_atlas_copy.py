@@ -126,7 +126,9 @@ def expand_realistic_copy(source, uploads):
         }]
         db.execute("UPDATE chat SET chat=? WHERE id=?", (json.dumps(payload), chat_id))
     db.executescript(
-        'DROP TABLE IF EXISTS folder; CREATE TABLE folder(id TEXT); INSERT INTO folder VALUES("folder-one"); INSERT INTO folder VALUES("folder-two");'
+        'DROP TABLE IF EXISTS folder; CREATE TABLE folder(id TEXT PRIMARY KEY,parent_id TEXT,user_id TEXT,name TEXT,items JSON,meta JSON,is_expanded BOOLEAN,created_at BIGINT,updated_at BIGINT);'
+        'INSERT INTO folder VALUES("folder-one",NULL,"u1","Synthetic root","[]","{}",1,10,11);'
+        'INSERT INTO folder VALUES("folder-two","folder-one","u1","Synthetic child","[]","{}",0,12,13);'
         'DROP TABLE IF EXISTS shared_chat; CREATE TABLE shared_chat(id TEXT); INSERT INTO shared_chat VALUES("share-one");'
         'DROP TABLE IF EXISTS feedback; CREATE TABLE feedback(id TEXT); INSERT INTO feedback VALUES("feedback-one");'
         'DROP TABLE IF EXISTS api_key; CREATE TABLE api_key(id TEXT); INSERT INTO api_key VALUES("secret-record-not-activated");'
@@ -135,6 +137,8 @@ def expand_realistic_copy(source, uploads):
         'DROP TABLE IF EXISTS group_member; CREATE TABLE group_member(id TEXT);'
     )
     db.execute("INSERT INTO access_grant VALUES ('round7-grant','tool','tool-private','user','u1','read',12)")
+    db.execute("UPDATE chat SET folder_id='folder-one' WHERE id='c1'")
+    db.execute("UPDATE chat SET folder_id='folder-two' WHERE id='c11'")
     first = json.loads(db.execute("SELECT chat FROM chat WHERE id='c1'").fetchone()[0])
     first["messages"] = [first["history"]["messages"][node_id] for node_id in ("q", "b")]
     db.execute("UPDATE chat SET chat=? WHERE id='c1'", (json.dumps(first),))
@@ -323,14 +327,14 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
         core_preview = json.loads((self.root / "realistic-aux-workspace" / "core-preview.json").read_text())
         codes = {item["code"] for item in core_preview["blockers"]}
         for code in (
-            "unsupported_nonempty_domain_folder", "unsupported_nonempty_domain_shared_chat",
+            "unsupported_nonempty_domain_shared_chat",
             "unsupported_nonempty_domain_feedback", "unsupported_nonempty_domain_api_key",
             "unsupported_nonempty_domain_calendar", "source_schema_mismatch_group",
         ):
             self.assertIn(code, codes)
         self.assertEqual(core_preview["user_timezones"]["preserved_count"], 7)
         self.assertEqual(core_preview["user_timezones"]["reset_to_existing_or_default_count"], 2)
-        self.assertEqual(len(core_preview["blockers"]), 15)
+        self.assertEqual(len(core_preview["blockers"]), 14)
         self.assertEqual(
             sum(item["code"] == "chat_preview_rebuilt_from_selected_graph"
                 for item in core_preview["blockers"]),
@@ -360,9 +364,14 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
         self.assertEqual(target.execute("SELECT COUNT(*) FROM user").fetchone()[0], 10)
         self.assertEqual(target.execute("SELECT COUNT(*) FROM chat").fetchone()[0], 126)
         self.assertEqual(target.execute("SELECT COUNT(*) FROM file").fetchone()[0], 46)
-        self.assertEqual(target.execute("SELECT folder_id,share_id FROM chat WHERE id='c2'").fetchone(), (None, None))
+        self.assertEqual(target.execute("SELECT folder_id,share_id FROM chat WHERE id='c1'").fetchone(), ("folder-one", None))
+        self.assertEqual(target.execute("SELECT folder_id,share_id FROM chat WHERE id='c11'").fetchone(), ("folder-two", None))
         self.assertEqual(target.execute("SELECT folder_id,share_id FROM chat WHERE id='c3'").fetchone(), (None, None))
         self.assertEqual(target.execute("SELECT folder_id,share_id FROM chat WHERE id='c4'").fetchone(), (None, None))
+        self.assertEqual(
+            target.execute("SELECT id,parent_id,user_id,name FROM folder ORDER BY id").fetchall(),
+            [("folder-one", None, "u1", "Synthetic root"), ("folder-two", "folder-one", "u1", "Synthetic child")],
+        )
         timezone_rows = target.execute(
             "SELECT settings FROM user WHERE id IN ('u4','u5','u6','u7','u8','u9','u10') ORDER BY id"
         ).fetchall()
