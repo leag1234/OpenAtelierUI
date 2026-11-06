@@ -302,7 +302,7 @@ class ExportPrivateTextTests(unittest.TestCase):
             self.output.write_text("replacement", encoding="utf-8")
             raise OSError("synthetic directory sync failure")
         with mock.patch.object(exporter.os, "fsync", side_effect=replace_after_publish):
-            self._reason("output_failed", *self._args("export", self.output))
+            self._reason("output_unconfirmed", *self._args("export", self.output))
         self.assertEqual(self.output.read_text(encoding="utf-8"), "replacement")
         self.assertEqual(list(self.root.glob(".private-chat-export-*")), [])
 
@@ -320,6 +320,25 @@ class ExportPrivateTextTests(unittest.TestCase):
         with mock.patch.object(exporter.os, "fsync", side_effect=mutate_after_staged_write):
             self._reason("source_changed", *self._args("export", self.output))
         self.assertFalse(self.output.exists())
+        self.assertEqual(list(self.root.glob(".private-chat-export-*")), [])
+
+    def test_directory_sync_failure_retains_private_published_recovery_input(self):
+        real_fsync = exporter.os.fsync
+        calls = 0
+        def lose_directory_ack(fd):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return real_fsync(fd)
+            raise OSError("synthetic lost directory acknowledgment")
+        with mock.patch.object(exporter.os, "fsync", side_effect=lose_directory_ack):
+            self._reason("output_unconfirmed", *self._args("export", self.output))
+        self.assertEqual(stat.S_IMODE(self.output.stat().st_mode), 0o600)
+        saved = self.output.read_bytes()
+        self.assertTrue(json.loads(saved))
+        code, _ = self._run(*self._args("export", self.output))
+        self.assertEqual(code, 2)
+        self.assertEqual(self.output.read_bytes(), saved)
         self.assertEqual(list(self.root.glob(".private-chat-export-*")), [])
 
     def test_nonempty_rights_and_executable_media_shapes_refuse(self):

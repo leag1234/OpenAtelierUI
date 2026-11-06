@@ -57,6 +57,7 @@ class FolderModel(BaseModel):
 
 class FolderForm(BaseModel):
     name: str
+    parent_id: Optional[str] = None
     model_config = ConfigDict(extra="allow")
 
 

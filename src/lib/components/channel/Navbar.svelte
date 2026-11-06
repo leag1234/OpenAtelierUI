@@ -34,7 +34,7 @@
 					on:click={() => {
 						showSidebar.set(!$showSidebar);
 					}}
-					aria-label="Toggle Sidebar"
+					aria-label={$i18n.t('Toggle Sidebar')}
 				>
 					<div class=" m-auto self-center">
 						<MenuLines />
@@ -71,7 +71,7 @@
 							use:builder.action
 							class="select-none flex rounded-xl p-1.5 w-full hover:bg-gray-50 dark:hover:bg-gray-850 transition"
 							aria-haspopup="menu"
-							aria-label="User Menu"
+							aria-label={$i18n.t('User Menu')}
 						>
 							<div class=" self-center">
 								<img

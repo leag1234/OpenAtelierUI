@@ -60,7 +60,7 @@
 					on:click={() => {
 						showSidebar.set(!$showSidebar);
 					}}
-					aria-label="Toggle Sidebar"
+					aria-label={$i18n.t('Toggle Sidebar')}
 					aria-controls="sidebar"
 					aria-expanded={$showSidebar}
 				>
@@ -122,7 +122,7 @@
 							on:click={async () => {
 								await showControls.set(!$showControls);
 							}}
-							aria-label="Controls"
+							aria-label={$i18n.t('Controls')}
 						>
 							<div class=" m-auto self-center">
 								<AdjustmentsHorizontal className=" size-5" strokeWidth="0.5" />
@@ -138,7 +138,7 @@
 							on:click={async () => {
 								await showControls.set(!$showControls);
 							}}
-							aria-label="Controls"
+							aria-label={$i18n.t('Controls')}
 						>
 							<div class=" m-auto self-center">
 								<AdjustmentsHorizontal className=" size-5" strokeWidth="0.5" />
@@ -156,7 +156,7 @@
 						on:click={() => {
 							initNewChat();
 						}}
-						aria-label="New Chat"
+						aria-label={$i18n.t('New Chat')}
 					>
 						<div class=" m-auto self-center">
 							<PencilSquare className=" size-5" strokeWidth="2" />
@@ -180,7 +180,7 @@
 							use:builder.action
 							class="select-none flex rounded-xl p-1.5 w-full hover:bg-gray-50 dark:hover:bg-gray-850 transition"
 							aria-haspopup="menu"
-							aria-label="User Menu"
+							aria-label={$i18n.t('User Menu')}
 						>
 							<div class=" self-center">
 								<img

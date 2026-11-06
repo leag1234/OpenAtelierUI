@@ -4,6 +4,7 @@
 	import { createPicker, getAuthToken } from '$lib/utils/google-drive-picker';
 	import { pickAndDownloadFile } from '$lib/utils/onedrive-file-picker';
 	import { detachFileForRemoval } from '$lib/utils/file-removal';
+	import { availableIntegrations } from '$lib/utils/availableIntegrations';
 
 	import { onMount, tick, getContext, createEventDispatcher, onDestroy } from 'svelte';
 	const dispatch = createEventDispatcher();
@@ -36,6 +37,9 @@
 	import { WEBUI_BASE_URL, WEBUI_API_BASE_URL, PASTED_TEXT_CHARACTER_LIMIT } from '$lib/constants';
 
 	import InputMenu from './MessageInput/InputMenu.svelte';
+	import AttachmentPicker from './MessageInput/AttachmentPicker.svelte';
+	let attachmentMode = '';
+
 	import VoiceRecording from './MessageInput/VoiceRecording.svelte';
 	import FilesOverlay from './MessageInput/FilesOverlay.svelte';
 	import Commands from './MessageInput/Commands.svelte';
@@ -92,6 +96,7 @@
 	});
 
 	let showTools = false;
+	$: integrationsAvailable = availableIntegrations($config, $_user, toolServers, $tools, selectedToolIds);
 
 	let loaded = false;
 	let recording = false;
@@ -352,6 +357,13 @@
 		}
 	});
 </script>
+<AttachmentPicker bind:mode={attachmentMode}
+    onSelect={async (item) => {
+        if (item.snapshot) await uploadFileHandler(item.snapshot);
+        else if (!files.some((file) => file.id === item.id)) files = [...files, item];
+    }}
+    on:web={(event) => dispatch('upload', { type: 'web', data: event.detail })} />
+
 
 <FilesOverlay show={dragged} />
 
@@ -459,11 +471,11 @@
 			</div>
 		</div>
 
-		<div id="message-input-container" class="w-full min-w-0 {transparentBackground ? 'bg-transparent' : 'bg-white dark:bg-gray-900'} ">
+		<div class="w-full min-w-0 {transparentBackground ? 'bg-transparent' : 'bg-white dark:bg-gray-900'} ">
 			<div
 				class="{($settings?.widescreenMode ?? null)
 					? 'max-w-full'
-					: 'max-w-6xl'} px-2.5 mx-auto inset-x-0"
+					: 'max-w-[640px]'} px-2.5 mx-auto inset-x-0"
 			>
 				<div class="w-full min-w-0 flex-1 max-w-none" style="max-width: none !important">
 					<input
@@ -516,6 +528,7 @@
 							}}
 						>
 							<div
+								id="message-input-container"
 								class="flex-1 flex flex-col relative w-full shadow-lg rounded-3xl border border-gray-50 dark:border-gray-850 hover:border-gray-100 focus-within:border-gray-100 hover:dark:border-gray-800 focus-within:dark:border-gray-800 transition px-1 bg-white/90 dark:bg-gray-400/5 dark:text-gray-100"
 								dir={$settings?.chatDirection ?? 'auto'}
 							>
@@ -608,7 +621,7 @@
 									</div>
 								{/if}
 
-								<div class="px-2.5">
+								<div class="relative px-2.5">
 									{#if $settings?.richTextInput ?? true}
 										<div
 											class="scrollbar-hidden text-left bg-transparent dark:text-gray-100 outline-hidden w-full pt-3 px-1 resize-none h-fit max-h-80 overflow-auto"
@@ -1044,7 +1057,8 @@
 
 								<div class=" flex justify-between mt-1 mb-2.5 mx-0.5 max-w-full" dir="ltr">
 									<div class="ml-1 self-end flex items-center flex-1 max-w-[80%] gap-0.5">
-										<InputMenu
+										<InputMenu let:builder
+											onAttach={(mode) => attachmentMode = mode}
 											bind:selectedToolIds
 											{screenCaptureHandler}
 											{inputFilesHandler}
@@ -1094,10 +1108,12 @@
 											}}
 										>
 											<button
+												{...builder}
+												use:builder.action
 												id="input-menu-button"
 												class="bg-transparent hover:bg-gray-100 text-gray-800 dark:text-white dark:hover:bg-gray-800 transition rounded-full p-1.5 outline-hidden focus:outline-hidden"
 												type="button"
-												aria-label="More"
+												aria-label={$i18n.t('More')}
 											>
 												<svg
 													xmlns="http://www.w3.org/2000/svg"
@@ -1113,7 +1129,7 @@
 										</InputMenu>
 
 										<div class="flex gap-1 items-center overflow-x-auto scrollbar-none flex-1">
-											{#if $_user}
+											{#if integrationsAvailable}
 												<Tooltip
 													content={$i18n.t('Integrations')}
 												>
@@ -1137,9 +1153,7 @@
 									</div>
 
 									<div class="self-end flex items-center space-x-1 mr-1 shrink-0 min-w-0">
-										<div class="hidden sm:flex max-w-[13rem] @md:max-w-[18rem] min-w-0 items-center">
-											<ModelSelector bind:selectedModels showSetDefault={false} />
-										</div>
+
 										{#if (!history?.currentId || history.messages[history.currentId]?.done == true) && ($_user?.role === 'admin' || ($_user?.permissions?.chat?.stt ?? true))}
 											<Tooltip content={$i18n.t('Record voice')}>
 												<button
@@ -1172,7 +1186,7 @@
 															toast.error($i18n.t('Permission denied when accessing microphone'));
 														}
 													}}
-													aria-label="Voice Input"
+													aria-label={$i18n.t('Record voice')}
 												>
 													<svg
 														xmlns="http://www.w3.org/2000/svg"
@@ -1270,7 +1284,7 @@
 																);
 															}
 														}}
-														aria-label="Call"
+														aria-label={$i18n.t('Call')}
 													>
 														<Headphone className="size-5" />
 													</button>

@@ -67,8 +67,13 @@ async def get_folders(user=Depends(get_verified_user)):
 
 @router.post("/")
 def create_folder(form_data: FolderForm, user=Depends(get_verified_user)):
+    parent_id = form_data.parent_id
+    if parent_id is not None and not Folders.get_folder_by_id_and_user_id(parent_id, user.id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=ERROR_MESSAGES.NOT_FOUND
+        )
     folder = Folders.get_folder_by_parent_id_and_user_id_and_name(
-        None, user.id, form_data.name
+        parent_id, user.id, form_data.name
     )
 
     if folder:
@@ -78,7 +83,7 @@ def create_folder(form_data: FolderForm, user=Depends(get_verified_user)):
         )
 
     try:
-        folder = Folders.insert_new_folder(user.id, form_data.name)
+        folder = Folders.insert_new_folder(user.id, form_data.name, parent_id)
         return folder
     except Exception as e:
         log.exception(e)

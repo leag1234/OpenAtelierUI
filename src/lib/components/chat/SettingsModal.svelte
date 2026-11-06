@@ -392,15 +392,27 @@
 		</div>
 
 		<div class="flex flex-col md:flex-row w-full px-4 pt-1 pb-4 md:space-x-4">
-			<div
+			<nav
 				id="settings-tabs-container"
+                on:keydown={(event) => {
+                    if (event.target.getAttribute('role') !== 'tab') return;
+                    const tabs = [...event.currentTarget.querySelectorAll('[role="tab"]')];
+                    const index = tabs.indexOf(event.target);
+                    const direction = ['ArrowRight', 'ArrowDown'].includes(event.key) ? 1 : ['ArrowLeft', 'ArrowUp'].includes(event.key) ? -1 : 0;
+                    if (direction || ['Home', 'End'].includes(event.key)) {
+                        event.preventDefault(); const next = tabs[event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + direction + tabs.length) % tabs.length];
+                        next?.focus(); next?.click();
+                    }
+                }}
+				role="tablist"
+				aria-label={$i18n.t('Settings')}
 				class="tabs flex flex-row overflow-x-auto gap-2.5 md:gap-1 md:flex-col flex-1 md:flex-none md:w-40 dark:text-gray-200 text-sm font-medium text-left mb-1 md:mb-0 -translate-y-1"
 			>
 				<div class="hidden md:flex w-full rounded-xl -mb-1 px-0.5 gap-2" id="settings-search">
 					<div class="self-center rounded-l-xl bg-transparent">
 						<Search className="size-3.5" />
 					</div>
-					<input
+					<input id="search-input-settings-modal"
 						class="w-full py-1.5 text-sm bg-transparent dark:text-gray-300 outline-hidden"
 						bind:value={search}
 						on:input={searchDebounceHandler}
@@ -412,7 +424,7 @@
 					{#each visibleTabs as tabId (tabId)}
 						{#if tabId === 'general'}
 							<button
-								id="tab-general"
+								role="tab" aria-controls={`tab-${tabId}`} aria-selected={selectedTab === tabId} id="settings-tab-general"
 								class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
 								'general'
 									? ''
@@ -439,7 +451,7 @@
 							</button>
 						{:else if tabId === 'interface'}
 							<button
-								class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
+								role="tab" aria-controls={`tab-${tabId}`} aria-selected={selectedTab === tabId} class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
 								'interface'
 									? ''
 									: ' text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'}"
@@ -466,7 +478,7 @@
 						{:else if tabId === 'connections'}
 							{#if $user?.role === 'admin' || ($user?.role === 'user' && $config?.features?.enable_direct_connections)}
 								<button
-									class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
+									role="tab" aria-controls={`tab-${tabId}`} aria-selected={selectedTab === tabId} class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
 									'connections'
 										? ''
 										: ' text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'}"
@@ -492,7 +504,7 @@
 						{:else if tabId === 'tools'}
 							{#if $user?.role === 'admin' || ($user?.role === 'user' && $user?.permissions?.features?.direct_tool_servers)}
 								<button
-									class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
+									role="tab" aria-controls={`tab-${tabId}`} aria-selected={selectedTab === tabId} class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
 									'tools'
 										? ''
 										: ' text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'}"
@@ -519,7 +531,7 @@
 							{/if}
 						{:else if tabId === 'personalization'}
 							<button
-								class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
+								role="tab" aria-controls={`tab-${tabId}`} aria-selected={selectedTab === tabId} class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
 								'personalization'
 									? ''
 									: ' text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'}"
@@ -534,7 +546,7 @@
 							</button>
 						{:else if tabId === 'audio'}
 							<button
-								class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
+								role="tab" aria-controls={`tab-${tabId}`} aria-selected={selectedTab === tabId} class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
 								'audio'
 									? ''
 									: ' text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'}"
@@ -561,7 +573,7 @@
 							</button>
 						{:else if tabId === 'chats'}
 							<button
-								class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
+								role="tab" aria-controls={`tab-${tabId}`} aria-selected={selectedTab === tabId} class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
 								'chats'
 									? ''
 									: ' text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'}"
@@ -587,7 +599,7 @@
 							</button>
 						{:else if tabId === 'account'}
 							<button
-								class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
+								role="tab" aria-controls={`tab-${tabId}`} aria-selected={selectedTab === tabId} class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
 								'account'
 									? ''
 									: ' text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'}"
@@ -613,7 +625,7 @@
 							</button>
 						{:else if tabId === 'about'}
 							<button
-								class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
+								role="tab" aria-controls={`tab-${tabId}`} aria-selected={selectedTab === tabId} class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
 								'about'
 									? ''
 									: ' text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'}"
@@ -640,7 +652,7 @@
 						{:else if tabId === 'admin'}
 							{#if $user?.role === 'admin'}
 								<button
-									class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
+									role="tab" aria-controls={`tab-${tabId}`} aria-selected={selectedTab === tabId} class="px-0.5 py-1 min-w-fit rounded-lg flex-1 md:flex-none flex text-left transition {selectedTab ===
 									'admin'
 										? ''
 										: ' text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'}"
@@ -673,9 +685,10 @@
 						{$i18n.t('No results found')}
 					</div>
 				{/if}
-			</div>
-			<div class="flex-1 md:min-h-[32rem] max-h-[32rem]">
+			</nav>
+			<div id={selectedTab === 'general' ? undefined : `tab-${selectedTab}`} role={selectedTab === 'general' ? undefined : 'tabpanel'} class="flex-1 md:min-h-[32rem] max-h-[32rem]">
 				{#if selectedTab === 'general'}
+					<section id="tab-general" role="tabpanel" class="h-full">
 					<General
 						{getModels}
 						{saveSettings}
@@ -683,6 +696,7 @@
 							toast.success($i18n.t('Settings saved successfully!'));
 						}}
 					/>
+				</section>
 				{:else if selectedTab === 'interface'}
 					<Interface
 						{saveSettings}

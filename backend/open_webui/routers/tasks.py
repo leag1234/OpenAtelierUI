@@ -143,6 +143,17 @@ async def update_task_config(
     }
 
 
+def title_message_text(content):
+    """Prepare a task-only text view without mutating persisted multimodal input."""
+    if isinstance(content, str):
+        text = content
+    elif isinstance(content, list):
+        text = "\n".join(part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str))
+    else:
+        text = ""
+    return re.sub(r'<details\s+type="reasoning"[^>]*>.*?</details>', '', text, flags=re.S).strip()
+
+
 @router.post("/title/completions")
 async def generate_title(
     request: Request, form_data: dict, user=Depends(get_verified_user)
@@ -188,14 +199,8 @@ async def generate_title(
 
     messages = form_data["messages"]
 
-    # Remove reasoning details from the messages
-    for message in messages:
-        message["content"] = re.sub(
-            r"<details\s+type=\"reasoning\"[^>]*>.*?<\/details>",
-            "",
-            message["content"],
-            flags=re.S,
-        ).strip()
+    # Title generation receives text-only copies, including file/image turns.
+    messages = [{**message, "content": title_message_text(message.get("content"))} for message in messages]
 
     content = title_generation_template(
         template,

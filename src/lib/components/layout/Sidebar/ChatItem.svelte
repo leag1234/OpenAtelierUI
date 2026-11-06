@@ -43,6 +43,8 @@
 
 	export let id;
 	export let title;
+	export let updatedAt = null;
+	$: age = updatedAt ? new Intl.RelativeTimeFormat($i18n.resolvedLanguage || $i18n.language, { numeric: 'auto' }).format(Math.min(0, Math.floor((updatedAt * 1000 - Date.now()) / 86400000)), 'day') : '';
 
 	export let selected = false;
 	export let shiftKey = false;
@@ -294,9 +296,8 @@
 			draggable="false"
 		>
 			<div class=" flex self-center flex-1 w-full">
-				<div dir="auto" class="text-left self-center overflow-hidden w-full h-[20px]">
-					{title}
-				</div>
+				<div dir="auto" class="min-w-0 flex-1 truncate text-left">{title}</div>
+				{#if age}<time class="shrink-0 text-[10px] text-gray-500">{age}</time>{/if}
 			</div>
 		</a>
 	{/if}

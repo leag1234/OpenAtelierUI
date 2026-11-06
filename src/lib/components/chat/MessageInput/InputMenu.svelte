@@ -30,6 +30,7 @@
 	export let selectedToolIds: string[] = [];
 
 	export let onClose: Function;
+	export let onAttach: Function = () => {};
 
 	let tools = {};
 	let show = false;
@@ -80,7 +81,7 @@
 	style="display: none;"
 />
 
-<Dropdown
+<Dropdown asChild let:builder
 	bind:show
 	on:change={(e) => {
 		if (e.detail === false) {
@@ -89,11 +90,12 @@
 	}}
 >
 	<Tooltip content={$i18n.t('More')}>
-		<slot />
+		<slot {builder} />
 	</Tooltip>
 
 	<div slot="content">
 		<DropdownMenu.Content
+			aria-labelledby="input-menu-button"
 			class="w-full max-w-[200px] rounded-xl px-1 py-1 border border-gray-300/30 dark:border-gray-700/50 z-50 bg-white dark:bg-gray-850 dark:text-white shadow-sm"
 			sideOffset={10}
 			alignOffset={-8}
@@ -190,6 +192,13 @@
 					<div class="line-clamp-1">{$i18n.t('Upload Files')}</div>
 				</DropdownMenu.Item>
 			</Tooltip>
+
+            {#each [['web', 'Attach web page'], ['files', 'Attach files'], ['knowledge', 'Attach knowledge'], ['chats', 'Reference chats']] as [mode, label]}
+                <DropdownMenu.Item disabled={!fileUploadEnabled} class="flex gap-2 items-center px-3 py-2 text-sm font-medium cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
+                    on:click={() => { if (fileUploadEnabled) { show = false; onAttach(mode); } }}>
+                    <DocumentArrowUpSolid /><span>{$i18n.t(label)}</span>
+                </DropdownMenu.Item>
+            {/each}
 
 			{#if $config?.features?.enable_google_drive_integration}
 				<DropdownMenu.Item

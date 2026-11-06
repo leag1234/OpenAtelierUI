@@ -7,7 +7,7 @@
 	const { saveAs } = fileSaver;
 
 	import { marked, type Token } from 'marked';
-	import { unescapeHtml } from '$lib/utils';
+	import { unescapeHtml, copyToClipboard } from '$lib/utils';
 
 	import { WEBUI_BASE_URL } from '$lib/constants';
 
@@ -159,8 +159,12 @@
 				</table>
 			</div>
 
-			<div class=" absolute top-1 right-1.5 z-20 invisible group-hover:visible">
-				<Tooltip content={$i18n.t('Export to CSV')}>
+			<div class="absolute top-1 right-1.5 z-20 flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+				<Tooltip content={$i18n.t('Copy table')}>
+                    <button type="button" class="copy-table-button rounded-lg bg-white p-1 text-xs dark:bg-gray-850" aria-label={$i18n.t('Copy table')}
+                        on:click={() => copyToClipboard([token.header.map((cell) => cell.text).join('\t'), ...token.rows.map((row) => row.map((cell) => cell.text).join('\t'))].join('\n'))}>{$i18n.t('Copy')}</button>
+                </Tooltip>
+                <Tooltip content={$i18n.t('Export to CSV')}>
 					<button
 						class="p-1 rounded-lg bg-transparent transition"
 						on:click={(e) => {

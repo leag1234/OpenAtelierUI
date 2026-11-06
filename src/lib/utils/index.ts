@@ -1,3 +1,4 @@
+import i18next from 'i18next';
 import { v4 as uuidv4 } from 'uuid';
 import sha256 from 'js-sha256';
 
@@ -301,17 +302,12 @@ export const generateInitialsImage = (name) => {
 	return canvas.toDataURL();
 };
 
-export const formatDate = (inputDate) => {
-	const date = dayjs(inputDate);
-	const now = dayjs();
-
-	if (date.isToday()) {
-		return `Today at ${date.format('LT')}`;
-	} else if (date.isYesterday()) {
-		return `Yesterday at ${date.format('LT')}`;
-	} else {
-		return `${date.format('L')} at ${date.format('LT')}`;
-	}
+export const formatDate = (inputDate, locale = i18next.resolvedLanguage || i18next.language || 'en-US') => {
+    const date = dayjs(inputDate);
+    const time = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(date.toDate());
+    if (date.isToday()) return i18next.t('Today at {{time}}', { time });
+    if (date.isYesterday()) return i18next.t('Yesterday at {{time}}', { time });
+    return new Intl.DateTimeFormat(locale, { dateStyle: 'short', timeStyle: 'short' }).format(date.toDate());
 };
 
 export const copyToClipboard = async (text, formatted = false) => {
@@ -895,8 +891,10 @@ export const blobToFile = (blob, fileName) => {
 	return file;
 };
 
-export const getPromptVariables = (user_name, user_location) => {
+export const getPromptVariables = (user_name, user_location, variables = {}) => {
+    const custom = Object.fromEntries(Object.entries(variables || {}).filter(([key, value]) => /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(key) && typeof value === 'string').map(([key, value]) => [`{{${key}}}`, value]));
 	return {
+		...custom,
 		'{{USER_NAME}}': user_name,
 		'{{USER_LOCATION}}': user_location || 'Unknown',
 		'{{CURRENT_DATETIME}}': getCurrentDateTime(),

@@ -3,6 +3,11 @@ import resourcesToBackend from 'i18next-resources-to-backend';
 import LanguageDetector from 'i18next-browser-languagedetector';
 import type { i18n as i18nType } from 'i18next';
 import { writable } from 'svelte/store';
+import languages from './locales/languages.json';
+import { resolveLocale } from './locale';
+
+const localeCodes = languages.map(({ code }) => code);
+const catalogueLocale = (value: string) => resolveLocale(value, localeCodes);
 
 const createI18nStore = (i18n: i18nType) => {
 	const i18nWritable = writable(i18n);
@@ -44,7 +49,7 @@ export const initI18n = (defaultLocale?: string | undefined) => {
 	let fallbackDefaultLocale = defaultLocale ? [defaultLocale] : ['en-US'];
 
 	const loadResource = (language: string, namespace: string) =>
-		import(`./locales/${language}/${namespace}.json`);
+		import(`./locales/${catalogueLocale(language)}/${namespace}.json`);
 
 	i18next
 		.use(resourcesToBackend(loadResource))
@@ -55,7 +60,8 @@ export const initI18n = (defaultLocale?: string | undefined) => {
 				order: detectionOrder,
 				caches: ['localStorage'],
 				lookupQuerystring: 'lang',
-				lookupLocalStorage: 'locale'
+				lookupLocalStorage: 'locale',
+				convertDetectedLanguage: catalogueLocale
 			},
 			fallbackLng: {
 				default: fallbackDefaultLocale
@@ -68,7 +74,7 @@ export const initI18n = (defaultLocale?: string | undefined) => {
 		});
 
 	const lang = i18next?.language || defaultLocale || 'en-US';
-	document.documentElement.setAttribute('lang', lang);
+	document.documentElement.setAttribute('lang', catalogueLocale(lang));
 };
 
 const i18n = createI18nStore(i18next);
@@ -103,9 +109,12 @@ export const getLanguages = async () => {
 	return languages;
 };
 export const changeLanguage = (lang: string) => {
-	document.documentElement.setAttribute('lang', lang);
-	i18next.changeLanguage(lang);
+	return i18next.changeLanguage(catalogueLocale(lang));
 };
+
+i18next.on('languageChanged', (lang) => {
+	if (typeof document !== 'undefined') document.documentElement.lang = catalogueLocale(lang);
+});
 
 export default i18n;
 export const isLoading = isLoadingStore;

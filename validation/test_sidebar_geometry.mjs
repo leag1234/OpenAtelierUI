@@ -27,7 +27,7 @@ test('collapsed navigation is inert and has a keyboard-operable visible reopen c
 	assert.match(rail, /aria-label="Open navigation"[\s\S]*?aria-controls="sidebar"[\s\S]*?on:click=\{\(\) => showSidebar\.set\(true\)\}/);
 	const navbar = source('../src/lib/components/layout/Navbar.svelte');
 	const toggle = navbar.slice(navbar.indexOf('id="sidebar-toggle-button"'), navbar.indexOf('</button>', navbar.indexOf('id="sidebar-toggle-button"')));
-	assert.match(toggle, /aria-label="Toggle Sidebar"/);
+	assert.match(toggle, /aria-label=\{\$i18n\.t\('Toggle Sidebar'\)\}/);
 	assert.match(toggle, /showSidebar\.set\(!\$showSidebar\)/);
 });
 
@@ -38,8 +38,8 @@ test('mobile navigation names its close control and enables focus containment on
 	assert.match(sidebar, /\$mobile &&[\s\S]*?\$showSidebar &&[\s\S]*?navElement &&[\s\S]*?closeNavigationButton/);
 	assert.match(sidebar, /role=\{\$mobile && \$showSidebar \? 'dialog' : undefined\}/);
 	assert.match(sidebar, /aria-modal=\{\$mobile && \$showSidebar \? 'true' : undefined\}/);
-	assert.match(sidebar, /bind:this=\{closeNavigationButton\}[\s\S]*?aria-label="Close navigation"/);
+	assert.match(sidebar, /bind:this=\{closeNavigationButton\}[\s\S]*?aria-label=\{\$i18n\.t\('Close navigation'\)\}/);
 	assert.match(sidebar, /\$mobile \|\| !\$showSidebar\)[\s\S]*?cleanup\(\)/);
 	assert.match(sidebar, /onDestroy\(\(\) => \{\s*if \(mobileFocusCleanup\) \{\s*mobileFocusCleanup\(\);/);
-	assert.match(navbar, /id="sidebar-toggle-button"[\s\S]*?aria-label="Toggle Sidebar"[\s\S]*?aria-controls="sidebar"[\s\S]*?aria-expanded=\{\$showSidebar\}/);
+	assert.match(navbar, /id="sidebar-toggle-button"[\s\S]*?aria-label=\{\$i18n\.t\('Toggle Sidebar'\)\}[\s\S]*?aria-controls="sidebar"[\s\S]*?aria-expanded=\{\$showSidebar\}/);
 });

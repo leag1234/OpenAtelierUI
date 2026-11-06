@@ -275,7 +275,7 @@ def _publish(output_path, source_path, expected_hash, data, started, prepublish=
         require(_source(source, started)[1] == expected_hash, "source_changed")
         require(time.monotonic() - started <= DEADLINE, "deadline_exceeded")
         fd, temp = tempfile.mkstemp(prefix=".private-chat-export-", dir=str(output.parent))
-        published, identity = False, None
+        published = False
         try:
             os.fchmod(fd, 0o600)
             with os.fdopen(fd, "wb") as stream:
@@ -284,7 +284,6 @@ def _publish(output_path, source_path, expected_hash, data, started, prepublish=
             require(_source(source, started)[1] == expected_hash, "source_changed")
             if prepublish is not None:
                 prepublish()
-            info = os.stat(temp, follow_symlinks=False); identity = (info.st_dev, info.st_ino)
             os.link(temp, output)
             published = True
             os.unlink(temp)
@@ -303,12 +302,10 @@ def _publish(output_path, source_path, expected_hash, data, started, prepublish=
             except OSError:
                 pass
             if published:
-                try:
-                    current = os.stat(output, follow_symlinks=False)
-                    if (current.st_dev, current.st_ino) == identity:
-                        os.unlink(output)
-                except OSError:
-                    pass
+                # A directory fsync failure does not prove publication failed.
+                # Preserve the published path, including a competing replacement.
+                raise Refusal("output_unconfirmed") from None
+
             raise
     except Refusal:
         raise

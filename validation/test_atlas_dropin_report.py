@@ -234,7 +234,7 @@ class AtlasDropInReportTests(unittest.TestCase):
         ):
             self.assertEqual(source.count(f'id="{element_id}"'), 1, element_id)
 
-    def test_reference_like_composer_keeps_model_and_integrations_controls_together(self):
+    def test_composer_exposes_only_its_input_actions_and_keeps_integrations_reachable(self):
         navbar = CHAT_NAVBAR.read_text(encoding="utf-8")
         layout_navbar = LAYOUT_NAVBAR.read_text(encoding="utf-8")
         composer = MESSAGE_INPUT.read_text(encoding="utf-8")
@@ -247,10 +247,8 @@ class AtlasDropInReportTests(unittest.TestCase):
             'class="md:hidden mr-1 self-start flex flex-none items-center',
             layout_navbar,
         )
-        self.assertEqual(
-            composer.count("<ModelSelector bind:selectedModels showSetDefault={false} />"),
-            1,
-        )
+        self.assertNotIn("<ModelSelector", composer)
+        self.assertIn("<ModelSelector bind:selectedModels showSetDefault={false} />", navbar)
         self.assertIn("aria-label={$i18n.t('Integrations')}", composer)
         self.assertIn("flex shrink-0 gap-1 items-center whitespace-nowrap", composer)
         self.assertIn('<span class="sr-only">{$i18n.t(\'Integrations\')}</span>', composer)

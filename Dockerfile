@@ -22,14 +22,14 @@ ARG GID=0
 
 ######## WebUI frontend ########
 FROM --platform=$BUILDPLATFORM node:22-alpine3.20 AS build
-ARG BUILD_HASH
 
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN CYPRESS_INSTALL_BINARY=0 npm ci --no-audit --no-fund
 
 COPY . .
+ARG BUILD_HASH
 ENV APP_BUILD_HASH=${BUILD_HASH}
 RUN npm run build
 

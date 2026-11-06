@@ -962,6 +962,27 @@ def _should_generate_default_chat_title(tasks, messages):
     return len(messages) == 2 and tasks[TASKS.TITLE_GENERATION] is not False
 
 
+def _generated_chat_title(result):
+    """Accept provider JSON, fenced JSON or a short plain title; reject error replies."""
+    if not isinstance(result, dict) or not result.get("choices"):
+        return ""
+    text = result["choices"][0].get("message", {}).get("content", "")
+    if not isinstance(text, str):
+        return ""
+    text = text.strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start >= 0 and end >= start:
+        try:
+            value = json.loads(text[start:end + 1]).get("title", "")
+        except (ValueError, AttributeError):
+            return ""
+    else:
+        value = text.strip('"')
+        if "\n" in value or len(value) > 160:
+            return ""
+    return " ".join(value.split())[:160] if isinstance(value, str) else ""
+
+
 async def process_chat_response(
     request, response, form_data, user, metadata, model, events, tasks
 ):
@@ -986,25 +1007,7 @@ async def process_chat_response(
                         )
 
                         if res and isinstance(res, dict):
-                            if len(res.get("choices", [])) == 1:
-                                title_string = (
-                                    res.get("choices", [])[0]
-                                    .get("message", {})
-                                    .get("content", message.get("content", "New Chat"))
-                                )
-                            else:
-                                title_string = ""
-
-                            title_string = title_string[
-                                title_string.find("{") : title_string.rfind("}") + 1
-                            ]
-
-                            try:
-                                title = json.loads(title_string).get(
-                                    "title", "New Chat"
-                                )
-                            except Exception as e:
-                                title = ""
+                            title = _generated_chat_title(res)
 
                             if not title:
                                 title = messages[0].get("content", "New Chat")

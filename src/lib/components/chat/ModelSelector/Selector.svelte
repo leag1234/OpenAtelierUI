@@ -35,6 +35,7 @@
 
 	export let id = '';
 	export let value = '';
+	export let onSetDefault: (() => Promise<void>) | null = null;
 	export let placeholder = 'Select a model';
 	export let searchEnabled = true;
 	export let searchPlaceholder = $i18n.t('Search a model');
@@ -744,6 +745,11 @@
 					</div>
 				{/each}
 			</div>
+
+            {#if onSetDefault}
+                <button type="button" class="mx-2 mb-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800"
+                    on:click={async () => { await onSetDefault(); show = false; }}>{$i18n.t('Set as default')}</button>
+            {/if}
 
 			{#if showTemporaryChatControl}
 				<div class="flex items-center mx-2 mb-2">

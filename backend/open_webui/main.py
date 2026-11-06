@@ -1640,7 +1640,7 @@ async def get_app_latest_release_version(user=Depends(get_verified_user)):
     ).strip().lower() in {"1", "true", "yes", "on"}
     if OFFLINE_MODE or not release_check_enabled:
         log.debug("Release checks are disabled; returning the current version")
-        return {"current": VERSION, "latest": VERSION}
+        return {"current": VERSION, "latest": VERSION, "check_enabled": False}
     try:
         timeout = aiohttp.ClientTimeout(total=1)
         async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
@@ -1651,10 +1651,10 @@ async def get_app_latest_release_version(user=Depends(get_verified_user)):
                 data = await response.json()
                 latest_version = data["tag_name"]
 
-                return {"current": VERSION, "latest": latest_version[1:]}
+                return {"current": VERSION, "latest": latest_version.removeprefix("v"), "check_enabled": True}
     except Exception as e:
         log.debug(e)
-        return {"current": VERSION, "latest": VERSION}
+        return {"current": VERSION, "latest": VERSION, "check_enabled": True, "check_failed": True}
 
 
 @app.get("/api/changelog")

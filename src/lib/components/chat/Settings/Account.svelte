@@ -31,6 +31,7 @@
 	let dateOfBirth = '';
 
 	let webhookUrl = '';
+	let variablesRows = Object.entries($settings?.variables || {}).map(([name, value]) => ({ name, value }));
 	let showAPIKeys = false;
 
 	let JWTTokenCopied = false;
@@ -40,6 +41,13 @@
 	let profileImageInputElement: HTMLInputElement;
 
 	const submitHandler = async () => {
+        let variables;
+        try {
+            variables = Object.fromEntries(variablesRows.map(({ name, value }) => [name, value]));
+            if (Object.keys(variables).length !== variablesRows.length) throw new Error();
+            if (!variables || Array.isArray(variables) || typeof variables !== 'object' || Object.keys(variables).length > 100 || Object.entries(variables).some(([key, value]) => !/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(key) || typeof value !== 'string' || value.length > 4096)) throw new Error();
+        } catch { toast.error($i18n.t('Use unique variable names with letters, digits and underscores.')); return false; }
+        await saveSettings({ variables });
 		if (name !== $user?.name) {
 			if (profileImageUrl === generateInitialsImage($user?.name) || profileImageUrl === '') {
 				profileImageUrl = generateInitialsImage(name);
@@ -109,7 +117,7 @@
 		profileImageUrl = $user?.profile_image_url;
 		webhookUrl = $settings?.notifications?.webhook_url ?? '';
 
-		APIKey = await getAPIKey(localStorage.token).catch((error) => {
+		APIKey = $config?.features?.auth_trusted_header ? '' : await getAPIKey(localStorage.token).catch((error) => {
 			console.log(error);
 			return '';
 		});
@@ -314,7 +322,7 @@
 				</div>
 			{/if}
 
-			{#if $config?.features?.enable_user_webhooks}
+			{#if !$config?.features?.auth_trusted_header && $config?.features?.enable_user_webhooks}
 				<div class="pt-2">
 					<div class="flex flex-col w-full">
 						<div class=" mb-1 text-xs font-medium">{$i18n.t('Notification Webhook')}</div>
@@ -333,10 +341,25 @@
 			{/if}
 		</div>
 
+        <fieldset class="mt-4 space-y-2">
+            <legend class="text-sm font-medium">{$i18n.t('User Variables')}</legend>
+            {#each variablesRows as variable, index}
+                <div class="flex gap-2">
+                    <input bind:value={variable.name} aria-label={$i18n.t('Variable name')} placeholder={$i18n.t('Variable name')} class="min-w-0 w-1/3 rounded-lg border p-2 text-sm dark:bg-gray-850" />
+                    <input bind:value={variable.value} aria-label={$i18n.t('Value')} placeholder={$i18n.t('Value')} class="min-w-0 flex-1 rounded-lg border p-2 text-sm dark:bg-gray-850" />
+                    <button type="button" aria-label={$i18n.t('Remove variable')} on:click={() => variablesRows = variablesRows.filter((_, item) => item !== index)} class="rounded-lg p-2">✕</button>
+                </div>
+            {/each}
+            <button type="button" on:click={() => variablesRows = [...variablesRows, { name: '', value: '' }]} class="rounded-lg bg-gray-100 px-3 py-2 text-sm dark:bg-gray-850">{$i18n.t('Add variable')}</button>
+        </fieldset>
+
+		{#if !$config?.features?.auth_trusted_header}
 		<div class="py-0.5">
 			<UpdatePassword />
 		</div>
+		{/if}
 
+		{#if !$config?.features?.auth_trusted_header}
 		<hr class="border-gray-50 dark:border-gray-850 my-2" />
 
 		<div class="flex justify-between items-center text-sm">
@@ -497,6 +520,7 @@
 					</div>
 				{/if}
 			</div>
+		{/if}
 		{/if}
 	</div>
 

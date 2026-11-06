@@ -27,19 +27,13 @@ class ProductionFollowupUiTests(unittest.TestCase):
         self.assertLess(wait, toast)
         self.assertEqual(french["You're now logged in."], "Vous êtes désormais connecté.")
 
-    def test_phone_moves_model_controls_out_of_composer(self):
+    def test_header_owns_model_controls_outside_compatible_composer(self):
         chat = CHAT.read_text(encoding="utf-8")
         composer = COMPOSER.read_text(encoding="utf-8")
-        self.assertIn("showModelSelector={$mobile}", chat)
-        self.assertIn(
-            'class="hidden sm:flex max-w-[13rem] @md:max-w-[18rem] min-w-0 items-center"',
-            composer,
-        )
+        self.assertIn("showModelSelector={true}", chat)
+        self.assertNotIn("<ModelSelector", composer)
         self.assertEqual(composer.count('id="input-menu-button"'), 1)
-        self.assertEqual(
-            composer.count("<ModelSelector bind:selectedModels showSetDefault={false} />"),
-            1,
-        )
+
 
 
 if __name__ == "__main__":

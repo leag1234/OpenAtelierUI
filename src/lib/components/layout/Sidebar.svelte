@@ -5,6 +5,7 @@
 	import { goto } from '$app/navigation';
 	import {
 		user,
+		WEBUI_NAME,
 		chats,
 		settings,
 		showSettings,
@@ -47,6 +48,7 @@
 	import ArchivedChatsModal from './Sidebar/ArchivedChatsModal.svelte';
 	import UserMenu from './Sidebar/UserMenu.svelte';
 	import ChatItem from './Sidebar/ChatItem.svelte';
+	import PinnedMenuItems from './Sidebar/PinnedMenuItems.svelte';
 	import Spinner from '../common/Spinner.svelte';
 	import Loader from '../common/Loader.svelte';
 	import AddFilesPlaceholder from '../AddFilesPlaceholder.svelte';
@@ -65,6 +67,13 @@
 	const BREAKPOINT = 768;
 
 	let navElement;
+    let sidebarWidth = 260;
+    let resizing = false;
+    const setSidebarWidth = (value) => {
+        sidebarWidth = Math.max(200, Math.min(360, Number(value) || 260));
+        document.documentElement.style.setProperty('--sidebar-width', `${sidebarWidth}px`);
+        localStorage.setItem('sidebar-width', String(sidebarWidth));
+    };
 	let closeNavigationButton;
 	let mobileFocusCleanup = null;
 	let search = '';
@@ -382,6 +391,7 @@
 	}
 
 	onMount(async () => {
+		setSidebarWidth(localStorage.getItem('sidebar-width') || 260);
 		showPinnedChat = localStorage?.showPinnedChat ? localStorage.showPinnedChat === 'true' : true;
 
 		mobile.subscribe((value) => {
@@ -490,13 +500,18 @@
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 
+{#if !$mobile || $showSidebar}
+<div id="sidebar" data-state={sidebarStateMarker($showSidebar)}
+    class="relative shrink-0 h-screen max-h-[100dvh] {$showSidebar ? 'w-[260px]' : 'w-12'}"
+    style={$showSidebar ? `width:${sidebarWidth}px` : 'width:48px !important'}>
 {#if !$showSidebar && !$mobile}
 	<nav
 		id="collapsed-navigation-rail"
-		aria-label="Primary navigation"
+		aria-label={$i18n.t('Primary navigation')}
 		class="relative z-40 flex h-screen max-h-[100dvh] w-12 shrink-0 flex-col items-center justify-between border-r border-gray-100 bg-gray-50 py-2 text-gray-600 dark:border-gray-900 dark:bg-gray-950 dark:text-gray-300"
 	>
 		<div class="flex flex-col items-center gap-1">
+			<PinnedMenuItems compact={true} />
 			<Tooltip content={$i18n.t('Open Sidebar')} placement="right">
 				<button
 					type="button"
@@ -581,13 +596,15 @@
 	/>
 {/if}
 
+{#if $showSidebar}
 <div
+	style={`width:${sidebarWidth}px;max-width:${sidebarWidth}px`}
 	bind:this={navElement}
-	id="sidebar"
+	id="expanded-navigation"
 	role={$mobile && $showSidebar ? 'dialog' : undefined}
 	aria-modal={$mobile && $showSidebar ? 'true' : undefined}
 	aria-label={$mobile && $showSidebar ? 'Navigation' : undefined}
-	class="h-screen max-h-[100dvh] min-h-screen select-none {$showSidebar
+	class="h-screen max-h-[100dvh] min-h-0 select-none {$showSidebar
 		? 'md:relative w-[260px] max-w-[260px]'
 		: '-translate-x-[260px] w-[0px]'} {$isApp
 		? `ml-[4.5rem] md:ml-0 `
@@ -596,17 +613,18 @@
 	data-state={sidebarStateMarker($showSidebar)}
 >
 	<div
-		class="py-2 my-auto flex flex-col justify-between h-screen max-h-[100dvh] w-[260px] overflow-x-hidden z-50 {$showSidebar
+		class="py-2 my-auto flex flex-col justify-between h-full min-h-0 max-h-full w-full overflow-x-hidden z-50 {$showSidebar
 			? ''
 			: 'invisible'}"
 		aria-hidden={!$showSidebar}
 		inert={!$showSidebar}
 	>
+		<PinnedMenuItems />
 		<div class="px-1.5 flex justify-between space-x-1 text-gray-600 dark:text-gray-400">
 			<button
 				bind:this={closeNavigationButton}
 				class=" cursor-pointer p-[7px] flex rounded-xl hover:bg-gray-100 dark:hover:bg-gray-900 transition"
-				aria-label="Close navigation"
+				aria-label={$i18n.t('Close navigation')}
 				on:click={() => {
 					showSidebar.set(!$showSidebar);
 				}}
@@ -657,7 +675,7 @@
 					<span id="sidebar-webui-name" class="sr-only">{$config?.name ?? 'OpenAtelierUI'}</span>
 					</div>
 					<div class=" self-center font-medium text-sm text-gray-850 dark:text-white font-primary">
-						{$i18n.t('New Chat')}
+						{$WEBUI_NAME}
 					</div>
 				</div>
 
@@ -666,6 +684,9 @@
 				</div>
 			</a>
 		</div>
+
+        <a id="sidebar-new-chat-row" href="/" class="mx-2 flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-900"
+            on:click={() => { chatId.set(''); selectedChatId = null; if ($mobile) showSidebar.set(false); }}><PencilSquare className="size-4" />{$i18n.t('New Chat')}</a>
 
 		<!-- {#if $user?.role === 'admin'}
 			<div class="px-1.5 flex justify-center text-gray-800 dark:text-gray-200">
@@ -785,8 +806,13 @@
 				</Folder>
 			{/if}
 
+            <div class="mx-3 mt-3 flex items-center justify-between text-xs font-medium text-gray-500">
+                <span>{$i18n.t('Chats')}</span>
+                <button type="button" aria-label={$i18n.t('New Folder')} class="rounded-lg p-2" on:click={() => createFolder()}>⋯</button>
+            </div>
+
 			<Folder
-				collapsible={!search}
+				collapsible={false}
 				className="px-2 mt-0.5"
 				name={$i18n.t('Chats')}
 				onAdd={() => {
@@ -893,7 +919,7 @@
 							name={$i18n.t('Pinned')}
 						>
 							<div
-								id="pinned-menu-items-list"
+								id="pinned-chat-items-list"
 								class="ml-3 pl-1 mt-[1px] flex flex-col overflow-y-auto scrollbar-hidden border-s border-gray-100 dark:border-gray-900"
 							>
 								{#each $pinnedChats as chat, idx}
@@ -901,6 +927,7 @@
 										className=""
 										id={chat.id}
 										title={chat.title}
+										updatedAt={chat.updated_at}
 										{shiftKey}
 										selected={selectedChatId === chat.id}
 										on:select={() => {
@@ -976,6 +1003,7 @@
 									className=""
 									id={chat.id}
 									title={chat.title}
+										updatedAt={chat.updated_at}
 									{shiftKey}
 									selected={selectedChatId === chat.id}
 									on:select={() => {
@@ -1057,6 +1085,20 @@
 		</div>
 	</div>
 </div>
+
+    <div id="sidebar-resizer" role="separator" tabindex="0" aria-label={$i18n.t('Resize sidebar')} aria-orientation="vertical"
+        aria-valuemin="200" aria-valuemax="360" aria-valuenow={sidebarWidth}
+        class="hidden md:block absolute top-0 right-0 z-[60] h-full w-1 cursor-col-resize touch-none focus:bg-blue-500"
+        on:pointerdown={(event) => { resizing = true; event.currentTarget.setPointerCapture(event.pointerId); }}
+        on:pointermove={(event) => { if (resizing) setSidebarWidth(event.clientX); }}
+        on:pointerup={() => resizing = false} on:pointercancel={() => resizing = false}
+        on:keydown={(event) => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+            event.preventDefault(); setSidebarWidth(event.key === 'Home' ? 200 : event.key === 'End' ? 360 : sidebarWidth + (event.key === 'ArrowRight' ? 10 : -10));
+        } }}></div>
+
+{/if}
+</div>
+{/if}
 
 <style>
 	.scrollbar-hidden:active::-webkit-scrollbar-thumb,

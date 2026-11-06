@@ -64,7 +64,7 @@
 						on:click={() => {
 							showSidebar.set(!$showSidebar);
 						}}
-						aria-label="Toggle Sidebar"
+						aria-label={$i18n.t('Toggle Sidebar')}
 					>
 						<div class=" m-auto self-center">
 							<MenuLines />
@@ -78,7 +78,7 @@
 			"
 				>
 					{#if showModelSelector}
-						<ModelSelector bind:selectedModels showSetDefault={!shareEnabled} />
+						<ModelSelector bind:selectedModels showSetDefault={false} />
 					{:else if title}
 						<div class="truncate text-left" title={title}>{title}</div>
 					{/if}
@@ -90,6 +90,19 @@
 				</div>
 
 				<div class="self-start flex flex-none items-center text-gray-600 dark:text-gray-400">
+                    {#if !$user?.permissions?.chat?.temporary_enforced && ($user?.role === 'admin' || ($user?.permissions?.chat?.temporary ?? true))}
+                        <button id="temporary-chat-button" type="button" aria-label={$i18n.t('Temporary Chat')} aria-pressed={$temporaryChatEnabled}
+                            class="rounded-xl px-2 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-850"
+                            on:click={async () => {
+                                temporaryChatEnabled.set(!$temporaryChatEnabled);
+                                await initNewChat();
+                                const url = new URL(window.location.href);
+                                if ($temporaryChatEnabled) url.searchParams.set('temporary-chat', 'true');
+                                else url.searchParams.delete('temporary-chat');
+                                window.history.replaceState(window.history.state, '', url);
+                            }}>{$i18n.t('Temporary Chat')}</button>
+                    {/if}
+
 					<!-- <div class="md:hidden flex self-center w-[1px] h-5 mx-2 bg-gray-300 dark:bg-stone-700" /> -->
 					{#if shareEnabled && chat && (chat.id || $temporaryChatEnabled)}
 						<Menu
@@ -132,7 +145,7 @@
 							on:click={async () => {
 								await showControls.set(!$showControls);
 							}}
-							aria-label="Controls"
+							aria-label={$i18n.t('Controls')}
 						>
 							<div class=" m-auto self-center">
 								<AdjustmentsHorizontal className=" size-5" strokeWidth="0.5" />
@@ -143,13 +156,11 @@
 					<Tooltip content={$i18n.t('New Chat')}>
 						<button
 							id="new-chat-button"
-							class=" flex {$showSidebar
-								? 'md:hidden'
-								: ''} cursor-pointer px-2 py-2 rounded-xl text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-850 transition"
+							class="flex md:hidden cursor-pointer px-2 py-2 rounded-xl text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-850 transition"
 							on:click={() => {
 								initNewChat();
 							}}
-							aria-label="New Chat"
+							aria-label={$i18n.t('New Chat')}
 						>
 							<div class=" m-auto self-center">
 								<PencilSquare className=" size-5" strokeWidth="2" />
@@ -157,7 +168,7 @@
 						</button>
 					</Tooltip>
 
-					{#if $user !== undefined && $user !== null}
+					{#if $mobile && $user !== undefined && $user !== null}
 						<UserMenu
 							className="max-w-[200px]"
 							role={$user?.role}
@@ -173,7 +184,7 @@
 								use:builder.action
 								class="select-none flex rounded-xl p-1.5 w-full hover:bg-gray-50 dark:hover:bg-gray-850 transition"
 								aria-haspopup="menu"
-								aria-label="User Menu"
+								aria-label={$i18n.t('User menu')}
 							>
 								<div class=" self-center">
 									<img

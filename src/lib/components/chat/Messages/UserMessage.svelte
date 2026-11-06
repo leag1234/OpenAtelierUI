@@ -124,16 +124,6 @@
 					{:else}
 						{$i18n.t('You')}
 					{/if}
-
-					{#if message.timestamp}
-						<div
-							class=" self-center text-xs invisible group-hover:visible text-gray-400 font-medium first-letter:capitalize ml-0.5 translate-y-[1px]"
-						>
-							<Tooltip content={dayjs(message.timestamp * 1000).format('LLLL')}>
-								<span class="line-clamp-1">{formatDate(message.timestamp * 1000)}</span>
-							</Tooltip>
-						</div>
-					{/if}
 				</Name>
 			</div>
 		{/if}
@@ -239,6 +229,8 @@
 								{/if}
 							</div>
 						</div>
+
+{#if message.timestamp}<time class="message-timestamp block mt-1 text-xs text-gray-500" datetime={new Date(message.timestamp * 1000).toISOString()}>{formatDate(message.timestamp * 1000, $i18n.resolvedLanguage || $i18n.language)}</time>{/if}
 
 						<div
 							class=" flex {($settings?.chatBubble ?? true)

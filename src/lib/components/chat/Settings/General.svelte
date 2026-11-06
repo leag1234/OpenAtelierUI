@@ -214,6 +214,9 @@
 			window.applyTheme();
 		}
 
+		if (!_theme.includes('oled')) {
+			for (const shade of ['800', '850', '900', '950']) document.documentElement.style.removeProperty(`--color-gray-${shade}`);
+		}
 		if (_theme.includes('oled')) {
 			document.documentElement.style.setProperty('--color-gray-800', '#101010');
 			document.documentElement.style.setProperty('--color-gray-850', '#050505');

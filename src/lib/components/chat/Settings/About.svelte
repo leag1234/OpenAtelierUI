@@ -15,7 +15,9 @@
 	let updateAvailable = null;
 	let version = {
 		current: '',
-		latest: ''
+		latest: '',
+		check_enabled: false,
+		check_failed: false
 	};
 
 	const checkForVersionUpdates = async () => {
@@ -29,7 +31,7 @@
 
 		console.log(version);
 
-		updateAvailable = compareVersion(version.latest, version.current);
+		updateAvailable = version.check_enabled && !version.check_failed && compareVersion(version.latest, version.current);
 		console.log(updateAvailable);
 	};
 
@@ -58,7 +60,7 @@
 							v{WEBUI_VERSION}
 						</Tooltip>
 
-						<a
+						{#if version.check_enabled && !version.check_failed}<a
 							href="https://github.com/leag1234/OpenAtelierUI/releases/tag/v{version.latest}"
 							target="_blank"
 						>
@@ -67,7 +69,7 @@
 								: updateAvailable
 									? `(v${version.latest} ${$i18n.t('available!')})`
 									: $i18n.t('(latest)')}
-						</a>
+						</a>{:else}<span>{$i18n.t(version.check_failed ? 'Update check failed' : 'External update checks disabled')}</span>{/if}
 					</div>
 
 					<button

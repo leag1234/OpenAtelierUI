@@ -172,7 +172,7 @@
 		editor = new Editor({
 			element: element,
 			extensions: [
-				StarterKit,
+				StarterKit.configure({ codeBlock: false }),
 				CodeBlockLowlight.configure({
 					lowlight
 				}),

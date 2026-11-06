@@ -1705,7 +1705,8 @@
 									console.error(err);
 									return undefined;
 								})
-							: undefined
+							: undefined,
+						$settings?.variables
 					)
 				},
 				model_item: $models.find((m) => m.id === model.id),
@@ -2142,6 +2143,7 @@
 
 		<PaneGroup direction="horizontal" class="w-full h-full">
 			<Pane defaultSize={50} class="h-full flex relative max-w-full flex-col">
+				<div id="chat-pane" class="flex h-full min-h-0 w-full min-w-0 flex-col">
 				<Navbar
 					bind:this={navbarElement}
 					chat={{
@@ -2158,7 +2160,7 @@
 					{history}
 					title={$chatTitle}
 					bind:selectedModels
-					showModelSelector={$mobile}
+					showModelSelector={true}
 					shareEnabled={!!history.currentId}
 					{initNewChat}
 				/>
@@ -2292,6 +2294,7 @@
 						</div>
 					{/if}
 				</div>
+			</div>
 			</Pane>
 
 			<ChatControls
