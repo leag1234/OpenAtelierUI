@@ -561,8 +561,8 @@
 		</div>
 
 		{#if $user !== undefined && $user !== null}
-			<UserMenu role={$user?.role} className="max-w-[240px]">
-				<button type="button" class="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-gray-900" aria-label={$i18n.t('User menu')}>
+			<UserMenu role={$user?.role} className="max-w-[240px]" let:builder>
+				<button {...builder} use:builder.action type="button" class="rounded-full p-1 hover:bg-gray-100 dark:hover:bg-gray-900" aria-haspopup="menu" aria-label={$i18n.t('User menu')}>
 					<img src={$user?.profile_image_url} class="size-8 rounded-full object-cover" alt="User profile" />
 				</button>
 			</UserMenu>
@@ -1026,6 +1026,7 @@
 				{#if $user !== undefined && $user !== null}
 					<UserMenu
 						role={$user?.role}
+						let:builder
 						on:show={(e) => {
 							if (e.detail === 'archived-chat') {
 								showArchivedChats.set(true);
@@ -1033,6 +1034,9 @@
 						}}
 					>
 						<button
+							{...builder}
+							use:builder.action
+							aria-haspopup="menu"
 							class=" flex items-center rounded-xl py-2.5 px-2.5 w-full hover:bg-gray-100 dark:hover:bg-gray-900 transition"
 							on:click={() => {
 								showDropdown = !showDropdown;

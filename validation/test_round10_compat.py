@@ -124,7 +124,20 @@ class FolderMigrationSafetyTests(unittest.TestCase):
 class BrowserContractSourceTests(unittest.TestCase):
     def test_account_trigger_and_i18n_paths_are_present(self):
         menu = (ROOT / "src/lib/components/layout/Sidebar/UserMenu.svelte").read_text()
-        self.assertEqual(menu.count('DropdownMenu.Trigger aria-haspopup="menu"'), 1)
+        self.assertEqual(menu.count("<DropdownMenu.Trigger asChild let:builder>"), 1)
+        self.assertEqual(menu.count("<slot {builder} />"), 1)
+        self.assertNotIn("<DropdownMenu.Trigger aria-haspopup", menu)
+        callers = [
+            ROOT / "src/lib/components/layout/Sidebar.svelte",
+            ROOT / "src/lib/components/layout/Navbar.svelte",
+            ROOT / "src/lib/components/channel/Navbar.svelte",
+            ROOT / "src/lib/components/chat/Navbar.svelte",
+        ]
+        sources = "\n".join(path.read_text() for path in callers)
+        self.assertEqual(sources.count("<UserMenu"), 5)
+        self.assertEqual(sources.count("let:builder"), 5)
+        self.assertEqual(sources.count("use:builder.action"), 5)
+        self.assertEqual(sources.count('aria-haspopup="menu"'), 5)
         stable = ROOT / "static/static/openatelierui/i18n.js"
         legacy = ROOT / "static/_app/immutable/chunks/DKxluP3e.js"
         self.assertTrue(stable.is_file())

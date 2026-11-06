@@ -25,8 +25,8 @@
 		dispatch('change', state);
 	}}
 >
-	<DropdownMenu.Trigger aria-haspopup="menu">
-		<slot />
+	<DropdownMenu.Trigger asChild let:builder>
+		<slot {builder} />
 	</DropdownMenu.Trigger>
 
 	<slot name="content">

@@ -161,6 +161,7 @@
 						<UserMenu
 							className="max-w-[200px]"
 							role={$user?.role}
+							let:builder
 							on:show={(e) => {
 								if (e.detail === 'archived-chat') {
 									showArchivedChats.set(true);
@@ -168,7 +169,10 @@
 							}}
 						>
 							<button
+								{...builder}
+								use:builder.action
 								class="select-none flex rounded-xl p-1.5 w-full hover:bg-gray-50 dark:hover:bg-gray-850 transition"
+								aria-haspopup="menu"
 								aria-label="User Menu"
 							>
 								<div class=" self-center">

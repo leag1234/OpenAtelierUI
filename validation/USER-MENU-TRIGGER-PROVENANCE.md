@@ -1,0 +1,7 @@
+# User menu trigger provenance
+
+The Round 13 external report identified that a real pointer click on the selected account menu trigger timed out while a direct DOM click opened the menu. An independent exact-public-image replay reproduced the timeout. Rendered accessibility output showed a button nested inside the default button emitted by `bits-ui` `DropdownMenu.Trigger`; the inner visible button intercepted the pointer action intended for the outer menu trigger.
+
+This repair uses the documented `asChild` contract shipped in the pinned BSD-compatible dependency `bits-ui` 0.19.7. `UserMenu.svelte` passes the dependency's trigger builder through its default slot, and each of the five existing user-menu call sites applies the builder and action to its single visible button. Each button keeps `aria-haspopup="menu"`; the dependency supplies the live expanded/state/control attributes and pointer/keyboard action. No API, identity, permission, menu item, integration callback or styling contract is changed.
+
+The source regression verifies one `asChild` trigger, five builder consumers, five actions and five accessible menu attributes. Exact-image acceptance additionally requires a real pointer click and keyboard activation at desktop and phone widths, one interactive trigger rather than nested buttons, menu visibility, close/focus behavior and the prior migration, ownership and first-turn gates.
