@@ -181,11 +181,11 @@ class PrivateNotesImportTests(unittest.TestCase):
     def test_directory_sync_failure_removes_only_our_publication(self):
         output = self.root / "sync-failed.db"
         real_open = os.open
-        def fail_directory(path, flags, *args):
+        def fail_directory(path, flags, *args, **kwargs):
             if Path(path) == output.parent and flags == os.O_RDONLY:
                 self.assertTrue(output.exists())
                 raise OSError("synthetic directory sync failure")
-            return real_open(path, flags, *args)
+            return real_open(path, flags, *args, **kwargs)
         with mock.patch.object(tool.os, "open", side_effect=fail_directory):
             with self.assertRaisesRegex(tool.Refusal, "publication_failed"):
                 tool.run("convert", self.source, self.target, output)

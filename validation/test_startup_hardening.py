@@ -51,8 +51,13 @@ class StartupHardeningTests(unittest.TestCase):
             environment = os.environ.copy()
             environment.update(
                 PATH=f"{fake_bin}{os.pathsep}{environment['PATH']}",
+                DATA_DIR=str(root / "data"),
                 WEBUI_SECRET_KEY="synthetic-test-key",
                 OPENATELIERUI_ARGV_CAPTURE=str(capture),
+                SPACE_ID="",
+                USE_CUDA_DOCKER="false",
+                USE_OLLAMA_DOCKER="false",
+                WEB_LOADER_ENGINE="",
             )
             completed = subprocess.run(
                 [
