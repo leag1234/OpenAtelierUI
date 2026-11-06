@@ -3,6 +3,7 @@
 	import { v4 as uuidv4 } from 'uuid';
 	import { createPicker, getAuthToken } from '$lib/utils/google-drive-picker';
 	import { pickAndDownloadFile } from '$lib/utils/onedrive-file-picker';
+	import { detachFileForRemoval } from '$lib/utils/file-removal';
 
 	import { onMount, tick, getContext, createEventDispatcher, onDestroy } from 'svelte';
 	const dispatch = createEventDispatcher();
@@ -587,16 +588,16 @@
 													dismissible={true}
 													edit={true}
 													on:dismiss={async () => {
-														if (file.type !== 'collection' && !file?.collection) {
-															if (file.id) {
-																// This will handle both file deletion and Chroma cleanup
-																await deleteFileById(localStorage.token, file.id);
+															const detached = detachFileForRemoval(files, fileIdx);
+															files = detached.files;
+															const removed = detached.removed;
+
+															if (removed?.type !== 'collection' && !removed?.collection) {
+																if (removed?.id) {
+																	// This will handle both file deletion and Chroma cleanup
+																	await deleteFileById(localStorage.token, removed.id);
 															}
 														}
-
-														// Remove from UI state
-														files.splice(fileIdx, 1);
-														files = files;
 													}}
 													on:click={() => {
 														console.log(file);
