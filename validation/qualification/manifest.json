@@ -1,0 +1,5144 @@
+{
+  "schema_version": 1,
+  "description": "Explicit finite qualification scope; inventory coverage is not behavioral coverage. Unknown and unsupported never qualify a global claim.",
+  "references": {
+    "baseline": {
+      "version": "v0.11.3",
+      "image_digest": "sha256:41daa0cf2561a5d4c8d1ff31ee2a98d93ab4d3ac2605cac69366ff6a3374a933",
+      "inventory_sha256": "819a418fb015963776a0e43eb3a820f991e1d5fb0236a184e1bea4d8ff444fce",
+      "operations": [
+        "DELETE /api/events/webhooks/{webhook_id}",
+        "DELETE /api/v1/auths/api_key",
+        "DELETE /api/v1/auths/oauth/sessions/{provider}",
+        "DELETE /api/v1/automations/{id}/delete",
+        "DELETE /api/v1/calendars/events/{event_id}/delete",
+        "DELETE /api/v1/calendars/{calendar_id}/delete",
+        "DELETE /api/v1/channels/{id}/delete",
+        "DELETE /api/v1/channels/{id}/messages/{message_id}/delete",
+        "DELETE /api/v1/channels/{id}/webhooks/{webhook_id}/delete",
+        "DELETE /api/v1/chats/",
+        "DELETE /api/v1/chats/share/all",
+        "DELETE /api/v1/chats/{id}",
+        "DELETE /api/v1/chats/{id}/messages/{message_id}",
+        "DELETE /api/v1/chats/{id}/share",
+        "DELETE /api/v1/chats/{id}/tags",
+        "DELETE /api/v1/evaluations/feedback/{id}",
+        "DELETE /api/v1/evaluations/feedbacks",
+        "DELETE /api/v1/evaluations/feedbacks/all",
+        "DELETE /api/v1/files/all",
+        "DELETE /api/v1/files/{id}",
+        "DELETE /api/v1/folders/{id}",
+        "DELETE /api/v1/functions/id/{id}/delete",
+        "DELETE /api/v1/groups/id/{id}/delete",
+        "DELETE /api/v1/knowledge/external/connections/{id}",
+        "DELETE /api/v1/knowledge/{id}/delete",
+        "DELETE /api/v1/knowledge/{id}/dirs/{dir_id}/delete",
+        "DELETE /api/v1/memories/delete/user",
+        "DELETE /api/v1/memories/{memory_id}",
+        "DELETE /api/v1/models/delete/all",
+        "DELETE /api/v1/notes/{id}/delete",
+        "DELETE /api/v1/notifications/targets/{target_id}",
+        "DELETE /api/v1/pipelines/delete",
+        "DELETE /api/v1/prompts/id/{prompt_id}/delete",
+        "DELETE /api/v1/prompts/id/{prompt_id}/history/{history_id}",
+        "DELETE /api/v1/skills/id/{id}/delete",
+        "DELETE /api/v1/terminals/{server_id}/{path}",
+        "DELETE /api/v1/tools/id/{id}/delete",
+        "DELETE /api/v1/users/{user_id}",
+        "DELETE /ollama/api/delete",
+        "DELETE /ollama/api/delete/{url_idx}",
+        "DELETE /ollama/api/push",
+        "DELETE /ollama/api/push/{url_idx}",
+        "DELETE /openai/models/{url_idx}",
+        "DELETE /openai/{path}",
+        "GET /api/changelog",
+        "GET /api/config",
+        "GET /api/events",
+        "GET /api/events/webhooks",
+        "GET /api/models",
+        "GET /api/models/base",
+        "GET /api/tasks",
+        "GET /api/tasks/chat/{chat_id}",
+        "GET /api/usage",
+        "GET /api/v1/analytics/daily",
+        "GET /api/v1/analytics/messages",
+        "GET /api/v1/analytics/models",
+        "GET /api/v1/analytics/models/{model_id}/chats",
+        "GET /api/v1/analytics/models/{model_id}/overview",
+        "GET /api/v1/analytics/summary",
+        "GET /api/v1/analytics/tokens",
+        "GET /api/v1/analytics/users",
+        "GET /api/v1/audio/config",
+        "GET /api/v1/audio/models",
+        "GET /api/v1/audio/voices",
+        "GET /api/v1/auths/",
+        "GET /api/v1/auths/admin/config",
+        "GET /api/v1/auths/admin/config/ldap",
+        "GET /api/v1/auths/admin/config/ldap/server",
+        "GET /api/v1/auths/admin/config/oauth",
+        "GET /api/v1/auths/admin/details",
+        "GET /api/v1/auths/api_key",
+        "GET /api/v1/automations/list",
+        "GET /api/v1/automations/{id}",
+        "GET /api/v1/automations/{id}/runs",
+        "GET /api/v1/calendars/",
+        "GET /api/v1/calendars/events",
+        "GET /api/v1/calendars/events/search",
+        "GET /api/v1/calendars/events/{event_id}",
+        "GET /api/v1/calendars/{calendar_id}",
+        "GET /api/v1/channels/",
+        "GET /api/v1/channels/list",
+        "GET /api/v1/channels/users/{user_id}",
+        "GET /api/v1/channels/webhooks/{webhook_id}/profile/image",
+        "GET /api/v1/channels/{id}",
+        "GET /api/v1/channels/{id}/members",
+        "GET /api/v1/channels/{id}/messages",
+        "GET /api/v1/channels/{id}/messages/pinned",
+        "GET /api/v1/channels/{id}/messages/{message_id}",
+        "GET /api/v1/channels/{id}/messages/{message_id}/data",
+        "GET /api/v1/channels/{id}/messages/{message_id}/thread",
+        "GET /api/v1/channels/{id}/webhooks",
+        "GET /api/v1/chats/",
+        "GET /api/v1/chats/all",
+        "GET /api/v1/chats/all/archived",
+        "GET /api/v1/chats/all/db",
+        "GET /api/v1/chats/all/tags",
+        "GET /api/v1/chats/archived",
+        "GET /api/v1/chats/archived/count",
+        "GET /api/v1/chats/config",
+        "GET /api/v1/chats/folder/{folder_id}",
+        "GET /api/v1/chats/folder/{folder_id}/list",
+        "GET /api/v1/chats/list",
+        "GET /api/v1/chats/list/user/{user_id}",
+        "GET /api/v1/chats/pinned",
+        "GET /api/v1/chats/search",
+        "GET /api/v1/chats/share/{share_id}",
+        "GET /api/v1/chats/shared",
+        "GET /api/v1/chats/shared/{id}/access",
+        "GET /api/v1/chats/stats/export",
+        "GET /api/v1/chats/stats/export/{chat_id}",
+        "GET /api/v1/chats/stats/usage",
+        "GET /api/v1/chats/{id}",
+        "GET /api/v1/chats/{id}/pinned",
+        "GET /api/v1/chats/{id}/tags",
+        "GET /api/v1/configs/banners",
+        "GET /api/v1/configs/code_execution",
+        "GET /api/v1/configs/connections",
+        "GET /api/v1/configs/export",
+        "GET /api/v1/configs/models",
+        "GET /api/v1/configs/models/defaults",
+        "GET /api/v1/configs/namespace/{namespace}",
+        "GET /api/v1/configs/subagents",
+        "GET /api/v1/configs/terminal_servers",
+        "GET /api/v1/configs/tool_servers",
+        "GET /api/v1/evaluations/config",
+        "GET /api/v1/evaluations/feedback/{id}",
+        "GET /api/v1/evaluations/feedbacks/all/export",
+        "GET /api/v1/evaluations/feedbacks/all/ids",
+        "GET /api/v1/evaluations/feedbacks/list",
+        "GET /api/v1/evaluations/feedbacks/models",
+        "GET /api/v1/evaluations/feedbacks/user",
+        "GET /api/v1/evaluations/leaderboard",
+        "GET /api/v1/evaluations/leaderboard/{model_id}/history",
+        "GET /api/v1/files/",
+        "GET /api/v1/files/count",
+        "GET /api/v1/files/search",
+        "GET /api/v1/files/{id}",
+        "GET /api/v1/files/{id}/content",
+        "GET /api/v1/files/{id}/content/html",
+        "GET /api/v1/files/{id}/content/{file_name}",
+        "GET /api/v1/files/{id}/data/content",
+        "GET /api/v1/files/{id}/process/status",
+        "GET /api/v1/folders/",
+        "GET /api/v1/folders/shared",
+        "GET /api/v1/folders/{id}",
+        "GET /api/v1/folders/{id}/shared/chats",
+        "GET /api/v1/functions/",
+        "GET /api/v1/functions/export",
+        "GET /api/v1/functions/id/{id}",
+        "GET /api/v1/functions/id/{id}/valves",
+        "GET /api/v1/functions/id/{id}/valves/spec",
+        "GET /api/v1/functions/id/{id}/valves/user",
+        "GET /api/v1/functions/id/{id}/valves/user/spec",
+        "GET /api/v1/functions/list",
+        "GET /api/v1/groups/",
+        "GET /api/v1/groups/id/{id}",
+        "GET /api/v1/groups/id/{id}/export",
+        "GET /api/v1/groups/id/{id}/info",
+        "GET /api/v1/groups/id/{id}/preview",
+        "GET /api/v1/images/config",
+        "GET /api/v1/images/config/url/verify",
+        "GET /api/v1/images/models",
+        "GET /api/v1/knowledge/",
+        "GET /api/v1/knowledge/external/connections",
+        "GET /api/v1/knowledge/external/connections/{id}",
+        "GET /api/v1/knowledge/search",
+        "GET /api/v1/knowledge/search/files",
+        "GET /api/v1/knowledge/{id}",
+        "GET /api/v1/knowledge/{id}/export",
+        "GET /api/v1/knowledge/{id}/files",
+        "GET /api/v1/knowledge/{id}/files/pending",
+        "GET /api/v1/memories/",
+        "GET /api/v1/models",
+        "GET /api/v1/models/base",
+        "GET /api/v1/models/base/tags",
+        "GET /api/v1/models/export",
+        "GET /api/v1/models/list",
+        "GET /api/v1/models/model",
+        "GET /api/v1/models/model/profile/image",
+        "GET /api/v1/models/tags",
+        "GET /api/v1/notes/",
+        "GET /api/v1/notes/pinned",
+        "GET /api/v1/notes/search",
+        "GET /api/v1/notes/{id}",
+        "GET /api/v1/notes/{id}/chat",
+        "GET /api/v1/notes/{id}/chats",
+        "GET /api/v1/notifications/events",
+        "GET /api/v1/notifications/targets",
+        "GET /api/v1/pipelines/",
+        "GET /api/v1/pipelines/list",
+        "GET /api/v1/pipelines/{pipeline_id}/valves",
+        "GET /api/v1/pipelines/{pipeline_id}/valves/spec",
+        "GET /api/v1/prompts/",
+        "GET /api/v1/prompts/id/{prompt_id}",
+        "GET /api/v1/prompts/id/{prompt_id}/history",
+        "GET /api/v1/prompts/id/{prompt_id}/history/diff",
+        "GET /api/v1/prompts/id/{prompt_id}/history/{history_id}",
+        "GET /api/v1/prompts/list",
+        "GET /api/v1/prompts/tags",
+        "GET /api/v1/retrieval/config",
+        "GET /api/v1/retrieval/ef/{text}",
+        "GET /api/v1/retrieval/embedding",
+        "GET /api/v1/skills/",
+        "GET /api/v1/skills/export",
+        "GET /api/v1/skills/id/{id}",
+        "GET /api/v1/skills/list",
+        "GET /api/v1/tasks/config",
+        "GET /api/v1/terminals/",
+        "GET /api/v1/terminals/{server_id}/{path}",
+        "GET /api/v1/tools/",
+        "GET /api/v1/tools/export",
+        "GET /api/v1/tools/id/{id}",
+        "GET /api/v1/tools/id/{id}/valves",
+        "GET /api/v1/tools/id/{id}/valves/spec",
+        "GET /api/v1/tools/id/{id}/valves/user",
+        "GET /api/v1/tools/id/{id}/valves/user/spec",
+        "GET /api/v1/tools/list",
+        "GET /api/v1/users/",
+        "GET /api/v1/users/all",
+        "GET /api/v1/users/default/permissions",
+        "GET /api/v1/users/default/permissions/defaults",
+        "GET /api/v1/users/groups",
+        "GET /api/v1/users/permissions",
+        "GET /api/v1/users/search",
+        "GET /api/v1/users/usage",
+        "GET /api/v1/users/user/info",
+        "GET /api/v1/users/user/settings",
+        "GET /api/v1/users/user/status",
+        "GET /api/v1/users/user/variables",
+        "GET /api/v1/users/{user_id}",
+        "GET /api/v1/users/{user_id}/active",
+        "GET /api/v1/users/{user_id}/groups",
+        "GET /api/v1/users/{user_id}/info",
+        "GET /api/v1/users/{user_id}/oauth/sessions",
+        "GET /api/v1/users/{user_id}/preview",
+        "GET /api/v1/users/{user_id}/profile/image",
+        "GET /api/v1/utils/db/download",
+        "GET /api/v1/utils/gravatar",
+        "GET /api/version",
+        "GET /api/version/updates",
+        "GET /cache/{path}",
+        "GET /health",
+        "GET /health/db",
+        "GET /manifest.json",
+        "GET /oauth/clients/{client_id}/authorize",
+        "GET /oauth/clients/{client_id}/callback",
+        "GET /oauth/{provider}/callback",
+        "GET /oauth/{provider}/login",
+        "GET /oauth/{provider}/login/callback",
+        "GET /ollama/",
+        "GET /ollama/api/ps",
+        "GET /ollama/api/tags",
+        "GET /ollama/api/tags/{url_idx}",
+        "GET /ollama/api/version",
+        "GET /ollama/api/version/{url_idx}",
+        "GET /ollama/config",
+        "GET /ollama/v1/models",
+        "GET /ollama/v1/models/{url_idx}",
+        "GET /openai/config",
+        "GET /openai/models",
+        "GET /openai/models/{url_idx}",
+        "GET /openai/models/{url_idx}/catalog",
+        "GET /openai/models/{url_idx}/download/status/{job_id}",
+        "GET /openai/models/{url_idx}/sse",
+        "GET /openai/{path}",
+        "GET /opensearch.xml",
+        "GET /ready",
+        "HEAD /api/v1/terminals/{server_id}/{path}",
+        "HEAD /ollama/",
+        "OPTIONS /api/v1/terminals/{server_id}/{path}",
+        "PATCH /api/v1/knowledge/external/connections/{id}",
+        "PATCH /api/v1/knowledge/external/source/{id}",
+        "PATCH /api/v1/terminals/{server_id}/{path}",
+        "POST /api/chat/actions/{action_id}",
+        "POST /api/chat/completed",
+        "POST /api/chat/completions",
+        "POST /api/embeddings",
+        "POST /api/events/webhooks",
+        "POST /api/message",
+        "POST /api/message/count_tokens",
+        "POST /api/models/unload",
+        "POST /api/tasks/chat/{chat_id}/stop",
+        "POST /api/tasks/stop/{task_id}",
+        "POST /api/v1/audio/config/update",
+        "POST /api/v1/audio/speech",
+        "POST /api/v1/audio/transcriptions",
+        "POST /api/v1/auths/add",
+        "POST /api/v1/auths/admin/config",
+        "POST /api/v1/auths/admin/config/ldap",
+        "POST /api/v1/auths/admin/config/ldap/server",
+        "POST /api/v1/auths/admin/config/oauth",
+        "POST /api/v1/auths/api_key",
+        "POST /api/v1/auths/ldap",
+        "POST /api/v1/auths/oauth/{provider}/token/exchange",
+        "POST /api/v1/auths/signin",
+        "POST /api/v1/auths/signout",
+        "POST /api/v1/auths/signup",
+        "POST /api/v1/auths/update/password",
+        "POST /api/v1/auths/update/profile",
+        "POST /api/v1/auths/update/timezone",
+        "POST /api/v1/automations/create",
+        "POST /api/v1/automations/{id}/run",
+        "POST /api/v1/automations/{id}/toggle",
+        "POST /api/v1/automations/{id}/update",
+        "POST /api/v1/calendars/create",
+        "POST /api/v1/calendars/events/create",
+        "POST /api/v1/calendars/events/{event_id}/rsvp",
+        "POST /api/v1/calendars/events/{event_id}/update",
+        "POST /api/v1/calendars/{calendar_id}/default",
+        "POST /api/v1/calendars/{calendar_id}/update",
+        "POST /api/v1/channels/create",
+        "POST /api/v1/channels/webhooks/{webhook_id}/{token}",
+        "POST /api/v1/channels/{id}/members/active",
+        "POST /api/v1/channels/{id}/messages/post",
+        "POST /api/v1/channels/{id}/messages/{message_id}/pin",
+        "POST /api/v1/channels/{id}/messages/{message_id}/reactions/add",
+        "POST /api/v1/channels/{id}/messages/{message_id}/reactions/remove",
+        "POST /api/v1/channels/{id}/messages/{message_id}/update",
+        "POST /api/v1/channels/{id}/update",
+        "POST /api/v1/channels/{id}/update/members/add",
+        "POST /api/v1/channels/{id}/update/members/remove",
+        "POST /api/v1/channels/{id}/webhooks/create",
+        "POST /api/v1/channels/{id}/webhooks/{webhook_id}/update",
+        "POST /api/v1/chat/completions",
+        "POST /api/v1/chats/archive/all",
+        "POST /api/v1/chats/config",
+        "POST /api/v1/chats/import",
+        "POST /api/v1/chats/new",
+        "POST /api/v1/chats/read",
+        "POST /api/v1/chats/shared/{id}/access/update",
+        "POST /api/v1/chats/tags",
+        "POST /api/v1/chats/unarchive/all",
+        "POST /api/v1/chats/{id}",
+        "POST /api/v1/chats/{id}/archive",
+        "POST /api/v1/chats/{id}/clone",
+        "POST /api/v1/chats/{id}/clone/shared",
+        "POST /api/v1/chats/{id}/compact",
+        "POST /api/v1/chats/{id}/folder",
+        "POST /api/v1/chats/{id}/fork",
+        "POST /api/v1/chats/{id}/messages/{message_id}",
+        "POST /api/v1/chats/{id}/messages/{message_id}/event",
+        "POST /api/v1/chats/{id}/messages/{message_id}/resolve",
+        "POST /api/v1/chats/{id}/pin",
+        "POST /api/v1/chats/{id}/share",
+        "POST /api/v1/chats/{id}/tags",
+        "POST /api/v1/chats/{id}/unread",
+        "POST /api/v1/configs/banners",
+        "POST /api/v1/configs/code_execution",
+        "POST /api/v1/configs/connections",
+        "POST /api/v1/configs/import",
+        "POST /api/v1/configs/models",
+        "POST /api/v1/configs/oauth/clients/register",
+        "POST /api/v1/configs/subagents",
+        "POST /api/v1/configs/suggestions",
+        "POST /api/v1/configs/terminal_servers",
+        "POST /api/v1/configs/terminal_servers/lifecycle",
+        "POST /api/v1/configs/terminal_servers/policy",
+        "POST /api/v1/configs/terminal_servers/refresh",
+        "POST /api/v1/configs/terminal_servers/verify",
+        "POST /api/v1/configs/tool_servers",
+        "POST /api/v1/configs/tool_servers/verify",
+        "POST /api/v1/embeddings",
+        "POST /api/v1/evaluations/config",
+        "POST /api/v1/evaluations/feedback",
+        "POST /api/v1/evaluations/feedback/{id}",
+        "POST /api/v1/files/",
+        "POST /api/v1/files/{id}/data/content/update",
+        "POST /api/v1/files/{id}/rename",
+        "POST /api/v1/folders/",
+        "POST /api/v1/folders/{id}/access/update",
+        "POST /api/v1/folders/{id}/read",
+        "POST /api/v1/folders/{id}/update",
+        "POST /api/v1/folders/{id}/update/expanded",
+        "POST /api/v1/folders/{id}/update/parent",
+        "POST /api/v1/functions/create",
+        "POST /api/v1/functions/id/{id}/toggle",
+        "POST /api/v1/functions/id/{id}/toggle/global",
+        "POST /api/v1/functions/id/{id}/update",
+        "POST /api/v1/functions/id/{id}/valves/update",
+        "POST /api/v1/functions/id/{id}/valves/user/update",
+        "POST /api/v1/functions/load/url",
+        "POST /api/v1/functions/sync",
+        "POST /api/v1/groups/create",
+        "POST /api/v1/groups/id/{id}/update",
+        "POST /api/v1/groups/id/{id}/users",
+        "POST /api/v1/groups/id/{id}/users/add",
+        "POST /api/v1/groups/id/{id}/users/remove",
+        "POST /api/v1/images/config/update",
+        "POST /api/v1/images/edit",
+        "POST /api/v1/images/generations",
+        "POST /api/v1/knowledge/create",
+        "POST /api/v1/knowledge/external/connections",
+        "POST /api/v1/knowledge/external/connections/{id}/retrieve-test",
+        "POST /api/v1/knowledge/external/connections/{id}/test",
+        "POST /api/v1/knowledge/external/knowledge/create",
+        "POST /api/v1/knowledge/external/source/create",
+        "POST /api/v1/knowledge/external/source/test",
+        "POST /api/v1/knowledge/metadata/reindex",
+        "POST /api/v1/knowledge/reindex",
+        "POST /api/v1/knowledge/{id}/access/update",
+        "POST /api/v1/knowledge/{id}/dirs/create",
+        "POST /api/v1/knowledge/{id}/dirs/{dir_id}/update",
+        "POST /api/v1/knowledge/{id}/file/add",
+        "POST /api/v1/knowledge/{id}/file/move",
+        "POST /api/v1/knowledge/{id}/file/remove",
+        "POST /api/v1/knowledge/{id}/file/update",
+        "POST /api/v1/knowledge/{id}/files/batch/add",
+        "POST /api/v1/knowledge/{id}/reset",
+        "POST /api/v1/knowledge/{id}/sync/cleanup",
+        "POST /api/v1/knowledge/{id}/sync/diff",
+        "POST /api/v1/knowledge/{id}/update",
+        "POST /api/v1/memories/add",
+        "POST /api/v1/memories/path",
+        "POST /api/v1/memories/paths",
+        "POST /api/v1/memories/query",
+        "POST /api/v1/memories/reindex",
+        "POST /api/v1/memories/reset",
+        "POST /api/v1/memories/search",
+        "POST /api/v1/memories/update",
+        "POST /api/v1/memories/{memory_id}/update",
+        "POST /api/v1/messages",
+        "POST /api/v1/messages/count_tokens",
+        "POST /api/v1/models/create",
+        "POST /api/v1/models/import",
+        "POST /api/v1/models/model/access/update",
+        "POST /api/v1/models/model/delete",
+        "POST /api/v1/models/model/toggle",
+        "POST /api/v1/models/model/update",
+        "POST /api/v1/models/sync",
+        "POST /api/v1/notes/create",
+        "POST /api/v1/notes/{id}/access/update",
+        "POST /api/v1/notes/{id}/chat",
+        "POST /api/v1/notes/{id}/pin",
+        "POST /api/v1/notes/{id}/update",
+        "POST /api/v1/notifications/targets",
+        "POST /api/v1/notifications/targets/{target_id}/test",
+        "POST /api/v1/pipelines/add",
+        "POST /api/v1/pipelines/upload",
+        "POST /api/v1/pipelines/{pipeline_id}/valves/update",
+        "POST /api/v1/prompts/create",
+        "POST /api/v1/prompts/id/{prompt_id}/access/update",
+        "POST /api/v1/prompts/id/{prompt_id}/toggle",
+        "POST /api/v1/prompts/id/{prompt_id}/update",
+        "POST /api/v1/prompts/id/{prompt_id}/update/meta",
+        "POST /api/v1/prompts/id/{prompt_id}/update/version",
+        "POST /api/v1/retrieval/config/update",
+        "POST /api/v1/retrieval/delete",
+        "POST /api/v1/retrieval/embedding/update",
+        "POST /api/v1/retrieval/process/file",
+        "POST /api/v1/retrieval/process/files/batch",
+        "POST /api/v1/retrieval/process/text",
+        "POST /api/v1/retrieval/process/url",
+        "POST /api/v1/retrieval/process/web",
+        "POST /api/v1/retrieval/process/web/search",
+        "POST /api/v1/retrieval/process/youtube",
+        "POST /api/v1/retrieval/query/collection",
+        "POST /api/v1/retrieval/query/doc",
+        "POST /api/v1/retrieval/reset/db",
+        "POST /api/v1/retrieval/reset/uploads",
+        "POST /api/v1/skills/create",
+        "POST /api/v1/skills/id/{id}/access/update",
+        "POST /api/v1/skills/id/{id}/toggle",
+        "POST /api/v1/skills/id/{id}/update",
+        "POST /api/v1/tasks/auto/completions",
+        "POST /api/v1/tasks/config/update",
+        "POST /api/v1/tasks/emoji/completions",
+        "POST /api/v1/tasks/follow_up/completions",
+        "POST /api/v1/tasks/image_prompt/completions",
+        "POST /api/v1/tasks/moa/completions",
+        "POST /api/v1/tasks/queries/completions",
+        "POST /api/v1/tasks/tags/completions",
+        "POST /api/v1/tasks/title/completions",
+        "POST /api/v1/terminals/{server_id}/{path}",
+        "POST /api/v1/tools/create",
+        "POST /api/v1/tools/id/{id}/access/update",
+        "POST /api/v1/tools/id/{id}/update",
+        "POST /api/v1/tools/id/{id}/valves/update",
+        "POST /api/v1/tools/id/{id}/valves/user/update",
+        "POST /api/v1/tools/load/url",
+        "POST /api/v1/users/default/permissions",
+        "POST /api/v1/users/user/info/update",
+        "POST /api/v1/users/user/settings/update",
+        "POST /api/v1/users/user/status/update",
+        "POST /api/v1/users/user/variables/update",
+        "POST /api/v1/users/{user_id}/update",
+        "POST /api/v1/utils/code/execute",
+        "POST /api/v1/utils/code/format",
+        "POST /api/v1/utils/pdf",
+        "POST /oauth/backchannel-logout",
+        "POST /ollama/api/chat",
+        "POST /ollama/api/chat/{url_idx}",
+        "POST /ollama/api/copy",
+        "POST /ollama/api/copy/{url_idx}",
+        "POST /ollama/api/create",
+        "POST /ollama/api/create/{url_idx}",
+        "POST /ollama/api/embed",
+        "POST /ollama/api/embed/{url_idx}",
+        "POST /ollama/api/embeddings",
+        "POST /ollama/api/embeddings/{url_idx}",
+        "POST /ollama/api/generate",
+        "POST /ollama/api/generate/{url_idx}",
+        "POST /ollama/api/pull",
+        "POST /ollama/api/pull/{url_idx}",
+        "POST /ollama/api/show",
+        "POST /ollama/api/unload",
+        "POST /ollama/config/update",
+        "POST /ollama/models/download",
+        "POST /ollama/models/download/{url_idx}",
+        "POST /ollama/models/upload",
+        "POST /ollama/models/upload/{url_idx}",
+        "POST /ollama/v1/chat/completions",
+        "POST /ollama/v1/chat/completions/{url_idx}",
+        "POST /ollama/v1/completions",
+        "POST /ollama/v1/completions/{url_idx}",
+        "POST /ollama/v1/embeddings",
+        "POST /ollama/v1/embeddings/{url_idx}",
+        "POST /ollama/v1/messages",
+        "POST /ollama/v1/messages/{url_idx}",
+        "POST /ollama/v1/responses",
+        "POST /ollama/v1/responses/{url_idx}",
+        "POST /ollama/verify",
+        "POST /openai/audio/speech",
+        "POST /openai/chat/completions",
+        "POST /openai/config/update",
+        "POST /openai/models/{url_idx}/download",
+        "POST /openai/models/{url_idx}/load",
+        "POST /openai/models/{url_idx}/unload",
+        "POST /openai/responses",
+        "POST /openai/verify",
+        "POST /openai/{path}",
+        "PUT /api/events/webhooks/{webhook_id}",
+        "PUT /api/v1/notifications/targets/{target_id}",
+        "PUT /api/v1/notifications/targets/{target_id}/default",
+        "PUT /api/v1/terminals/{server_id}/{path}",
+        "PUT /openai/{path}"
+      ],
+      "feature_inventory_complete": false,
+      "configuration_inventory_complete": false
+    },
+    "current": {
+      "version": "v0.13.0",
+      "release_metadata_observed_at": "2026-11-06",
+      "image_digest": null,
+      "inventory_sha256": null,
+      "operations": null,
+      "feature_inventory_complete": false,
+      "configuration_inventory_complete": false
+    }
+  },
+  "consumer_current_revision": null,
+  "cases": [
+    {
+      "id": "auth.local",
+      "domain": "identity",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "anonymous",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "anonymous",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "admin",
+          "state": "migrated"
+        }
+      ],
+      "severity": "critical"
+    },
+    {
+      "id": "auth.trusted",
+      "domain": "identity",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "admin",
+          "state": "migrated"
+        }
+      ],
+      "severity": "critical"
+    },
+    {
+      "id": "auth.api-key",
+      "domain": "identity",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "api",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "api",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "admin",
+          "state": "migrated"
+        }
+      ],
+      "severity": "critical"
+    },
+    {
+      "id": "auth.pending-disabled",
+      "domain": "identity",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "pending",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "pending",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "disabled",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "disabled",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "pending",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "pending",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "disabled",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "disabled",
+          "state": "migrated"
+        }
+      ],
+      "severity": "critical"
+    },
+    {
+      "id": "auth.groups-acl",
+      "domain": "identity",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "reader",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "reader",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "writer",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "writer",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "admin",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "reader",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "reader",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "writer",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "writer",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "admin",
+          "state": "migrated"
+        }
+      ],
+      "severity": "critical"
+    },
+    {
+      "id": "chat.basic",
+      "domain": "chat",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "admin",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "admin",
+          "state": "migrated"
+        },
+        {
+          "profile": "api",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "api",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "admin",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "chat.stream-stop-retry",
+      "domain": "chat",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "fault"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "api",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "user",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "chat.edit-branch-regenerate",
+      "domain": "chat",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "chat.model-change-default",
+      "domain": "chat",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "chat.multimodel",
+      "domain": "chat",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "chat.temporary",
+      "domain": "chat",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "chat.organize-share-archive",
+      "domain": "chat",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "reader",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "reader",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "reader",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "reader",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "chat.title-tags",
+      "domain": "chat",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "files.upload-use-download-delete",
+      "domain": "files",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "migrated"
+        },
+        {
+          "profile": "api",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "api",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "foreign",
+          "state": "migrated"
+        }
+      ],
+      "severity": "critical"
+    },
+    {
+      "id": "files.types-limits-malformed",
+      "domain": "files",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "fault"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh",
+          "format": "text"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh",
+          "format": "csv"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh",
+          "format": "pdf"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh",
+          "format": "docx"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh",
+          "format": "xlsx"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh",
+          "format": "html"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh",
+          "format": "image"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh",
+          "format": "empty"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh",
+          "format": "oversize"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh",
+          "format": "invalid-utf8"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh",
+          "format": "truncated"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh",
+          "format": "text"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh",
+          "format": "csv"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh",
+          "format": "pdf"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh",
+          "format": "docx"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh",
+          "format": "xlsx"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh",
+          "format": "html"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh",
+          "format": "image"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh",
+          "format": "empty"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh",
+          "format": "oversize"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh",
+          "format": "invalid-utf8"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh",
+          "format": "truncated"
+        }
+      ],
+      "severity": "critical"
+    },
+    {
+      "id": "files.inflight-remove-cancel",
+      "domain": "files",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "fault"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "migrated"
+        }
+      ],
+      "severity": "critical"
+    },
+    {
+      "id": "knowledge.ingest-search-cite",
+      "domain": "knowledge",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "reader",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "reader",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "reader",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "reader",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "migrated"
+        },
+        {
+          "profile": "api",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "api",
+          "role": "reader",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "reader",
+          "state": "migrated"
+        },
+        {
+          "profile": "api",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "foreign",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "knowledge.update-delete",
+      "domain": "knowledge",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "reader",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "reader",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "reader",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "reader",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "models.create-import-export",
+      "domain": "workspace",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "admin",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "admin",
+          "state": "migrated"
+        },
+        {
+          "profile": "api",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "api",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "foreign",
+          "state": "migrated"
+        },
+        {
+          "profile": "api",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "admin",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "prompts.variables",
+      "domain": "workspace",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "tools.function-pipeline",
+      "domain": "extensions",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "migrated"
+        },
+        {
+          "profile": "api",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "api",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "foreign",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "tools.callbacks-async-sync",
+      "domain": "extensions",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "fault"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "api",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "user",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "tools.openapi",
+      "domain": "extensions",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "fault"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "user",
+          "state": "fresh"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "notes.lifecycle",
+      "domain": "workspace",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "reader",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "reader",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "reader",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "reader",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "memory.lifecycle",
+      "domain": "workspace",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "channels.lifecycle",
+      "domain": "collaboration",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "reader",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "reader",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "reader",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "reader",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "admin.users-groups-permissions",
+      "domain": "administration",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "admin",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "admin",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "admin.configuration-persistence",
+      "domain": "administration",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "admin",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "admin",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "admin.evaluation-feedback",
+      "domain": "administration",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "admin",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "admin",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "providers.openai-ollama",
+      "domain": "providers",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "fault"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "user",
+          "state": "fresh"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "providers.timeout-error-stream-drop",
+      "domain": "providers",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "fault"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh",
+          "fault": "timeout"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh",
+          "fault": "rate-limit"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh",
+          "fault": "provider-500"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh",
+          "fault": "malformed-json"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh",
+          "fault": "stream-drop"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh",
+          "fault": "disconnect"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh",
+          "fault": "timeout"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh",
+          "fault": "rate-limit"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh",
+          "fault": "provider-500"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh",
+          "fault": "malformed-json"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh",
+          "fault": "stream-drop"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh",
+          "fault": "disconnect"
+        },
+        {
+          "profile": "api",
+          "role": "user",
+          "state": "fresh",
+          "fault": "timeout"
+        },
+        {
+          "profile": "api",
+          "role": "user",
+          "state": "fresh",
+          "fault": "rate-limit"
+        },
+        {
+          "profile": "api",
+          "role": "user",
+          "state": "fresh",
+          "fault": "provider-500"
+        },
+        {
+          "profile": "api",
+          "role": "user",
+          "state": "fresh",
+          "fault": "malformed-json"
+        },
+        {
+          "profile": "api",
+          "role": "user",
+          "state": "fresh",
+          "fault": "stream-drop"
+        },
+        {
+          "profile": "api",
+          "role": "user",
+          "state": "fresh",
+          "fault": "disconnect"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "web-search.images.audio",
+      "domain": "providers",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "fault"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "terminal.files-execution-preview",
+      "domain": "extensions",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "fault"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "foreign",
+          "state": "fresh"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "ui.desktop-phone-keyboard",
+      "domain": "interface",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "journey",
+        "visual",
+        "accessibility"
+      ],
+      "variants": [
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "dark"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "ui.locale-theme-settings",
+      "domain": "interface",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "journey",
+        "visual",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "dark"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "ui.rendering-copy-export",
+      "domain": "interface",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "journey",
+        "visual",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "1440x900",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "768x1024",
+          "language": "fr",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "en-US",
+          "theme": "dark"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "light"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated",
+          "viewport": "390x844",
+          "language": "fr",
+          "theme": "dark"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "lifecycle.install-upgrade-rollback",
+      "domain": "lifecycle",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "restart",
+        "fault"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "local",
+          "role": "admin",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "trusted",
+          "role": "admin",
+          "state": "migrated"
+        }
+      ],
+      "severity": "critical"
+    },
+    {
+      "id": "lifecycle.migration-completeness",
+      "domain": "lifecycle",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "restart",
+        "fault"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "foreign",
+          "state": "migrated"
+        },
+        {
+          "profile": "local",
+          "role": "admin",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "owner",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "foreign",
+          "state": "migrated"
+        },
+        {
+          "profile": "trusted",
+          "role": "admin",
+          "state": "migrated"
+        }
+      ],
+      "severity": "critical"
+    },
+    {
+      "id": "lifecycle.disk-lock-interruption",
+      "domain": "lifecycle",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "restart",
+        "fault"
+      ],
+      "variants": [
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh",
+          "fault": "injected-enospc"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh",
+          "fault": "sqlite-lock"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh",
+          "fault": "interrupted-write"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "fresh",
+          "fault": "lost-ack"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "migrated",
+          "fault": "injected-enospc"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "migrated",
+          "fault": "sqlite-lock"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "migrated",
+          "fault": "interrupted-write"
+        },
+        {
+          "profile": "local",
+          "role": "user",
+          "state": "migrated",
+          "fault": "lost-ack"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh",
+          "fault": "injected-enospc"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh",
+          "fault": "sqlite-lock"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh",
+          "fault": "interrupted-write"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "fresh",
+          "fault": "lost-ack"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "migrated",
+          "fault": "injected-enospc"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "migrated",
+          "fault": "sqlite-lock"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "migrated",
+          "fault": "interrupted-write"
+        },
+        {
+          "profile": "trusted",
+          "role": "user",
+          "state": "migrated",
+          "fault": "lost-ack"
+        }
+      ],
+      "severity": "critical"
+    },
+    {
+      "id": "resources.cold-warm-idle-task",
+      "domain": "resources",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "resource"
+      ],
+      "variants": [
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "plain",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "consumer.atlas-unchanged",
+      "domain": "consumers",
+      "targets": [
+        "baseline"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "visual",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "decorated",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "decorated",
+          "role": "admin",
+          "state": "migrated"
+        }
+      ],
+      "severity": "critical"
+    },
+    {
+      "id": "consumer.independent-api",
+      "domain": "consumers",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey"
+      ],
+      "variants": [
+        {
+          "profile": "api",
+          "role": "user",
+          "state": "fresh"
+        }
+      ],
+      "severity": "critical"
+    },
+    {
+      "id": "consumer.knowledge-sync",
+      "domain": "consumers",
+      "targets": [
+        "baseline",
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "api",
+          "role": "owner",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "reader",
+          "state": "fresh"
+        },
+        {
+          "profile": "api",
+          "role": "foreign",
+          "state": "fresh"
+        }
+      ],
+      "severity": "critical"
+    },
+    {
+      "id": "calendar.automations-tasks",
+      "domain": "workspace",
+      "targets": [
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "isolated-stubs",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "admin",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "tools.mcp-skills",
+      "domain": "extensions",
+      "targets": [
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "isolated-stubs",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "admin",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "identity.sso-ldap-scim",
+      "domain": "identity",
+      "targets": [
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "isolated-stubs",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "admin",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "chat.queue-search",
+      "domain": "chat",
+      "targets": [
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "isolated-stubs",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "admin",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "workspace.version-history",
+      "domain": "workspace",
+      "targets": [
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "isolated-stubs",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "admin",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "providers.responses-anthropic",
+      "domain": "providers",
+      "targets": [
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "isolated-stubs",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "admin",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "ui.artifacts-file-preview",
+      "domain": "interface",
+      "targets": [
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "isolated-stubs",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "admin",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "collaboration.comments-notifications",
+      "domain": "collaboration",
+      "targets": [
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "isolated-stubs",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "admin",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    },
+    {
+      "id": "deployment.external-storage-redis-postgresql",
+      "domain": "lifecycle",
+      "targets": [
+        "current"
+      ],
+      "required_levels": [
+        "behavior",
+        "journey",
+        "restart"
+      ],
+      "variants": [
+        {
+          "profile": "isolated-stubs",
+          "role": "user",
+          "state": "fresh"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "user",
+          "state": "migrated"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "admin",
+          "state": "fresh"
+        },
+        {
+          "profile": "isolated-stubs",
+          "role": "admin",
+          "state": "migrated"
+        }
+      ],
+      "severity": "major"
+    }
+  ],
+  "limitations": [
+    "Capability availability on each exact reference still needs black-box inventory review; current documentation is not evidence that v0.11.3 supported every listed capability.",
+    "Variant coverage is finite and risk-based; it cannot prove all possible interactions or absence of defects.",
+    "Physical devices, actual providers/accounts and production remain outside synthetic execution authority.",
+    "A gate validates evidence bindings and declared coverage, not the truth of self-reported assertions or human comprehension."
+  ]
+}

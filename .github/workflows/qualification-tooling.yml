@@ -1,0 +1,18 @@
+name: Qualification tooling
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fail-closed-accounting:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test evidence gates and negative controls
+        run: python -m unittest discover -s validation -p test_qualification_gate.py
+      - name: State scope honestly
+        run: echo 'Tooling checks only. No image, feature or integration qualification is granted by this job.'

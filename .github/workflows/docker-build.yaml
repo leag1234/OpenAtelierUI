@@ -7,7 +7,7 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
-  publish-qualified-candidate:
+  publish-experimental-candidate:
     if: github.ref_name == 'codex/validation'
     runs-on: ubuntu-latest
     permissions:
@@ -18,7 +18,7 @@ jobs:
       SOURCE_SHA: ${{ github.sha }}
       TEST_TAG: candidate-${{ github.sha }}
     steps:
-      - name: Check out the qualified source revision
+      - name: Check out the experimental source revision
         uses: actions/checkout@v4
         with:
           ref: ${{ env.SOURCE_SHA }}
@@ -36,7 +36,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and publish the qualified test image
+      - name: Build and publish the experimental test image
         id: publish
         uses: docker/build-push-action@v6
         with:
@@ -62,7 +62,20 @@ jobs:
         env:
           DIGEST: ${{ steps.publish.outputs.digest }}
 
+  qualification-required:
+    if: github.ref_name != 'codex/validation'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Refuse unqualified release promotion
+        run: |
+          echo 'Release promotion is blocked pending exact-artifact comparative qualification.'
+          echo 'See validation/qualification/README.md; experimental candidate tags confer no qualification.'
+          exit 1
+
   build-main-image:
+    needs: [qualification-required]
     if: github.ref_name != 'codex/validation'
     runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     permissions:
@@ -161,6 +174,7 @@ jobs:
           retention-days: 1
 
   build-cuda-image:
+    needs: [qualification-required]
     if: github.ref_name != 'codex/validation'
     runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     permissions:
@@ -262,6 +276,7 @@ jobs:
           retention-days: 1
 
   build-ollama-image:
+    needs: [qualification-required]
     if: github.ref_name != 'codex/validation'
     runs-on: ${{ matrix.platform == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     permissions:

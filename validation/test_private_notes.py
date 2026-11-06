@@ -24,7 +24,7 @@ def load_store():
 
 class PrivateNotesStoreTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir="/private/tmp")
+        self.temp = tempfile.TemporaryDirectory(dir=str(Path(tempfile.gettempdir()).resolve()))
         self.path = Path(self.temp.name) / "webui.db"
         with sqlite3.connect(self.path) as db:
             db.execute("CREATE TABLE existing_fixture (id TEXT PRIMARY KEY, value TEXT)")

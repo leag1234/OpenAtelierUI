@@ -8,6 +8,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Refuse unqualified public release
+        run: |
+          echo 'Public release is blocked pending exact-artifact comparative qualification.'
+          echo 'See validation/qualification/README.md.'
+          exit 1
+
       - name: Checkout repository
         uses: actions/checkout@v4
 

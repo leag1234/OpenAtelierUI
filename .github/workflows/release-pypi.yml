@@ -12,6 +12,12 @@ jobs:
     permissions:
       id-token: write
     steps:
+      - name: Refuse unqualified package publication
+        run: |
+          echo 'Package publication is blocked pending exact-artifact comparative qualification.'
+          echo 'See validation/qualification/README.md.'
+          exit 1
+
       - name: Checkout repository
         uses: actions/checkout@v4
       - uses: actions/setup-node@v4
