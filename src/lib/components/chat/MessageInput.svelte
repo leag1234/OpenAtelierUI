@@ -1137,7 +1137,7 @@
 									</div>
 
 									<div class="self-end flex items-center space-x-1 mr-1 shrink-0 min-w-0">
-										<div class="flex max-w-[13rem] @md:max-w-[18rem] min-w-0 items-center">
+										<div class="hidden sm:flex max-w-[13rem] @md:max-w-[18rem] min-w-0 items-center">
 											<ModelSelector bind:selectedModels showSetDefault={false} />
 										</div>
 										{#if (!history?.currentId || history.messages[history.currentId]?.done == true) && ($_user?.role === 'admin' || ($_user?.permissions?.chat?.stt ?? true))}

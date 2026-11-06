@@ -2158,6 +2158,7 @@
 					{history}
 					title={$chatTitle}
 					bind:selectedModels
+					showModelSelector={$mobile}
 					shareEnabled={!!history.currentId}
 					{initNewChat}
 				/>

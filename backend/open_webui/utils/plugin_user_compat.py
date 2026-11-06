@@ -9,6 +9,7 @@ original behavior.
 """
 
 import asyncio
+import ast
 import importlib
 import json
 import os
@@ -28,6 +29,38 @@ MAX_FILTER_MODEL_IDS = 32
 
 class FilterModelCompatConfigError(ValueError):
     """The explicit Filter model-lookup allowlist is invalid."""
+
+
+_AWAITABLE_FILTER_MODEL_METHODS = frozenset(
+    ("get_file_by_id", "get_chat_by_id_and_user_id")
+)
+
+
+def source_awaits_filter_model_lookup(content):
+    """Detect exact model lookup calls which a Filter source awaits.
+
+    The loader already compiles the same source, so a syntax error remains a
+    normal plugin load failure.  Detection is deliberately independent of the
+    local binding name: integrations commonly obtain ``Files`` through an
+    aliased ``import_module`` inside the handler.
+    """
+    tree = ast.parse(content)
+    target_calls = []
+    directly_awaited = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            function = node.func
+            if (
+                isinstance(function, ast.Attribute)
+                and function.attr in _AWAITABLE_FILTER_MODEL_METHODS
+            ):
+                target_calls.append(node)
+        elif isinstance(node, ast.Await) and isinstance(node.value, ast.Call):
+            directly_awaited.add(id(node.value))
+    # Do not change semantics for a mixed plugin which also consumes the same
+    # synchronous SDK methods without awaiting them. Such a plugin can still
+    # opt into the existing exact-ID override after explicit qualification.
+    return bool(target_calls) and all(id(call) in directly_awaited for call in target_calls)
 
 
 def read_async_filter_model_ids():

@@ -74,6 +74,16 @@ export const initI18n = (defaultLocale?: string | undefined) => {
 const i18n = createI18nStore(i18next);
 const isLoadingStore = createIsLoadingStore(i18next);
 
+const i18nReady = new Promise<void>((resolve) => {
+	if (i18next.isInitialized) {
+		resolve();
+		return;
+	}
+	i18next.on('initialized', () => resolve());
+});
+
+export const waitForI18n = () => i18nReady;
+
 // Stable, consumer-neutral browser bridge. Integrations should use the
 // documented static module rather than depending on generated chunk names.
 if (typeof window !== 'undefined') {

@@ -275,29 +275,47 @@ class FilterModelAllowlistTests(unittest.TestCase):
             else:
                 sys.modules[name] = value
 
-    def _load_filter(self, function_id):
+    def _load_filter(self, function_id, *, awaited=True):
+        result = (
+            "await Files.get_file_by_id('missing')"
+            if awaited
+            else "Files.get_file_by_id('missing')"
+        )
         source = (
             "from open_webui.models.files import Files\\n"
             "class Filter:\\n"
             "    async def lookup(self):\\n"
-            "        return await Files.get_file_by_id('missing')\\n"
+            f"        return {result}\\n"
         ).replace("\\n", "\n")
         return self.load(function_id, source)[0]
 
-    def test_default_and_unselected_filters_keep_native_none(self):
+    def test_awaited_lookup_is_detected_without_product_specific_configuration(self):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("OPENATELIER_ASYNC_FILTER_MODEL_IDS", None)
             instance = self._load_filter("legacy-filter")
         module = sys.modules["function_legacy-filter"]
+        self.assertTrue(module.__openatelier_filter_model_lookup_compat__)
+        self.files.return_none = True
+        token = self.compat.set_filter_async_user_lookup_mode(True)
+        try:
+            self.assertIsNone(asyncio.run(instance.lookup()))
+        finally:
+            self.compat.reset_filter_async_user_lookup_mode(token)
+
+    def test_unawaited_lookup_without_override_keeps_native_result(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("OPENATELIER_ASYNC_FILTER_MODEL_IDS", None)
+            instance = self._load_filter("sync-model-filter", awaited=False)
+        module = sys.modules["function_sync-model-filter"]
         self.assertIs(module.Files, self.files)
         self.assertFalse(getattr(module, "__openatelier_filter_model_lookup_compat__", False))
-        with self.assertRaises(TypeError):
-            asyncio.run(instance.lookup())
+        self.files.return_none = True
+        self.assertIsNone(asyncio.run(instance.lookup()))
 
     def test_only_exact_selected_loader_id_gets_awaitable_lookup(self):
         with patch.dict(os.environ, {"OPENATELIER_ASYNC_FILTER_MODEL_IDS": '["selected-filter"]'}):
-            selected = self._load_filter("selected-filter")
-            other = self._load_filter("other-filter")
+            self._load_filter("selected-filter", awaited=False)
+            self._load_filter("other-filter", awaited=False)
         selected_module = sys.modules["function_selected-filter"]
         other_module = sys.modules["function_other-filter"]
         self.assertTrue(selected_module.__openatelier_filter_model_lookup_compat__)
@@ -305,16 +323,61 @@ class FilterModelAllowlistTests(unittest.TestCase):
         self.files.return_none = True
         self.assertIsNone(other_module.Files.get_file_by_id("native-none"))
 
-        async def invoke(instance):
+        async def invoke_selected():
             token = self.compat.set_filter_async_user_lookup_mode(True)
             try:
-                return await instance.lookup()
+                return await selected_module.Files.get_file_by_id("missing")
             finally:
                 self.compat.reset_filter_async_user_lookup_mode(token)
 
-        self.assertIsNone(asyncio.run(invoke(selected)))
-        with self.assertRaises(TypeError):
-            asyncio.run(invoke(other))
+        self.assertIsNone(asyncio.run(invoke_selected()))
+        self.assertIsNone(other_module.Files.get_file_by_id("native-none"))
+
+    def test_detection_is_bounded_to_directly_awaited_compat_methods(self):
+        detects = self.compat.source_awaits_filter_model_lookup
+        self.assertTrue(detects(
+            "async def f():\n return await import_module('open_webui.models.files').Files.get_file_by_id('x')\n"
+        ))
+        self.assertTrue(detects(
+            "async def f():\n return await Alias.get_chat_by_id_and_user_id('c', 'u')\n"
+        ))
+        self.assertFalse(detects(
+            "async def f():\n return Files.get_file_by_id('x')\n"
+        ))
+        self.assertFalse(detects(
+            "async def f():\n return await Files.delete_file_by_id('x')\n"
+        ))
+        self.assertFalse(detects(
+            "async def f(flag):\n"
+            " if flag: return await Files.get_file_by_id('x')\n"
+            " return Files.get_file_by_id('x')\n"
+        ))
+
+    def test_dynamic_import_inside_handler_matches_attachment_filter_shape(self):
+        source = (
+            "from importlib import import_module\n"
+            "class Filter:\n"
+            "    async def owned_file(self, identity):\n"
+            "        Files = import_module('open_webui.models.files').Files\n"
+            "        return await Files.get_file_by_id(identity)\n"
+        )
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("OPENATELIER_ASYNC_FILTER_MODEL_IDS", None)
+            instance = self.load("portable-attachment-filter", source)[0]
+        module = sys.modules["function_portable-attachment-filter"]
+        self.assertTrue(module.__openatelier_filter_model_lookup_compat__)
+
+        async def invoke():
+            token = self.compat.set_filter_async_user_lookup_mode(True)
+            try:
+                return await instance.owned_file("migrated-file")
+            finally:
+                self.compat.reset_filter_async_user_lookup_mode(token)
+
+        self.assertEqual(
+            asyncio.run(invoke()),
+            ("get_file_by_id", ("migrated-file",), {}),
+        )
 
     def test_allowlist_bounds_invalid_values_without_disclosing_them(self):
         invalid = (

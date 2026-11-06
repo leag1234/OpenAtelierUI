@@ -187,13 +187,19 @@ def load_function_module_by_id(function_id, content=None):
                 for value in module.__dict__.values()
             )
             if has_sdk_binding:
-                from open_webui.utils.plugin_user_compat import adapt_filter_module
+                from open_webui.utils.plugin_user_compat import (
+                    adapt_filter_module,
+                    source_awaits_filter_model_lookup,
+                )
                 # Adapt before construction; sync constructors keep the
                 # default synchronous lookup mode.
                 adapt_filter_module(
                     module,
                     users,
-                    adapt_models=function_id in model_ids,
+                    adapt_models=(
+                        source_awaits_filter_model_lookup(content)
+                        or function_id in model_ids
+                    ),
                 )
             return module.Filter(), "filter", frontmatter
         elif hasattr(module, "Action"):

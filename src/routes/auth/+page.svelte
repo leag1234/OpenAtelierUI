@@ -11,6 +11,7 @@
 
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 	import { WEBUI_NAME, config, user, socket } from '$lib/stores';
+	import { waitForI18n } from '$lib/i18n';
 
 	import { generateInitialsImage, canvasPixelTest } from '$lib/utils';
 
@@ -38,6 +39,7 @@
 	const setSessionUser = async (sessionUser) => {
 		if (sessionUser) {
 			console.log(sessionUser);
+			await waitForI18n();
 			toast.success($i18n.t(`You're now logged in.`));
 			if (sessionUser.token) {
 				localStorage.token = sessionUser.token;
