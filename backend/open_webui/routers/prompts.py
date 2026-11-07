@@ -3,7 +3,7 @@ from typing import Optional
 from open_webui.models.prompts import (
     PromptForm,
     PromptUserResponse,
-    PromptModel,
+    PromptResponse,
     Prompts,
 )
 from open_webui.constants import ERROR_MESSAGES
@@ -18,7 +18,7 @@ router = APIRouter()
 ############################
 
 
-@router.get("/", response_model=list[PromptModel])
+@router.get("/", response_model=list[PromptResponse])
 async def get_prompts(user=Depends(get_verified_user)):
     if user.role == "admin":
         prompts = Prompts.get_prompts()
@@ -43,7 +43,7 @@ async def get_prompt_list(user=Depends(get_verified_user)):
 ############################
 
 
-@router.post("/create", response_model=Optional[PromptModel])
+@router.post("/create", response_model=Optional[PromptResponse])
 async def create_new_prompt(
     request: Request, form_data: PromptForm, user=Depends(get_verified_user)
 ):
@@ -76,7 +76,7 @@ async def create_new_prompt(
 ############################
 
 
-@router.get("/command/{command}", response_model=Optional[PromptModel])
+@router.get("/command/{command}", response_model=Optional[PromptResponse])
 async def get_prompt_by_command(command: str, user=Depends(get_verified_user)):
     prompt = Prompts.get_prompt_by_command(f"/{command}")
 
@@ -102,7 +102,7 @@ async def get_prompt_by_command(command: str, user=Depends(get_verified_user)):
 ############################
 
 
-@router.post("/command/{command}/update", response_model=Optional[PromptModel])
+@router.post("/command/{command}/update", response_model=Optional[PromptResponse])
 async def update_prompt_by_command(
     command: str,
     form_data: PromptForm,

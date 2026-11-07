@@ -4,11 +4,14 @@ from typing import Optional
 from open_webui.internal.db import Base, get_db
 from open_webui.models.users import Users, UserResponse
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 from sqlalchemy import BigInteger, Column, String, Text, JSON
 
 from open_webui.utils.access_control import has_access
-from open_webui.utils.access_grants import convert_explicit_access_grants
+from open_webui.utils.access_grants import (
+    access_grants_for_acl,
+    convert_explicit_access_grants,
+)
 
 ####################
 # Prompts DB Schema
@@ -58,7 +61,36 @@ class PromptModel(BaseModel):
 ####################
 
 
-class PromptUserResponse(PromptModel):
+class PromptResponse(PromptModel):
+    data: dict = Field(default_factory=dict)
+    meta: dict = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list)
+    is_active: bool = True
+
+    @computed_field
+    @property
+    def name(self) -> str:
+        return self.title
+
+    @computed_field
+    @property
+    def created_at(self) -> int:
+        return self.timestamp
+
+    @computed_field
+    @property
+    def updated_at(self) -> int:
+        return self.timestamp
+
+    @computed_field
+    @property
+    def access_grants(self) -> list[dict]:
+        return access_grants_for_acl(
+            self.access_control, "prompt", self.command, self.timestamp
+        )
+
+
+class PromptUserResponse(PromptResponse):
     user: Optional[UserResponse] = None
 
 

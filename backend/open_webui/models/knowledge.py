@@ -11,11 +11,14 @@ from open_webui.models.files import FileMetadataResponse
 from open_webui.models.users import Users, UserResponse
 
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, computed_field, model_validator
 from sqlalchemy import BigInteger, Column, String, Text, JSON
 
 from open_webui.utils.access_control import has_access
-from open_webui.utils.access_grants import convert_explicit_access_grants
+from open_webui.utils.access_grants import (
+    access_grants_for_acl,
+    convert_explicit_access_grants,
+)
 
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MODELS"])
@@ -88,9 +91,23 @@ class KnowledgeUserModel(KnowledgeModel):
 class KnowledgeResponse(KnowledgeModel):
     files: Optional[list[FileMetadataResponse | dict]] = None
 
+    @computed_field
+    @property
+    def access_grants(self) -> list[dict]:
+        return access_grants_for_acl(
+            self.access_control, "knowledge", self.id, self.created_at
+        )
+
 
 class KnowledgeUserResponse(KnowledgeUserModel):
     files: Optional[list[FileMetadataResponse | dict]] = None
+
+    @computed_field
+    @property
+    def access_grants(self) -> list[dict]:
+        return access_grants_for_acl(
+            self.access_control, "knowledge", self.id, self.created_at
+        )
 
 
 class KnowledgeForm(BaseModel):
