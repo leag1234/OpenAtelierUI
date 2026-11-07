@@ -53,6 +53,11 @@ tool_types = load_form_classes(
 model_types = load_form_classes(
     OPEN_WEBUI / "models/models.py", {"ModelParams", "ModelMeta", "ModelForm"}
 )
+knowledge_types = load_form_classes(OPEN_WEBUI / "models/knowledge.py", {"KnowledgeForm"})
+prompt_types = load_form_classes(OPEN_WEBUI / "models/prompts.py", {"PromptForm"})
+channel_types = load_form_classes(
+    OPEN_WEBUI / "models/channels.py", {"ChannelForm"}
+)
 FORMS = (
     (
         "ToolForm",
@@ -73,6 +78,66 @@ FORMS = (
 
 
 class ExplicitAccessGrantFormTests(unittest.TestCase):
+    def test_current_resource_grants_do_not_change_legacy_acl_requests(self):
+        resources = (
+            (
+                knowledge_types["KnowledgeForm"],
+                {"name": "Workshop knowledge", "description": "Synthetic corpus"},
+            ),
+            (
+                prompt_types["PromptForm"],
+                {"command": "workshop", "title": "Workshop prompt", "content": "Synthetic prompt"},
+            ),
+        )
+        targeted = {"read": {"user_ids": ["legacy-member"]}}
+        for form_class, base in resources:
+            with self.subTest(form=form_class.__name__, style="current"):
+                current = form_class.model_validate(dict(base, access_grants=[]))
+                self.assertEqual(current.access_control, {})
+            with self.subTest(form=form_class.__name__, style="legacy-public"):
+                public = form_class.model_validate(dict(base, access_control=None))
+                self.assertIsNone(public.access_control)
+            with self.subTest(form=form_class.__name__, style="legacy-targeted"):
+                legacy = form_class.model_validate(
+                    dict(base, access_control=copy.deepcopy(targeted))
+                )
+                self.assertEqual(legacy.access_control, targeted)
+
+    def test_current_prompt_name_alias_and_private_default(self):
+        payload = {
+            "command": "workshop",
+            "name": "Workshop prompt",
+            "content": "Synthetic prompt",
+            "access_grants": [],
+        }
+        form = prompt_types["PromptForm"].model_validate(payload)
+        self.assertEqual(form.title, "Workshop prompt")
+        self.assertEqual(form.access_control, {})
+        self.assertNotIn("name", form.model_dump())
+
+    def test_current_private_channel_is_not_made_public(self):
+        payload = {
+            "name": "Workshop channel",
+            "description": "Synthetic discussion",
+            "is_private": True,
+            "user_ids": ["member-01"],
+        }
+        form = channel_types["ChannelForm"].model_validate(payload)
+        self.assertEqual(form.access_control, {})
+        self.assertNotIn("is_private", form.model_dump())
+        self.assertNotIn("user_ids", form.model_dump())
+
+        public = channel_types["ChannelForm"].model_validate(
+            {**payload, "is_private": False}
+        )
+        self.assertIsNone(public.access_control)
+
+    def test_channel_rejects_ambiguous_privacy_flag(self):
+        with self.assertRaises(ValidationError):
+            channel_types["ChannelForm"].model_validate(
+                {"name": "Workshop channel", "is_private": "yes"}
+            )
+
     def test_current_omission_and_legacy_acl_extras_are_private(self):
         for name, form_class, base in FORMS:
             with self.subTest(form=name, access_grants="omitted"):

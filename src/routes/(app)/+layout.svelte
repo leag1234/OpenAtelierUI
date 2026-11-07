@@ -314,7 +314,7 @@
 		<Sidebar />
 
 		{#if loaded}
-			<a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:rounded-lg focus:bg-white focus:p-3 focus:text-black">{$i18n.t('Skip to main content')}</a>
+			<a href="#main-content" class="sr-only left-0 top-0 focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:rounded-lg focus:bg-white focus:p-3 focus:text-black">{$i18n.t('Skip to main content')}</a>
 			<main id="main-content" tabindex="-1" class="contents"><slot /></main>
 		{:else}
 			<div class="w-full flex-1 h-full flex items-center justify-center">

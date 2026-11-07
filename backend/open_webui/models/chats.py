@@ -49,6 +49,7 @@ def _new_saved_work_meta(meta=None, last_read_at=None):
 
 def _public_chat_meta(meta):
     result = copy.deepcopy(meta) if isinstance(meta, dict) else {}
+    result.pop("_oa_shared_access_grants", None)
     if _saved_work_marker(result) is not None:
         result.pop(SAVED_WORK_META_KEY, None)
     return result
@@ -552,7 +553,7 @@ class ChatTable:
                         else "New Chat"
                     ),
                     "chat": form_data.chat,
-                    "meta": form_data.meta,
+                    "meta": {key: value for key, value in (form_data.meta or {}).items() if key != "_oa_shared_access_grants"},
                     "pinned": form_data.pinned,
                     "folder_id": form_data.folder_id,
                     "created_at": int(time.time()),
@@ -819,6 +820,31 @@ class ChatTable:
                 return True
         except Exception:
             return False
+
+    def revoke_shared_chat(self, id: str, owner_id: str):
+        with get_db() as db:
+            source = db.query(Chat).filter_by(id=id, user_id=owner_id).with_for_update().first()
+            if source is None or not source.share_id:
+                return False
+            db.query(Chat).filter_by(user_id=f"shared-{id}").delete()
+            source.share_id = None
+            meta = dict(source.meta or {})
+            meta.pop("_oa_shared_access_grants", None)
+            source.meta = meta
+            db.commit()
+            return True
+
+    def update_shared_access_grants(self, id: str, owner_id: str, grants: list):
+        with get_db() as db:
+            source = db.query(Chat).filter_by(id=id, user_id=owner_id).with_for_update().first()
+            if source is None:
+                return None
+            meta = dict(source.meta or {})
+            meta["_oa_shared_access_grants"] = grants
+            source.meta = meta
+            db.commit()
+            db.refresh(source)
+            return ChatModel.model_validate(source)
 
     def update_chat_share_id_by_id(
         self, id: str, share_id: Optional[str]

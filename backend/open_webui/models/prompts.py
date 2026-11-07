@@ -4,10 +4,11 @@ from typing import Optional
 from open_webui.internal.db import Base, get_db
 from open_webui.models.users import Users, UserResponse
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy import BigInteger, Column, String, Text, JSON
 
 from open_webui.utils.access_control import has_access
+from open_webui.utils.access_grants import convert_explicit_access_grants
 
 ####################
 # Prompts DB Schema
@@ -66,6 +67,20 @@ class PromptForm(BaseModel):
     title: str
     content: str
     access_control: Optional[dict] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def convert_current_prompt(cls, data):
+        converted = (
+            convert_explicit_access_grants(data)
+            if isinstance(data, dict) and "access_grants" in data
+            else dict(data) if isinstance(data, dict) else data
+        )
+        if isinstance(converted, dict) and "title" not in converted:
+            name = converted.get("name")
+            if isinstance(name, str) and name.strip():
+                converted["title"] = name
+        return converted
 
 
 class PromptsTable:
@@ -136,9 +151,10 @@ class PromptsTable:
         try:
             with get_db() as db:
                 prompt = db.query(Prompt).filter_by(command=command).first()
+                if prompt is None:
+                    return None
                 prompt.title = form_data.title
                 prompt.content = form_data.content
-                prompt.access_control = form_data.access_control
                 prompt.timestamp = int(time.time())
                 db.commit()
                 return PromptModel.model_validate(prompt)

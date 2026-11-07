@@ -86,6 +86,22 @@ async def get_users(
     return Users.get_users(skip, limit)
 
 
+@router.get("/search", response_model=UserInfoListResponse)
+async def search_users(query: str = "", order_by: str = "created_at", direction: str = "asc", page: int = 1, user=Depends(get_verified_user)):
+    if len(query) > 512:
+        raise HTTPException(status_code=422, detail="Search query is too long")
+    try:
+        users, count = Users.search_users(query, order_by, direction, page)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error))
+    items = []
+    for item in users:
+        projected = _user_info_projection(item)
+        projected["is_active"] = get_active_status_by_user_id(item.id)
+        items.append(projected)
+    return {"users": items, "total": count}
+
+
 @router.get("/all", response_model=UserInfoListResponse)
 async def get_users_all(user=Depends(get_admin_user)):
     users = Users.get_users()
@@ -356,6 +372,23 @@ async def update_user_by_id(
     user = Users.get_user_by_id(user_id)
 
     if user:
+        if form_data.role is not None:
+            if form_data.role not in {"admin", "user", "pending"}:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Unsupported user role",
+                )
+            first_user = Users.get_first_user()
+            if (
+                first_user is not None
+                and user_id == first_user.id
+                and form_data.role != user.role
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=ERROR_MESSAGES.ACTION_PROHIBITED,
+                )
+
         if form_data.email.lower() != user.email:
             email_user = Users.get_user_by_email(form_data.email.lower())
             if email_user:
@@ -376,6 +409,7 @@ async def update_user_by_id(
                 "name": form_data.name,
                 "email": form_data.email.lower(),
                 "profile_image_url": form_data.profile_image_url,
+                **({"role": form_data.role} if form_data.role is not None else {}),
             },
         )
 

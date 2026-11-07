@@ -11,10 +11,11 @@ from open_webui.models.files import FileMetadataResponse
 from open_webui.models.users import Users, UserResponse
 
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy import BigInteger, Column, String, Text, JSON
 
 from open_webui.utils.access_control import has_access
+from open_webui.utils.access_grants import convert_explicit_access_grants
 
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MODELS"])
@@ -98,6 +99,13 @@ class KnowledgeForm(BaseModel):
     data: Optional[dict] = None
     access_control: Optional[dict] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def convert_access_grants(cls, data):
+        if isinstance(data, dict) and "access_grants" in data:
+            return convert_explicit_access_grants(data)
+        return data
+
 
 class KnowledgeTable:
     def insert_new_knowledge(
@@ -168,9 +176,14 @@ class KnowledgeTable:
         try:
             with get_db() as db:
                 knowledge = self.get_knowledge_by_id(id=id)
+                if knowledge is None:
+                    return None
+                values = form_data.model_dump()
+                if not overwrite:
+                    values["access_control"] = knowledge.access_control
                 db.query(Knowledge).filter_by(id=id).update(
                     {
-                        **form_data.model_dump(),
+                        **values,
                         "updated_at": int(time.time()),
                     }
                 )
@@ -192,6 +205,26 @@ class KnowledgeTable:
                         "updated_at": int(time.time()),
                     }
                 )
+                db.commit()
+                return self.get_knowledge_by_id(id=id)
+        except Exception as e:
+            log.exception(e)
+            return None
+
+    def update_knowledge_access_control_by_id(
+        self, id: str, access_control: Optional[dict]
+    ) -> Optional[KnowledgeModel]:
+        try:
+            with get_db() as db:
+                updated = db.query(Knowledge).filter_by(id=id).update(
+                    {
+                        "access_control": access_control,
+                        "updated_at": int(time.time()),
+                    }
+                )
+                if updated != 1:
+                    db.rollback()
+                    return None
                 db.commit()
                 return self.get_knowledge_by_id(id=id)
         except Exception as e:

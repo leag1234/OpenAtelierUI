@@ -22,6 +22,7 @@ from open_webui.storage.provider import Storage
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.utils.auth import get_verified_user
 from open_webui.utils.access_control import has_access, has_permission
+from open_webui.utils.access_grants import access_control_for_grants
 
 
 from open_webui.env import SRC_LOG_LEVELS
@@ -257,11 +258,14 @@ async def get_knowledge_by_id(id: str, user=Depends(get_verified_user)):
                 **knowledge.model_dump(),
                 files=files,
             )
-    else:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=ERROR_MESSAGES.NOT_FOUND,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=ERROR_MESSAGES.NOT_FOUND,
+    )
 
 
 ############################
@@ -306,6 +310,37 @@ async def update_knowledge_by_id(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=ERROR_MESSAGES.ID_TAKEN,
         )
+
+
+@router.post("/{id}/access/update", response_model=Optional[KnowledgeFilesResponse])
+async def update_knowledge_access_by_id(
+    id: str, form_data: dict, user=Depends(get_verified_user)
+):
+    knowledge = Knowledges.get_knowledge_by_id(id=id)
+    if knowledge is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+    if knowledge.user_id != user.id and user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+        )
+    try:
+        access_control = access_control_for_grants(form_data.get("access_grants"))
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from None
+    knowledge = Knowledges.update_knowledge_access_control_by_id(id, access_control)
+    if knowledge is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ERROR_MESSAGES.DEFAULT(),
+        )
+    file_ids = knowledge.data.get("file_ids", []) if knowledge.data else []
+    return KnowledgeFilesResponse(
+        **knowledge.model_dump(), files=Files.get_files_by_ids(file_ids)
+    )
 
 
 ############################

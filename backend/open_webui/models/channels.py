@@ -5,8 +5,9 @@ from typing import Optional
 
 from open_webui.internal.db import Base, get_db
 from open_webui.utils.access_control import has_access
+from open_webui.utils.access_grants import convert_explicit_access_grants
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy import BigInteger, Boolean, Column, String, Text, JSON
 from sqlalchemy import or_, func, select, and_, text
 from sqlalchemy.sql import exists
@@ -63,6 +64,24 @@ class ChannelForm(BaseModel):
     data: Optional[dict] = None
     meta: Optional[dict] = None
     access_control: Optional[dict] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def convert_current_channel(cls, data):
+        if not isinstance(data, dict):
+            return data
+        if "is_private" in data:
+            converted = dict(data)
+            is_private = converted.pop("is_private")
+            if not isinstance(is_private, bool):
+                raise ValueError("is_private must be a boolean")
+            converted.pop("user_ids", None)
+            converted.pop("access_grants", None)
+            converted["access_control"] = {} if is_private else None
+            return converted
+        if "access_grants" in data:
+            return convert_explicit_access_grants(data)
+        return data
 
 
 class ChannelTable:

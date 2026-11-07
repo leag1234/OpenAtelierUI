@@ -10,7 +10,7 @@ from open_webui.models.groups import Groups
 
 
 from pydantic import BaseModel, ConfigDict, field_serializer
-from sqlalchemy import BigInteger, Column, String, Text
+from sqlalchemy import BigInteger, Column, String, Text, or_
 from open_webui.utils.imported_profile import (
     ImportedProfileError,
     read_user_profile_fields,
@@ -109,6 +109,7 @@ class UserUpdateForm(BaseModel):
     email: str
     profile_image_url: str
     password: Optional[str] = None
+    role: Optional[str] = None
 
 
 class UsersTable:
@@ -221,6 +222,20 @@ class UsersTable:
             users = query.all()
 
             return [UserModel.model_validate(user) for user in users]
+
+    def search_users(self, text="", order_by="created_at", direction="asc", page=1, limit=30):
+        columns = {name: getattr(User, name) for name in ["name", "email", "role", "created_at", "last_active_at"]}
+        if order_by not in columns or direction not in {"asc", "desc"} or page < 1:
+            raise ValueError("Unsupported user search ordering or page")
+        with get_db() as db:
+            query = db.query(User)
+            if text:
+                pattern = "%" + text + "%"
+                query = query.filter(or_(User.name.ilike(pattern), User.email.ilike(pattern)))
+            count = query.count()
+            column = columns[order_by]
+            rows = query.order_by(column.asc() if direction == "asc" else column.desc(), User.id.asc()).offset((page-1)*limit).limit(limit).all()
+            return [UserModel.model_validate(row) for row in rows], count
 
     def get_users_by_user_ids(self, user_ids: list[str]) -> list[UserModel]:
         with get_db() as db:

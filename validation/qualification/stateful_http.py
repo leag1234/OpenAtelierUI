@@ -8,6 +8,8 @@ import argparse
 import hashlib
 import json
 import random
+import sys
+from datetime import datetime, timezone
 import time
 from pathlib import Path
 from urllib.error import HTTPError
@@ -19,6 +21,10 @@ class Journey:
         self.base, self.output = base.rstrip('/'), output
         self.trace, self.results, self.state = [], [], {}
         self.tokens = {}
+        driver = Path(sys.argv[0])
+        self.metadata = {'transport_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            'driver_sha256':hashlib.sha256(driver.read_bytes()).hexdigest() if driver.is_file() else None,
+            'started_at':datetime.now(timezone.utc).isoformat(), 'base':self.base}
 
     def call(self, path, role='owner', method='GET', body=None, headers=None, statuses=(200,)):
         request_headers = {'Accept': 'application/json', **(headers or {})}
@@ -43,8 +49,9 @@ class Journey:
         saved = {key: item for key, item in value.items() if key not in {'token', 'access_token'}} if isinstance(value, dict) else value
         self.trace.append({'method': method, 'path': path, 'role': role, 'status': status, 'media': media,
             'elapsed_seconds': round(time.monotonic()-started, 4), 'response_sha256': hashlib.sha256(content).hexdigest(),
-            'response': saved if isinstance(saved, (dict, list)) else {'bytes': len(content)}})
+            'response': saved if media == 'application/json' else {'bytes': len(content)}})
         if status not in statuses:
+            self.save()
             raise ValueError(f'{method} {path}: expected {statuses}, observed {status} {media}')
         return value
 
@@ -60,7 +67,7 @@ class Journey:
         self.save()
 
     def save(self):
-        self.output.write_text(json.dumps({'schema_version': 1, 'results': self.results,
+        self.output.write_text(json.dumps({'schema_version': 1, 'metadata':self.metadata, 'results': self.results,
             'trace': self.trace, 'state': self.state,
             'limits': 'Finite HTTP state contracts only. No browser, RAG extraction, extension execution, migration or whole-product claim.'}, indent=2, ensure_ascii=False)+'\n')
 

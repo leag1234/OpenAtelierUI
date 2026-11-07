@@ -21,6 +21,7 @@ from open_webui.models.chats import (
     _project_private_chat_authors,
     _saved_work_marker,
 )
+from open_webui.models.groups import Groups
 from open_webui.models.users import Users
 from open_webui.models.tags import TagModel, Tags
 from open_webui.models.folders import Folders
@@ -348,25 +349,90 @@ async def archive_all_chats(user=Depends(get_verified_user)):
 ############################
 
 
-@router.get("/share/{share_id}", response_model=Optional[ChatResponse])
-async def get_shared_chat_by_id(share_id: str, user=Depends(get_verified_user)):
+class ChatSharedAccessForm(BaseModel):
+    access_grants: list[dict]
+
+
+def _shared_grants(source):
+    grants = (source.meta or {}).get("_oa_shared_access_grants", [])
+    return [grant for grant in grants if isinstance(grant, dict)] if isinstance(grants, list) else []
+
+
+@router.get("/shared/{id}/access")
+async def get_shared_access(id: str, user=Depends(get_verified_user)):
+    source = Chats.get_chat_by_id_and_user_id(id, user.id)
+    if source is None:
+        raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+    return _shared_grants(source)
+
+
+@router.post("/shared/{id}/access/update")
+async def update_shared_access(id: str, form_data: ChatSharedAccessForm, user=Depends(get_verified_user)):
+    source = Chats.get_chat_by_id_and_user_id(id, user.id)
+    if source is None:
+        raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+    import uuid
+    grants = []
+    seen = set()
+    for item in form_data.access_grants:
+        kind, principal, permission = item.get("principal_type"), item.get("principal_id"), item.get("permission")
+        if kind not in {"user", "group"} or permission not in {"read", "write"} or not isinstance(principal, str):
+            raise HTTPException(status_code=422, detail="Unsupported access grant")
+        existing = Users.get_user_by_id(principal) if kind == "user" else Groups.get_group_by_id(principal)
+        identity = (kind, principal, permission)
+        if existing is None or identity in seen:
+            continue
+        seen.add(identity)
+        grants.append({"id": str(uuid.uuid4()), "principal_type": kind, "principal_id": principal, "permission": permission})
+    source = Chats.update_shared_access_grants(id, user.id, grants)
+    if source is None:
+        raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+    return _saved_chat_response(source, user)
+
+
+def _shared_source_read_allowed(source, user):
     if user.role == "pending":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.NOT_FOUND
-        )
+        return False
+    if source.user_id == user.id or (user.role == "admin" and ENABLE_ADMIN_CHAT_ACCESS):
+        return True
+    memberships = {group.id for group in Groups.get_groups_by_member_id(user.id)}
+    return any(grant.get("permission") == "read" and (
+        (grant.get("principal_type") == "user" and grant.get("principal_id") == user.id)
+        or (grant.get("principal_type") == "group" and grant.get("principal_id") in memberships)
+    ) for grant in _shared_grants(source))
 
-    if user.role == "user" or (user.role == "admin" and not ENABLE_ADMIN_CHAT_ACCESS):
-        chat = Chats.get_chat_by_share_id(share_id)
-    elif user.role == "admin" and ENABLE_ADMIN_CHAT_ACCESS:
-        chat = Chats.get_chat_by_id(share_id)
 
-    if chat:
-        return ChatResponse(**chat.model_dump())
+def _authorized_shared_snapshot(share_id, user):
+    """Resolve the source owner before exposing or cloning a legacy snapshot.
 
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.NOT_FOUND
-        )
+    A share token identifies a resource; it is not an access grant. Named grants
+    are deliberately not inferred from an old snapshot or client chat payload.
+    """
+    snapshot = Chats.get_chat_by_share_id(share_id)
+    if snapshot is not None and snapshot.user_id.startswith("shared-"):
+        source = Chats.get_chat_by_id(snapshot.user_id[len("shared-"):])
+        if source is not None and source.share_id == snapshot.id:
+            if _shared_source_read_allowed(source, user):
+                return snapshot
+    if user.role == "admin" and ENABLE_ADMIN_CHAT_ACCESS:
+        source = Chats.get_chat_by_id(share_id)
+        if source is not None and not source.user_id.startswith("shared-"):
+            return source
+    return None
+
+
+@router.get("/share/{share_id}", response_model=Optional[PrivateChatResponse])
+async def get_shared_chat_by_id(share_id: str, user=Depends(get_verified_user)):
+    chat = None if user.role == "pending" else _authorized_shared_snapshot(share_id, user)
+    if chat is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.NOT_FOUND)
+    values = chat.model_dump()
+    if chat.user_id.startswith("shared-"):
+        source = Chats.get_chat_by_id(chat.user_id[len("shared-"):])
+        if source is None or source.share_id != chat.id:
+            raise HTTPException(status_code=401, detail=ERROR_MESSAGES.NOT_FOUND)
+        values["user_id"] = source.user_id
+    return _saved_chat_response(ChatResponse(**values), user)
 
 
 ############################
@@ -415,10 +481,15 @@ async def acknowledge_private_chat_reads(user=Depends(get_verified_user)):
 @router.get("/{id}", response_model=Optional[PrivateChatResponse])
 async def get_chat_by_id(id: str, user=Depends(get_verified_user)):
     chat = Chats.get_chat_by_id_and_user_id(id, user.id)
+    if chat is None:
+        candidate = Chats.get_chat_by_id(id)
+        if candidate is not None and _shared_source_read_allowed(candidate, user):
+            chat = candidate
 
     if chat:
+        response_user = Users.get_user_by_id(chat.user_id) if chat.user_id != user.id else user
         return _saved_chat_response(
-            chat, user, mark_continue=True, user_lookup=Users.get_user_by_id
+            chat, response_user or user, mark_continue=True, user_lookup=Users.get_user_by_id
         )
 
     else:
@@ -665,10 +736,7 @@ async def clone_chat_by_id(
 @router.post("/{id}/clone/shared", response_model=Optional[ChatResponse])
 async def clone_shared_chat_by_id(id: str, user=Depends(get_verified_user)):
 
-    if user.role == "admin":
-        chat = Chats.get_chat_by_id(id)
-    else:
-        chat = Chats.get_chat_by_share_id(id)
+    chat = None if user.role == "pending" else _authorized_shared_snapshot(id, user)
 
     if chat:
         updated_chat = {
@@ -728,7 +796,7 @@ async def share_chat_by_id(id: str, user=Depends(get_verified_user)):
     if chat:
         if chat.share_id:
             shared_chat = Chats.update_shared_chat_by_chat_id(chat.id)
-            return ChatResponse(**shared_chat.model_dump())
+            return _saved_chat_response(Chats.get_chat_by_id_and_user_id(id, user.id), user)
 
         shared_chat = Chats.insert_shared_chat_by_chat_id(chat.id)
         if not shared_chat:
@@ -736,7 +804,7 @@ async def share_chat_by_id(id: str, user=Depends(get_verified_user)):
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=ERROR_MESSAGES.DEFAULT(),
             )
-        return ChatResponse(**shared_chat.model_dump())
+        return _saved_chat_response(Chats.get_chat_by_id_and_user_id(id, user.id), user)
 
     else:
         raise HTTPException(
@@ -753,19 +821,9 @@ async def share_chat_by_id(id: str, user=Depends(get_verified_user)):
 @router.delete("/{id}/share", response_model=Optional[bool])
 async def delete_shared_chat_by_id(id: str, user=Depends(get_verified_user)):
     chat = Chats.get_chat_by_id_and_user_id(id, user.id)
-    if chat:
-        if not chat.share_id:
-            return False
-
-        result = Chats.delete_shared_chat_by_chat_id(id)
-        update_result = Chats.update_chat_share_id_by_id(id, None)
-
-        return result and update_result != None
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
-        )
+    if chat is None:
+        raise HTTPException(status_code=401, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+    return Chats.revoke_shared_chat(id, user.id)
 
 
 ############################
