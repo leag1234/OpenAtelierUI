@@ -1,7 +1,9 @@
 import copy
 import json
 import logging
+import math
 import time
+from collections import Counter
 from typing import Optional, Union
 
 
@@ -32,11 +34,12 @@ from open_webui.config import ENABLE_ADMIN_CHAT_ACCESS, ENABLE_ADMIN_EXPORT
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.env import SRC_LOG_LEVELS
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_permission
+from open_webui.utils.chat import generate_chat_completion
 
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MODELS"])
@@ -74,6 +77,174 @@ def _require_supported_saved_chat_fields(form_data):
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Folder chat behavior is not supported by this compatibility prototype.",
         )
+
+
+def _selected_chat_messages(chat_payload):
+    history = chat_payload.get("history") if isinstance(chat_payload, dict) else None
+    messages = history.get("messages") if isinstance(history, dict) else None
+    current_id = history.get("currentId") if isinstance(history, dict) else None
+    if not isinstance(messages, dict) or not isinstance(current_id, str):
+        return []
+    selected, seen = [], set()
+    while current_id is not None:
+        if current_id in seen or current_id not in messages:
+            return []
+        seen.add(current_id)
+        message = messages[current_id]
+        if not isinstance(message, dict):
+            return []
+        selected.append(message)
+        current_id = message.get("parentId")
+    selected.reverse()
+    return selected
+
+
+def _estimated_context_tokens(messages):
+    if messages:
+        usage = messages[-1].get("usage")
+        total_tokens = usage.get("total_tokens") if isinstance(usage, dict) else None
+        if isinstance(total_tokens, int) and total_tokens >= 0:
+            return total_tokens
+    return sum(
+        4 + math.ceil(len(str(message.get("content", ""))) / 4)
+        for message in messages
+        if isinstance(message, dict)
+    )
+
+
+def _context_usage(chat_payload, threshold):
+    selected = _selected_chat_messages(chat_payload)
+    tokens = _estimated_context_tokens(selected)
+    return {
+        "tokens": tokens,
+        "estimated_tokens": tokens,
+        "threshold": threshold,
+        "percent": int(tokens * 100 / threshold) if threshold else 0,
+        "source": "estimated",
+    }
+
+
+def _private_chat_response(chat, user, request=None, **kwargs):
+    response = _saved_chat_response(chat, user, **kwargs)
+    if request is not None and request.app.state.config.ENABLE_CONTEXT_COMPACTION:
+        response.context_usage = _context_usage(
+            response.chat,
+            request.app.state.config.CONTEXT_COMPACTION_TOKEN_THRESHOLD,
+        )
+    return response
+
+
+def _aggregate_chat_stats(chat_payload):
+    history = chat_payload.get("history") if isinstance(chat_payload, dict) else None
+    history_messages = history.get("messages") if isinstance(history, dict) else None
+    if not isinstance(history_messages, dict):
+        history_messages = {}
+    values = [value for value in history_messages.values() if isinstance(value, dict)]
+    selected = _selected_chat_messages(chat_payload)
+    user_messages = [value for value in values if value.get("role") == "user"]
+    assistant_messages = [
+        value for value in values if value.get("role") == "assistant"
+    ]
+    response_times = []
+    for assistant in assistant_messages:
+        parent = history_messages.get(assistant.get("parentId"))
+        if not isinstance(parent, dict) or parent.get("role") != "user":
+            continue
+        start, end = parent.get("timestamp"), assistant.get("timestamp")
+        if isinstance(start, (int, float)) and isinstance(end, (int, float)):
+            response_times.append(end - start)
+
+    def average_content(messages):
+        return (
+            sum(len(str(message.get("content", ""))) for message in messages)
+            / len(messages)
+            if messages
+            else 0.0
+        )
+
+    return {
+        "average_response_time": (
+            sum(response_times) / len(response_times) if response_times else 0.0
+        ),
+        "average_user_message_content_length": average_content(user_messages),
+        "average_assistant_message_content_length": average_content(
+            assistant_messages
+        ),
+        "models": dict(
+            Counter(
+                message.get("model")
+                for message in selected
+                if message.get("role") == "assistant"
+                and isinstance(message.get("model"), str)
+            )
+        ),
+        "message_count": len(selected),
+        "history_models": dict(
+            Counter(
+                message.get("model")
+                for message in assistant_messages
+                if isinstance(message.get("model"), str)
+            )
+        ),
+        "history_message_count": len(values),
+        "history_user_message_count": len(user_messages),
+        "history_assistant_message_count": len(assistant_messages),
+    }
+
+
+def _stats_message_projection(message):
+    return {
+        "id": message.get("id"),
+        "timestamp": message.get("timestamp"),
+        "role": message.get("role"),
+        "content_length": len(str(message.get("content", ""))),
+        "model": message.get("model"),
+        "rating": message.get("rating"),
+        "tags": message.get("tags"),
+        "token_count": message.get("token_count"),
+    }
+
+
+def _chat_stats_export(chat):
+    history = chat.chat.get("history") if isinstance(chat.chat, dict) else None
+    messages = history.get("messages") if isinstance(history, dict) else None
+    projected = {
+        key: _stats_message_projection(message)
+        for key, message in (messages or {}).items()
+        if isinstance(message, dict)
+    }
+    return {
+        "id": chat.id,
+        "user_id": chat.user_id,
+        "created_at": chat.created_at,
+        "updated_at": chat.updated_at,
+        "stats": _aggregate_chat_stats(chat.chat),
+        "tags": list((chat.meta or {}).get("tags", [])),
+        "chat": {
+            "history": {
+                "currentId": (history or {}).get("currentId"),
+                "messages": projected,
+            }
+        },
+    }
+
+
+def _chat_usage_stats(chat):
+    result = {"id": chat.id, **_aggregate_chat_stats(chat.chat)}
+    selected = _selected_chat_messages(chat.chat)
+    result.update(
+        {
+            "last_message_at": (
+                selected[-1].get("timestamp", chat.updated_at)
+                if selected
+                else chat.updated_at
+            ),
+            "updated_at": chat.updated_at,
+            "created_at": chat.created_at,
+            "tags": list((chat.meta or {}).get("tags", [])),
+        }
+    )
+    return result
 
 
 ############################
@@ -619,6 +790,105 @@ async def get_user_chat_list_by_tag_name(
 
 
 ############################
+# ChatStatistics
+############################
+
+
+class AggregateChatStats(BaseModel):
+    average_response_time: float
+    average_user_message_content_length: float
+    average_assistant_message_content_length: float
+    models: dict[str, int]
+    message_count: int
+    history_models: dict[str, int]
+    history_message_count: int
+    history_user_message_count: int
+    history_assistant_message_count: int
+
+
+class ChatStatsExport(BaseModel):
+    id: str
+    user_id: str
+    created_at: int
+    updated_at: int
+    stats: AggregateChatStats
+    tags: list[str] = Field(default_factory=list)
+    chat: dict
+
+
+class ChatStatsExportList(BaseModel):
+    items: list[ChatStatsExport]
+    total: int
+    page: int
+    type: str = "chats"
+
+
+class ChatUsageStatsResponse(AggregateChatStats):
+    id: str
+    last_message_at: int
+    updated_at: int
+    created_at: int
+    tags: list[str] = Field(default_factory=list)
+
+
+class ChatUsageStatsListResponse(BaseModel):
+    items: list[ChatUsageStatsResponse]
+    total: int
+
+
+@router.get("/stats/export", response_model=ChatStatsExportList)
+async def export_chat_stats(
+    updated_at: Optional[int] = None,
+    page: Optional[int] = None,
+    stream: bool = False,
+    user=Depends(get_verified_user),
+):
+    del stream
+    chats = Chats.get_chats_by_user_id(user.id)
+    if updated_at is not None:
+        chats = [chat for chat in chats if chat.updated_at > updated_at]
+    current_page = page or 1
+    limit = 50
+    start = (current_page - 1) * limit
+    return {
+        "items": [_chat_stats_export(chat) for chat in chats[start : start + limit]],
+        "total": len(chats),
+        "page": current_page,
+        "type": "chats",
+    }
+
+
+@router.get("/stats/export/{chat_id}", response_model=Optional[ChatStatsExport])
+async def export_chat_stats_by_id(
+    chat_id: str, user=Depends(get_verified_user)
+):
+    chat = Chats.get_chat_by_id_and_user_id(chat_id, user.id)
+    if chat is None and user.role == "admin" and ENABLE_ADMIN_CHAT_ACCESS:
+        chat = Chats.get_chat_by_id(chat_id)
+    if chat is None:
+        if Chats.get_chat_by_id(chat_id) is None:
+            raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+        raise HTTPException(status_code=401, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+    return _chat_stats_export(chat)
+
+
+@router.get("/stats/usage", response_model=ChatUsageStatsListResponse)
+async def get_chat_usage_stats(
+    items_per_page: Optional[int] = None,
+    page: Optional[int] = None,
+    user=Depends(get_verified_user),
+):
+    chats = Chats.get_chats_by_user_id(user.id)
+    limit = items_per_page or 50
+    current_page = page or 1
+    start = (current_page - 1) * limit
+    return {
+        "items": [_chat_usage_stats(chat) for chat in chats[start : start + limit]],
+        "total": len(chats),
+    }
+
+
+############################
 # GetChatById
 ############################
 
@@ -635,7 +905,9 @@ async def acknowledge_private_chat_reads(user=Depends(get_verified_user)):
 
 
 @router.get("/{id}", response_model=Optional[PrivateChatResponse])
-async def get_chat_by_id(id: str, user=Depends(get_verified_user)):
+async def get_chat_by_id(
+    request: Request, id: str, user=Depends(get_verified_user)
+):
     chat = Chats.get_chat_by_id_and_user_id(id, user.id)
     if chat is None:
         candidate = Chats.get_chat_by_id(id)
@@ -646,9 +918,10 @@ async def get_chat_by_id(id: str, user=Depends(get_verified_user)):
         response_user = (
             Users.get_user_by_id(chat.user_id) if chat.user_id != user.id else user
         )
-        return _saved_chat_response(
+        return _private_chat_response(
             chat,
             response_user or user,
+            request=request,
             mark_continue=True,
             user_lookup=Users.get_user_by_id,
         )
@@ -746,6 +1019,185 @@ async def update_chat_message_by_id(
         )
 
     return ChatResponse(**chat.model_dump())
+
+
+@router.delete(
+    "/{id}/messages/{message_id}", response_model=Optional[PrivateChatResponse]
+)
+async def delete_chat_message_by_id(
+    id: str, message_id: str, user=Depends(get_verified_user)
+):
+    chat = Chats.get_chat_by_id(id)
+    if chat is None or (chat.user_id != user.id and user.role != "admin"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+        )
+    payload = copy.deepcopy(chat.chat)
+    history = payload.get("history") if isinstance(payload, dict) else None
+    messages = history.get("messages") if isinstance(history, dict) else None
+    target = messages.get(message_id) if isinstance(messages, dict) else None
+    if isinstance(target, dict):
+        parent_id = target.get("parentId")
+        replacements = []
+        for child_id in list(target.get("childrenIds") or []):
+            child = messages.pop(child_id, None)
+            if not isinstance(child, dict):
+                continue
+            for grandchild_id in child.get("childrenIds") or []:
+                grandchild = messages.get(grandchild_id)
+                if isinstance(grandchild, dict):
+                    grandchild["parentId"] = parent_id
+                    replacements.append(grandchild_id)
+        messages.pop(message_id, None)
+        if parent_id in messages and isinstance(messages[parent_id], dict):
+            siblings = list(messages[parent_id].get("childrenIds") or [])
+            position = siblings.index(message_id) if message_id in siblings else len(siblings)
+            siblings = [value for value in siblings if value != message_id]
+            siblings[position:position] = [
+                value for value in replacements if value not in siblings
+            ]
+            messages[parent_id]["childrenIds"] = siblings
+        elif parent_id is None:
+            for replacement in replacements:
+                if replacement in messages:
+                    messages[replacement]["parentId"] = None
+        if history.get("currentId") not in messages:
+            history["currentId"] = replacements[-1] if replacements else parent_id
+        updated = Chats.update_chat_by_id(id, payload)
+        if updated is not None:
+            chat = updated
+    return _saved_chat_response(chat, user)
+
+
+class ResolveToolCallForm(BaseModel):
+    call_id: str
+    action: str
+    answers: Optional[object] = None
+    timed_out: bool = False
+
+
+@router.post("/{id}/messages/{message_id}/resolve")
+async def resolve_chat_tool_call(
+    id: str,
+    message_id: str,
+    form_data: ResolveToolCallForm,
+    user=Depends(get_verified_user),
+):
+    del form_data
+    chat = Chats.get_chat_by_id(id)
+    if chat is None or (chat.user_id != user.id and user.role != "admin"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+        )
+    message = Chats.get_message_by_id_and_message_id(id, message_id)
+    if not message:
+        raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+    # A persisted tool-call object is not an active approval request. Active
+    # socket-bound resolution remains fail-closed until its positive contract is
+    # independently reproduced.
+    raise HTTPException(status_code=404, detail="Tool call not found.")
+
+
+class CompactChatForm(BaseModel):
+    model: Optional[str] = None
+
+
+@router.post("/{id}/compact")
+async def compact_chat_by_id(
+    request: Request,
+    id: str,
+    form_data: Optional[CompactChatForm] = None,
+    user=Depends(get_verified_user),
+):
+    chat = Chats.get_chat_by_id_and_user_id(id, user.id)
+    if chat is None:
+        raise HTTPException(status_code=401, detail=ERROR_MESSAGES.NOT_FOUND)
+    if not request.app.state.config.ENABLE_CONTEXT_COMPACTION:
+        return {
+            "ok": True,
+            "compacted": False,
+            "reason": "disabled",
+            "context_usage": None,
+        }
+    selected = _selected_chat_messages(chat.chat)
+    usage = _context_usage(
+        chat.chat, request.app.state.config.CONTEXT_COMPACTION_TOKEN_THRESHOLD
+    )
+    keep_count = max(
+        1,
+        int(
+            len(selected)
+            * request.app.state.config.CONTEXT_COMPACTION_RETENTION_PERCENTAGE
+            / 100
+        ),
+    )
+    if len(selected) <= keep_count or any(
+        isinstance(message.get("contextSummary"), str)
+        for message in selected
+        if isinstance(message, dict)
+    ):
+        return {
+            "ok": True,
+            "compacted": False,
+            "reason": "too_short",
+            "context_usage": usage,
+        }
+    model_id = (
+        form_data.model
+        if form_data is not None and form_data.model
+        else request.app.state.config.CONTEXT_COMPACTION_MODEL
+    )
+    if not model_id:
+        models = chat.chat.get("models") if isinstance(chat.chat, dict) else None
+        model_id = models[0] if isinstance(models, list) and models else None
+    prompt = request.app.state.config.CONTEXT_COMPACTION_PROMPT_TEMPLATE
+    dropped = selected[:-keep_count]
+    completion = await generate_chat_completion(
+        request,
+        form_data={
+            "model": model_id,
+            "messages": [
+                {"role": "system", "content": prompt},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        [
+                            {
+                                "role": message.get("role"),
+                                "content": message.get("content", ""),
+                            }
+                            for message in dropped
+                        ],
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+            "stream": False,
+        },
+        user=user,
+    )
+    summary = (
+        completion.get("choices", [{}])[0].get("message", {}).get("content")
+        if isinstance(completion, dict)
+        else None
+    )
+    if not isinstance(summary, str) or not summary:
+        raise RuntimeError("Compaction provider returned no summary.")
+    payload = copy.deepcopy(chat.chat)
+    current_id = payload["history"]["currentId"]
+    payload["history"]["messages"][current_id]["contextSummary"] = summary
+    if Chats.update_chat_by_id(id, payload) is None:
+        raise RuntimeError("Compaction update failed.")
+    return {
+        "ok": True,
+        "compacted": True,
+        "dropped_messages": len(dropped),
+        "kept_messages": keep_count,
+        "summary_chars": len(summary),
+        "context_usage": usage,
+    }
 
 
 ############################
