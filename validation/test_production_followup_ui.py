@@ -27,10 +27,10 @@ class ProductionFollowupUiTests(unittest.TestCase):
         self.assertLess(wait, toast)
         self.assertEqual(french["You're now logged in."], "Vous êtes désormais connecté.")
 
-    def test_header_owns_model_controls_outside_compatible_composer(self):
+    def test_header_owns_new_chat_model_controls_and_saved_chat_title(self):
         chat = CHAT.read_text(encoding="utf-8")
         composer = COMPOSER.read_text(encoding="utf-8")
-        self.assertIn("showModelSelector={true}", chat)
+        self.assertIn("showModelSelector={!history.currentId}", chat)
         self.assertNotIn("<ModelSelector", composer)
         self.assertEqual(composer.count('id="input-menu-button"'), 1)
 
