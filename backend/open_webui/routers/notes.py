@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from open_webui.env import DATABASE_URL
+from open_webui.models.chats import ChatResponse
 from open_webui.models.groups import Groups
 from open_webui.models.notes import PrivateNotes, PrivateNotesUnavailable
 from open_webui.utils.auth import get_verified_user
@@ -106,25 +107,6 @@ class NotePageOperation(BaseModel):
     parent_id: Optional[str] = None
     before_id: Optional[str] = None
     order: Optional[list[str]] = None
-
-
-class ChatResponse(BaseModel):
-    id: str
-    user_id: str
-    title: str
-    chat: dict[str, Any]
-    updated_at: int
-    created_at: int
-    share_id: Optional[str] = None
-    archived: bool
-    pinned: Optional[bool] = False
-    meta: dict[str, Any] = {}
-    folder_id: Optional[str] = None
-    variables: dict[str, Any] = {}
-    tasks: Optional[list] = None
-    summary: Optional[str] = None
-    current_message_id: Optional[str] = None
-    context_usage: Optional[dict[str, Any]] = None
 
 
 def _explicitly_disabled(permissions):

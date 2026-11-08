@@ -3,7 +3,7 @@ import logging
 import json
 import time
 import uuid
-from typing import Optional
+from typing import Any, Optional
 
 from open_webui.internal.db import Base, get_db
 from open_webui.models.tags import TagModel, Tag, Tags
@@ -284,14 +284,19 @@ class ChatResponse(BaseModel):
     id: str
     user_id: str
     title: str
-    chat: dict
+    chat: dict[str, Any]
     updated_at: int  # timestamp in epoch
     created_at: int  # timestamp in epoch
     share_id: Optional[str] = None  # id of the chat to be shared
     archived: bool
     pinned: Optional[bool] = False
-    meta: dict = {}
+    meta: dict[str, Any] = {}
     folder_id: Optional[str] = None
+    variables: dict[str, Any] = {}
+    tasks: Optional[list] = None
+    summary: Optional[str] = None
+    current_message_id: Optional[str] = None
+    context_usage: Optional[dict[str, Any]] = None
 
 
 class PrivateChatResponse(ChatResponse):

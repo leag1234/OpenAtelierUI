@@ -9,6 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from pydantic import BaseModel
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -188,6 +190,25 @@ class PrivateNotesStoreTests(unittest.TestCase):
         model_module = self.store_module
         auth = types.ModuleType("open_webui.utils.auth")
         auth.get_verified_user = lambda: None
+        chat_model_module = types.ModuleType("open_webui.models.chats")
+        class ChatResponseStub(BaseModel):
+            id: str
+            user_id: str
+            title: str
+            chat: dict
+            updated_at: int
+            created_at: int
+            share_id: str | None = None
+            archived: bool
+            pinned: bool | None = False
+            meta: dict = {}
+            folder_id: str | None = None
+            variables: dict = {}
+            tasks: list | None = None
+            summary: str | None = None
+            current_message_id: str | None = None
+            context_usage: dict | None = None
+        chat_model_module.ChatResponse = ChatResponseStub
         group_module = types.ModuleType("open_webui.models.groups")
         class GroupsStub:
             denied = False
@@ -199,10 +220,12 @@ class PrivateNotesStoreTests(unittest.TestCase):
         for name in ("open_webui", "open_webui.models", "open_webui.utils"):
             sys.modules.setdefault(name, types.ModuleType(name))
         old = {key: sys.modules.get(key) for key in (
-            "open_webui.env", "open_webui.models.notes", "open_webui.models.groups", "open_webui.utils.auth")}
+            "open_webui.env", "open_webui.models.notes", "open_webui.models.groups",
+            "open_webui.models.chats", "open_webui.utils.auth")}
         sys.modules["open_webui.env"] = env
         sys.modules["open_webui.models.notes"] = model_module
         sys.modules["open_webui.models.groups"] = group_module
+        sys.modules["open_webui.models.chats"] = chat_model_module
         sys.modules["open_webui.utils.auth"] = auth
         old_flag = os.environ.get("OPENATELIER_PRIVATE_NOTES_COMPAT")
         os.environ["OPENATELIER_PRIVATE_NOTES_COMPAT"] = "1"
