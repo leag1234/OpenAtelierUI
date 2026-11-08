@@ -387,7 +387,7 @@ class ChatSharedAccessForm(BaseModel):
 
 @router.get("/shared", response_model=list[SharedChatResponse])
 async def get_shared_session_user_chat_list(
-    page: Optional[int] = None,
+    page: Optional[int] = 1,
     query: Optional[str] = None,
     order_by: Optional[str] = None,
     direction: Optional[str] = None,
@@ -395,7 +395,7 @@ async def get_shared_session_user_chat_list(
 ):
     return Chats.get_shared_chat_list_by_user_id(
         user.id,
-        page=page,
+        page=page or 1,
         query_text=query,
         order_by=order_by,
         direction=direction,

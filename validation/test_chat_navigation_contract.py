@@ -131,9 +131,15 @@ class ChatNavigationContractTests(unittest.TestCase):
                 1, "Shared", "updated_at", "asc", user=self.owner
             )
         )
+        shared_default = asyncio.run(
+            self.router["get_shared_session_user_chat_list"](
+                None, None, None, None, user=self.owner
+            )
+        )
         self.assertEqual(count, 2)
         self.assertEqual(folder, [{"id": "chat-a"}])
         self.assertEqual(shared, [{"id": "chat-shared"}])
+        self.assertEqual(shared_default, [{"id": "chat-shared"}])
         self.assertEqual(
             self.store.calls,
             [
@@ -151,6 +157,16 @@ class ChatNavigationContractTests(unittest.TestCase):
                         "query_text": "Shared",
                         "order_by": "updated_at",
                         "direction": "asc",
+                    },
+                ),
+                (
+                    "shared",
+                    ("owner",),
+                    {
+                        "page": 1,
+                        "query_text": None,
+                        "order_by": None,
+                        "direction": None,
                     },
                 ),
             ],
