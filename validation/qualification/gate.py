@@ -6,6 +6,11 @@ import json
 import re
 from pathlib import Path
 
+try:
+    from .coverage_ledger import operation_inventory_issues
+except ImportError:  # pragma: no cover - direct script execution
+    from coverage_ledger import operation_inventory_issues
+
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
 
@@ -57,8 +62,11 @@ def evaluate(manifest, run, root, *, expected_candidate, expected_source):
     expected_reference = reference.get("image_digest")
     if not expected_reference or run.get("reference_digest") != expected_reference:
         blockers.append("unbound_or_wrong_reference")
-    if not reference.get("inventory_sha256") or not reference.get("operations"):
+    inventory_issues = operation_inventory_issues(reference, root)
+    if "missing" in inventory_issues:
         blockers.append("reference_inventory_incomplete")
+    if set(inventory_issues) - {"missing"}:
+        blockers.append("reference_inventory_provenance_incomplete")
     if not reference.get("feature_inventory_complete", False):
         blockers.append("non_http_feature_inventory_incomplete")
     if not reference.get("configuration_inventory_complete", False):

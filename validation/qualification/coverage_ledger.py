@@ -44,6 +44,72 @@ def evidence_valid(root, item):
         return False
 
 
+def operation_inventory_issues(reference, root):
+    """Return provenance/integrity issues for a declared HTTP operation inventory."""
+    issues = []
+    operations = reference.get("operations")
+    if not isinstance(operations, list) or not operations:
+        return ["missing"]
+    if (
+        any(not isinstance(operation, str) or not operation for operation in operations)
+        or operations != sorted(operations)
+        or len(operations) != len(set(operations))
+    ):
+        issues.append("invalid_operations")
+
+    inventory = reference.get("operation_inventory")
+    if not isinstance(inventory, dict):
+        return issues + ["provenance_incomplete"]
+    artifact = inventory.get("artifact")
+    if inventory.get("count") != len(operations):
+        issues.append("count_mismatch")
+    if not evidence_valid(root, artifact):
+        issues.append("artifact_invalid")
+    else:
+        try:
+            artifact_operations = json.loads((root / artifact["path"]).read_text())
+        except (OSError, json.JSONDecodeError):
+            artifact_operations = None
+        if artifact_operations != operations:
+            issues.append("artifact_content_mismatch")
+    if (
+        not isinstance(artifact, dict)
+        or reference.get("inventory_sha256") != artifact.get("sha256")
+    ):
+        issues.append("digest_mismatch")
+    if not inventory.get("provenance_complete", False):
+        issues.append("provenance_incomplete")
+    for field in ("source_contract", "generation_receipt"):
+        if not evidence_valid(root, inventory.get(field)):
+            issues.append(f"{field}_invalid")
+    receipt_item = inventory.get("generation_receipt")
+    if evidence_valid(root, receipt_item):
+        try:
+            receipt = json.loads((root / receipt_item["path"]).read_text())
+        except (OSError, json.JSONDecodeError):
+            receipt = None
+        receipt_inventory = receipt.get("operation_inventory", {}) if isinstance(receipt, dict) else {}
+        receipt_source = receipt.get("source_trace", {}) if isinstance(receipt, dict) else {}
+        if (
+            not isinstance(receipt, dict)
+            or receipt.get("image_digest") != reference.get("image_digest")
+            or receipt.get("config_digest") != reference.get("config_digest")
+            or receipt.get("provenance_complete") is not True
+            or receipt_inventory.get("sha256") != artifact.get("sha256")
+            or receipt_inventory.get("count") != len(operations)
+            or receipt_inventory.get("matches_regenerated_contract") is not True
+        ):
+            issues.append("generation_receipt_mismatch")
+        source_item = inventory.get("source_contract")
+        if (
+            not isinstance(source_item, dict)
+            or receipt_source.get("path") != source_item.get("path")
+            or receipt_source.get("sha256") != source_item.get("sha256")
+        ):
+            issues.append("source_contract_mismatch")
+    return sorted(set(issues))
+
+
 def observation_reference_valid(root, item):
     if not isinstance(item, str):
         return False
@@ -158,8 +224,11 @@ def build_ledger(manifest, observations, run=None, evidence_root=Path(".")):
 
     blockers = []
     for target, reference in manifest.get("references", {}).items():
-        if not reference.get("operations"):
+        inventory_issues = operation_inventory_issues(reference, evidence_root)
+        if "missing" in inventory_issues:
             blockers.append(f"{target}_operation_inventory_incomplete")
+        if set(inventory_issues) - {"missing"}:
+            blockers.append(f"{target}_operation_inventory_provenance_incomplete")
         if not reference.get("feature_inventory_complete", False):
             blockers.append(f"{target}_feature_inventory_incomplete")
         if not reference.get("configuration_inventory_complete", False):

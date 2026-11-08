@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import copy
 import hashlib
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,15 +14,34 @@ class QualificationGateTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         (self.root / "trace.json").write_text('{"synthetic":true}')
+        (self.root / "inventory.json").write_text('["GET /synthetic"]\n')
+        (self.root / "contract.json").write_text('{"openapi":"synthetic"}\n')
+        inventory_sha256 = hashlib.sha256((self.root / "inventory.json").read_bytes()).hexdigest()
+        contract_sha256 = hashlib.sha256((self.root / "contract.json").read_bytes()).hexdigest()
+        (self.root / "receipt.json").write_text(json.dumps({
+            "image_digest": "sha256:" + "1" * 64,
+            "config_digest": "sha256:" + "5" * 64,
+            "source_trace": {"path": "contract.json", "sha256": contract_sha256},
+            "operation_inventory": {"sha256": inventory_sha256, "count": 1, "matches_regenerated_contract": True},
+            "provenance_complete": True,
+        }) + "\n")
         self.manifest = {"schema_version": 1, "references": {"baseline": {
             "version": "synthetic", "image_digest": "sha256:" + "1" * 64,
-            "inventory_sha256": "2" * 64, "operations": ["GET /synthetic"],
+            "config_digest": "sha256:" + "5" * 64,
+            "inventory_sha256": inventory_sha256, "operations": ["GET /synthetic"],
+            "operation_inventory": {
+                "count": 1,
+                "artifact": {"path": "inventory.json", "sha256": inventory_sha256},
+                "source_contract": {"path": "contract.json", "sha256": contract_sha256},
+                "generation_receipt": {"path": "receipt.json", "sha256": hashlib.sha256((self.root / "receipt.json").read_bytes()).hexdigest()},
+                "provenance_complete": True,
+            },
             "feature_inventory_complete": True, "configuration_inventory_complete": True,
         }}, "cases": [{"id": "session", "targets": ["baseline"], "required_levels": ["behavior", "journey", "restart"],
             "variants": [{"profile": "local", "role": "user", "state": "fresh"}]}]}
         self.run = {"schema_version": 1, "target": "baseline", "scope": "baseline", "candidate_digest": "sha256:" + "3" * 64,
             "reference_digest": "sha256:" + "1" * 64, "source_sha256": "4" * 64,
-            "manifest_sha256": manifest_digest(self.manifest), "reference_inventory_sha256": "2" * 64,
+            "manifest_sha256": manifest_digest(self.manifest), "reference_inventory_sha256": inventory_sha256,
             "findings_reviewed": True, "unresolved_critical_findings": [], "unresolved_major_findings": [], "records": []}
         for key in ["session/local/user/fresh", "operation/GET /synthetic"]:
             self.run["records"].append({"id": key, "status": "passed", "candidate_digest": self.run["candidate_digest"],
@@ -73,6 +93,19 @@ class QualificationGateTests(unittest.TestCase):
             manifest = copy.deepcopy(self.manifest); manifest["references"]["baseline"][field] = False
             run = copy.deepcopy(self.run); run["manifest_sha256"] = manifest_digest(manifest)
             self.assertFalse(self.check(manifest=manifest, run=run)["qualified"])
+
+    def test_unbound_operation_inventory_refuses(self):
+        manifest = copy.deepcopy(self.manifest)
+        manifest["references"]["baseline"]["operation_inventory"]["provenance_complete"] = False
+        run = copy.deepcopy(self.run)
+        run["manifest_sha256"] = manifest_digest(manifest)
+        self.assertFalse(self.check(manifest=manifest, run=run)["qualified"])
+
+        manifest = copy.deepcopy(self.manifest)
+        manifest["references"]["baseline"]["operation_inventory"]["artifact"]["sha256"] = "0" * 64
+        run = copy.deepcopy(self.run)
+        run["manifest_sha256"] = manifest_digest(manifest)
+        self.assertFalse(self.check(manifest=manifest, run=run)["qualified"])
 
     def test_consumer_scope_cannot_reuse_an_unpinned_old_fixture(self):
         self.run["scope"] = "atlas"

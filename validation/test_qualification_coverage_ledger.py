@@ -7,7 +7,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from validation.qualification.coverage_ledger import build_ledger, variant_key
+from validation.qualification.coverage_ledger import (
+    build_ledger,
+    operation_inventory_issues,
+    variant_key,
+)
 
 
 def fixture_manifest():
@@ -112,6 +116,38 @@ class CoverageLedgerTests(unittest.TestCase):
                     ]
                 },
             )
+
+    def test_operation_inventory_provenance_is_checked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            inventory = root / "inventory.json"
+            inventory.write_text('["GET /health"]\n')
+            contract = root / "contract.json"
+            contract.write_text('{"openapi":"synthetic"}\n')
+            manifest = fixture_manifest()
+            reference = manifest["references"]["baseline"]
+            reference["image_digest"] = "sha256:" + "1" * 64
+            reference["config_digest"] = "sha256:" + "2" * 64
+            reference["inventory_sha256"] = hashlib.sha256(inventory.read_bytes()).hexdigest()
+            contract_sha256 = hashlib.sha256(contract.read_bytes()).hexdigest()
+            receipt = root / "receipt.json"
+            receipt.write_text(json.dumps({
+                "image_digest": reference["image_digest"],
+                "config_digest": reference["config_digest"],
+                "source_trace": {"path": "contract.json", "sha256": contract_sha256},
+                "operation_inventory": {"sha256": reference["inventory_sha256"], "count": 1, "matches_regenerated_contract": True},
+                "provenance_complete": True,
+            }) + "\n")
+            reference["operation_inventory"] = {
+                "count": 1,
+                "artifact": {"path": "inventory.json", "sha256": reference["inventory_sha256"]},
+                "source_contract": {"path": "contract.json", "sha256": contract_sha256},
+                "generation_receipt": {"path": "receipt.json", "sha256": hashlib.sha256(receipt.read_bytes()).hexdigest()},
+                "provenance_complete": True,
+            }
+            self.assertEqual(operation_inventory_issues(reference, root), [])
+            reference["operation_inventory"]["provenance_complete"] = False
+            self.assertIn("provenance_incomplete", operation_inventory_issues(reference, root))
 
 
 if __name__ == "__main__":
