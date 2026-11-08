@@ -1,6 +1,7 @@
 import copy
 import json
 import logging
+import time
 from typing import Optional, Union
 
 
@@ -374,6 +375,16 @@ async def get_archived_session_user_chat_count(user=Depends(get_verified_user)):
 @router.post("/archive/all", response_model=bool)
 async def archive_all_chats(user=Depends(get_verified_user)):
     return Chats.archive_all_chats_by_user_id(user.id)
+
+
+@router.post("/unarchive/all", response_model=bool)
+async def unarchive_all_chats(user=Depends(get_verified_user)):
+    return Chats.unarchive_all_chats_by_user_id(user.id)
+
+
+@router.delete("/share/all", response_model=bool)
+async def unshare_all_chats(user=Depends(get_verified_user)):
+    return Chats.unshare_all_chats_by_user_id(user.id)
 
 
 ############################
@@ -857,6 +868,61 @@ class CloneForm(BaseModel):
     title: Optional[str] = None
 
 
+class ForkForm(BaseModel):
+    message_id: Optional[str] = None
+
+
+def _fork_chat_payload(chat, message_id: Optional[str]):
+    source = copy.deepcopy(chat.chat)
+    history = source.get("history")
+    messages = history.get("messages") if isinstance(history, dict) else None
+    selected_id = message_id or (
+        history.get("currentId") if isinstance(history, dict) else None
+    )
+    if (
+        not isinstance(messages, dict)
+        or not isinstance(selected_id, str)
+        or selected_id not in messages
+    ):
+        return None, selected_id
+
+    ancestry = []
+    seen = set()
+    current_id = selected_id
+    while current_id is not None:
+        if current_id in seen or current_id not in messages:
+            return None, selected_id
+        message = messages[current_id]
+        if not isinstance(message, dict):
+            return None, selected_id
+        ancestry.append(current_id)
+        seen.add(current_id)
+        current_id = message.get("parentId")
+    ancestry.reverse()
+
+    timestamp = int(time.time())
+    selected_messages = {}
+    flattened = []
+    for index, current_id in enumerate(ancestry):
+        message = copy.deepcopy(messages[current_id])
+        next_id = ancestry[index + 1] if index + 1 < len(ancestry) else None
+        message["childrenIds"] = [next_id] if next_id else []
+        message.setdefault("timestamp", timestamp)
+        message["done"] = True
+        selected_messages[current_id] = message
+        flattened.append(copy.deepcopy(message))
+
+    source["history"] = {
+        "messages": selected_messages,
+        "currentId": selected_id,
+    }
+    source["messages"] = flattened
+    source["originalChatId"] = chat.id
+    source["branchPointMessageId"] = selected_id
+    source["title"] = f"{chat.title} (fork)"
+    return source, selected_id
+
+
 @router.post("/{id}/clone", response_model=Optional[ChatResponse])
 async def clone_chat_by_id(
     form_data: CloneForm, id: str, user=Depends(get_verified_user)
@@ -876,6 +942,34 @@ async def clone_chat_by_id(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.DEFAULT()
         )
+
+
+@router.post("/{id}/fork", response_model=Optional[PrivateChatResponse])
+async def fork_chat_by_id(
+    id: str,
+    form_data: Optional[ForkForm] = None,
+    user=Depends(get_verified_user),
+):
+    chat = Chats.get_chat_by_id_and_user_id(id, user.id)
+    if chat is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ERROR_MESSAGES.DEFAULT(),
+        )
+    payload, message_id = _fork_chat_payload(
+        chat, form_data.message_id if form_data else None
+    )
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="message not found"
+        )
+    forked = Chats.insert_forked_chat(user.id, chat.id, message_id, payload)
+    if forked is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=ERROR_MESSAGES.DEFAULT(),
+        )
+    return _saved_chat_response(forked, user)
 
 
 ############################
@@ -933,6 +1027,17 @@ async def archive_chat_by_id(id: str, user=Depends(get_verified_user)):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.DEFAULT()
         )
+
+
+@router.post("/{id}/unread")
+async def mark_chat_unread_by_id(id: str, user=Depends(get_verified_user)):
+    result = Chats.mark_chat_unread_by_id_and_user_id(id, user.id)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+    return result
 
 
 ############################

@@ -1095,6 +1095,101 @@ class ChatTable:
         except Exception:
             return False
 
+    def unarchive_all_chats_by_user_id(self, user_id: str) -> bool:
+        try:
+            with get_db() as db:
+                db.query(Chat).filter_by(user_id=user_id).update({"archived": False})
+                db.commit()
+                return True
+        except Exception:
+            return False
+
+    def unshare_all_chats_by_user_id(self, user_id: str) -> bool:
+        try:
+            with get_db() as db:
+                chats = (
+                    db.query(Chat)
+                    .filter(Chat.user_id == user_id, Chat.share_id.is_not(None))
+                    .with_for_update()
+                    .all()
+                )
+                source_ids = [chat.id for chat in chats]
+                if source_ids:
+                    db.query(Chat).filter(
+                        Chat.user_id.in_(
+                            [f"shared-{chat_id}" for chat_id in source_ids]
+                        )
+                    ).delete(synchronize_session=False)
+                for chat in chats:
+                    chat.share_id = None
+                    meta = dict(chat.meta or {})
+                    meta.pop("_oa_shared_access_grants", None)
+                    chat.meta = meta
+                db.commit()
+                return True
+        except Exception:
+            return False
+
+    def mark_chat_unread_by_id_and_user_id(
+        self, id: str, user_id: str
+    ) -> Optional[dict]:
+        try:
+            with get_db() as db:
+                chat = (
+                    db.query(Chat)
+                    .filter_by(id=id, user_id=user_id)
+                    .with_for_update()
+                    .first()
+                )
+                if chat is None:
+                    return None
+                meta = dict(chat.meta or {})
+                meta[SAVED_WORK_META_KEY] = {"version": 1, "last_read_at": 0}
+                chat.meta = meta
+                db.commit()
+                return {
+                    "chat_id": chat.id,
+                    "folder_id": chat.folder_id,
+                    "folder_unread_counts": {},
+                    "last_read_at": 0,
+                }
+        except Exception:
+            return None
+
+    def insert_forked_chat(
+        self,
+        user_id: str,
+        source_id: str,
+        branch_message_id: str,
+        chat_payload: dict,
+    ) -> Optional[ChatModel]:
+        try:
+            with get_db() as db:
+                now = int(time.time())
+                meta = _new_saved_work_meta(
+                    {
+                        "forked_from": source_id,
+                        "forked_from_message_id": branch_message_id,
+                    },
+                    last_read_at=now,
+                )
+                model = ChatModel(
+                    id=str(uuid.uuid4()),
+                    user_id=user_id,
+                    title=chat_payload.get("title", "New Chat"),
+                    chat=chat_payload,
+                    created_at=now,
+                    updated_at=now,
+                    meta=meta,
+                )
+                row = Chat(**model.model_dump())
+                db.add(row)
+                db.commit()
+                db.refresh(row)
+                return ChatModel.model_validate(row)
+        except Exception:
+            return None
+
     def get_archived_chat_list_by_user_id(
         self, user_id: str, skip: int = 0, limit: int = 50
     ) -> list[ChatModel]:
