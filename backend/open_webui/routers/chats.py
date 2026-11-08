@@ -247,6 +247,34 @@ def _chat_usage_stats(chat):
     return result
 
 
+def _chat_search_snippet(chat_payload, text):
+    query = " ".join(text.split()).lower()
+    if not query or not isinstance(chat_payload, dict):
+        return None
+    messages = chat_payload.get("messages")
+    if not isinstance(messages, list):
+        history = chat_payload.get("history")
+        values = history.get("messages") if isinstance(history, dict) else None
+        messages = list(values.values()) if isinstance(values, dict) else []
+    for message in messages:
+        if not isinstance(message, dict) or not isinstance(message.get("content"), str):
+            continue
+        content = " ".join(message["content"].split())
+        position = content.lower().find(query)
+        if position < 0:
+            continue
+        if len(content) <= 200:
+            return content
+        start = max(position - 100, 0)
+        end = min(position + 100, len(content))
+        return (
+            ("..." if start else "")
+            + content[start:end]
+            + ("..." if end < len(content) else "")
+        )
+    return None
+
+
 ############################
 # GetChatList
 ############################
@@ -893,6 +921,14 @@ async def get_chat_usage_stats(
 ############################
 
 
+@router.get("/{id}/search/snippet", response_model=Optional[str])
+async def get_chat_search_snippet(
+    id: str, text: str, user=Depends(get_verified_user)
+):
+    chat = Chats.get_chat_by_id_and_user_id(id, user.id)
+    return _chat_search_snippet(chat.chat, text) if chat else None
+
+
 @router.post("/read")
 async def acknowledge_private_chat_reads(user=Depends(get_verified_user)):
     result = Chats.acknowledge_private_saved_chats(user.id)
@@ -962,6 +998,31 @@ async def update_chat_by_id(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
+
+
+@router.patch("/{id}/params", response_model=dict)
+async def update_chat_params_by_id(
+    id: str, form_data: dict, user=Depends(get_verified_user)
+):
+    chat = Chats.get_chat_by_id_and_user_id(id, user.id)
+    if chat is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+        )
+    payload = copy.deepcopy(chat.chat) if isinstance(chat.chat, dict) else {}
+    current = payload.get("params")
+    payload["params"] = {
+        **(copy.deepcopy(current) if isinstance(current, dict) else {}),
+        **copy.deepcopy(form_data),
+    }
+    updated = Chats.update_chat_by_id(id, payload)
+    if updated is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+        )
+    return payload["params"]
 
 
 ############################
