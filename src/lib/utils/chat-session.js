@@ -118,6 +118,21 @@ export function chatResultMatchesCurrent(requestChatId, currentChatId) {
 	return typeof requestChatId === 'string' && requestChatId === currentChatId;
 }
 
+export function shouldRequestInitialChatTasks({
+	temporary,
+	title,
+	defaultTitle = 'New Chat',
+	messageCount,
+	selectedModelMatches
+}) {
+	return (
+		!temporary &&
+		(typeof title !== 'string' || title.length === 0 || title === defaultTitle) &&
+		(messageCount === 1 || messageCount === 2) &&
+		selectedModelMatches === true
+	);
+}
+
 export function isEphemeralChatId(chatId) {
 	return chatId === 'local' || (typeof chatId === 'string' && chatId.startsWith('local:'));
 }

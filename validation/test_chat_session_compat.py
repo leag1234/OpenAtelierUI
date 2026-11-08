@@ -15,6 +15,8 @@ BASE = Path(__file__).resolve().parents[1]
 HELPER = BASE / "src/lib/utils/chat-session.js"
 CHAT = BASE / "src/lib/components/chat/Chat.svelte"
 LAYOUT = BASE / "src/routes/+layout.svelte"
+USER_MESSAGE = BASE / "src/lib/components/chat/Messages/UserMessage.svelte"
+RESPONSE_MESSAGE = BASE / "src/lib/components/chat/Messages/ResponseMessage.svelte"
 
 
 class ChatSessionCompatTests(unittest.TestCase):
@@ -52,6 +54,12 @@ assert.deepStrictEqual(mergeTaskIds(['a','a'], {task_ids:['b'],task_id:'a'}), ['
 assert.strictEqual(chatResultMatchesCurrent('chat-1','chat-1'), true);
 assert.strictEqual(chatResultMatchesCurrent('chat-1','chat-2'), false);
 assert.strictEqual(chatResultMatchesCurrent('chat-1',null), false);
+assert.strictEqual(shouldRequestInitialChatTasks({temporary:false,title:'New Chat',messageCount:1,selectedModelMatches:true}), true);
+assert.strictEqual(shouldRequestInitialChatTasks({temporary:false,title:'',messageCount:2,selectedModelMatches:true}), true);
+assert.strictEqual(shouldRequestInitialChatTasks({temporary:false,title:'Saved title',messageCount:1,selectedModelMatches:true}), false);
+assert.strictEqual(shouldRequestInitialChatTasks({temporary:true,title:'New Chat',messageCount:1,selectedModelMatches:true}), false);
+assert.strictEqual(shouldRequestInitialChatTasks({temporary:false,title:'New Chat',messageCount:3,selectedModelMatches:true}), false);
+assert.strictEqual(shouldRequestInitialChatTasks({temporary:false,title:'New Chat',messageCount:1,selectedModelMatches:false}), false);
 assert.strictEqual(isEphemeralChatId('local'), true);
 assert.strictEqual(isEphemeralChatId('local:temporary'), true);
 assert.strictEqual(isEphemeralChatId('local-work-chat'), false);
@@ -157,6 +165,18 @@ assert.strictEqual(chatTaskStopPath('saved/chat 1'), '/api/tasks/chat/saved%2Fch
         self.assertIn("await confirmConnectedSocketUser(connectedSocket, localStorage.token)", chat)
         self.assertIn("session_id: connectedSocket.id", chat)
         self.assertIn("registerConnectedSocketUser(_socket, localStorage.token)", layout)
+
+    def test_saved_chat_header_initial_tasks_and_branch_controls_keep_stable_semantics(self):
+        chat = CHAT.read_text(encoding="utf-8")
+        user_message = USER_MESSAGE.read_text(encoding="utf-8")
+        response_message = RESPONSE_MESSAGE.read_text(encoding="utf-8")
+        self.assertIn("showModelSelector={!history.currentId}", chat)
+        self.assertIn("shouldRequestInitialChatTasks({", chat)
+        self.assertIn("title: $chatTitle", chat)
+        self.assertEqual(user_message.count("aria-label={$i18n.t('Previous message')}"), 2)
+        self.assertEqual(user_message.count("aria-label={$i18n.t('Next message')}"), 2)
+        self.assertEqual(response_message.count("aria-label={$i18n.t('Previous message')}"), 1)
+        self.assertEqual(response_message.count("aria-label={$i18n.t('Next message')}"), 1)
 
     def _chat_function(self, name):
         source = CHAT.read_text(encoding="utf-8")

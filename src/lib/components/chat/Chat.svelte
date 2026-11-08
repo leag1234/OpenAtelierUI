@@ -22,6 +22,7 @@
 		normalizeTaskIds,
 		requestSavedChatStop,
 		selectChatEventChannel,
+		shouldRequestInitialChatTasks,
 		waitForConnectedSocket
 	} from '$lib/utils/chat-session';
 	import { clearChatDraft, readChatDraft, saveChatDraft } from '$lib/utils/chat-draft';
@@ -1715,12 +1716,16 @@
 				chat_id: $chatId,
 				id: responseMessageId,
 
-				...(!$temporaryChatEnabled &&
+				...(shouldRequestInitialChatTasks({
+					temporary: $temporaryChatEnabled,
+					title: $chatTitle,
+					messageCount: messages.length,
+					selectedModelMatches: selectedModels[0] === model.id || atSelectedModel !== undefined
+				}) &&
 				(messages.length == 1 ||
 					(messages.length == 2 &&
 						messages.at(0)?.role === 'system' &&
-						messages.at(1)?.role === 'user')) &&
-				(selectedModels[0] === model.id || atSelectedModel !== undefined)
+						messages.at(1)?.role === 'user'))
 					? {
 							background_tasks: {
 								title_generation: $settings?.title?.auto ?? true,
@@ -2160,7 +2165,7 @@
 					{history}
 					title={$chatTitle}
 					bind:selectedModels
-					showModelSelector={true}
+					showModelSelector={!history.currentId}
 					shareEnabled={!!history.currentId}
 					{initNewChat}
 				/>

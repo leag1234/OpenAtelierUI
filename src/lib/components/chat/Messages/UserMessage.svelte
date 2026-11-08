@@ -241,6 +241,7 @@
 								{#if siblings.length > 1}
 									<div class="flex self-center" dir="ltr">
 										<button
+											aria-label={$i18n.t('Previous message')}
 											class="self-center p-1 hover:bg-black/5 dark:hover:bg-white/5 dark:hover:text-white hover:text-black rounded-md transition"
 											on:click={() => {
 												showPreviousMessage(message);
@@ -310,6 +311,7 @@
 										{/if}
 
 										<button
+											aria-label={$i18n.t('Next message')}
 											class="self-center p-1 hover:bg-black/5 dark:hover:bg-white/5 dark:hover:text-white hover:text-black rounded-md transition"
 											on:click={() => {
 												showNextMessage(message);
@@ -413,6 +415,7 @@
 								{#if siblings.length > 1}
 									<div class="flex self-center" dir="ltr">
 										<button
+											aria-label={$i18n.t('Previous message')}
 											class="self-center p-1 hover:bg-black/5 dark:hover:bg-white/5 dark:hover:text-white hover:text-black rounded-md transition"
 											on:click={() => {
 												showPreviousMessage(message);
@@ -482,6 +485,7 @@
 										{/if}
 
 										<button
+											aria-label={$i18n.t('Next message')}
 											class="self-center p-1 hover:bg-black/5 dark:hover:bg-white/5 dark:hover:text-white hover:text-black rounded-md transition"
 											on:click={() => {
 												showNextMessage(message);
