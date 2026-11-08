@@ -336,6 +336,17 @@ class PrivateNotesStoreTests(unittest.TestCase):
             )
             self.assertEqual(page_result["data"]["pages_revision"], 1)
             self.assertEqual(page_result["data"]["pages"][-1]["id"], page_id)
+            self.assertEqual(page_result["data"]["pages"][-1]["content"], {
+                "md": "", "html": "", "json": None,
+            })
+            self.assertEqual(
+                page_result["data"]["content"],
+                {"md": "## Private metadata\n\n\n\n## Second page\n\n", "html": "", "json": None},
+            )
+            self.assertEqual(
+                page_result["data"]["search_text"],
+                "Private metadata\n\n\nSecond page\n",
+            )
             with self.assertRaises(router.HTTPException) as stale_page:
                 router.update_note_pages(
                     request,

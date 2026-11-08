@@ -181,14 +181,41 @@ def _json_text(value):
 
 
 def _search_text(title, pages):
-    values = [title]
+    if not pages:
+        return title
+    main = pages[0] if isinstance(pages[0], dict) else {}
+    content = main.get("content") if isinstance(main.get("content"), dict) else {}
+    markdown = content.get("md") if isinstance(content.get("md"), str) else ""
+    return title + ("\n" + markdown if markdown else "")
+
+
+def _rebuild_page_projection(pages):
+    by_id = {page.get("id"): page for page in pages if isinstance(page.get("id"), str)}
+
+    def path(page):
+        titles, seen = [str(page.get("title", ""))], {page.get("id")}
+        parent_id = page.get("parent_id")
+        while parent_id is not None:
+            if parent_id in seen or parent_id not in by_id:
+                raise HTTPException(status_code=400, detail="Invalid page hierarchy")
+            seen.add(parent_id)
+            parent = by_id[parent_id]
+            titles.append(str(parent.get("title", "")))
+            parent_id = parent.get("parent_id")
+        return " / ".join(reversed(titles))
+
+    sections, searchable = [], []
     for page in pages:
-        if isinstance(page, dict):
-            values.append(str(page.get("title", "")))
-            content = page.get("content")
-            if isinstance(content, dict) and isinstance(content.get("md"), str):
-                values.append(content["md"])
-    return "\n".join(value for value in values if value)
+        title = path(page)
+        content = page.get("content") if isinstance(page.get("content"), dict) else {}
+        markdown = content.get("md") if isinstance(content.get("md"), str) else ""
+        sections.append("## " + title + "\n\n" + markdown)
+        searchable.append(title + "\n" + markdown)
+    return {
+        "md": "\n\n".join(sections),
+        "html": "",
+        "json": None,
+    }, "\n\n".join(searchable)
 
 
 def _page_data(title, value):
@@ -233,6 +260,10 @@ def _unavailable(error):
     return HTTPException(status_code=503, detail="Private notes unavailable")
 
 
+def _denied():
+    return HTTPException(status_code=403, detail="Something went wrong :/")
+
+
 def _page(value):
     if value is None:
         return 1
@@ -272,7 +303,7 @@ def _get_note_for(user, note_id, permission="read"):
         raise
     except Exception as error:
         raise _unavailable(error) from None
-    raise HTTPException(status_code=403, detail="Access denied")
+    raise _denied()
 
 
 def _normalized_grants(note_id, grants):
@@ -439,7 +470,7 @@ def update_note(request: Request, id: str, form_data: NoteForm, user=Depends(get
     except Exception as error:
         raise _unavailable(error) from None
     if note is None:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise _denied()
     return _with_grants(note)
 
 
@@ -451,7 +482,7 @@ def pin_note(request: Request, id: str, user=Depends(get_verified_user)):
     except Exception as error:
         raise _unavailable(error) from None
     if note is None:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise _denied()
     return note
 
 
@@ -492,7 +523,7 @@ def update_note_access(
     if note is None:
         raise HTTPException(status_code=404, detail="We could not find what you're looking for :/")
     if user.role != "admin" and note["user_id"] != user.id:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise _denied()
     grants = _normalized_grants(id, form_data.access_grants)
     try:
         if notes_store.replace_grants(id, grants) is None:
@@ -514,7 +545,7 @@ def delete_note(request: Request, id: str, user=Depends(get_verified_user)):
     if note is None:
         raise HTTPException(status_code=404, detail="We could not find what you're looking for :/")
     if user.role != "admin" and note["user_id"] != user.id:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise _denied()
     try:
         if not notes_store.delete(id, note["user_id"]):
             raise HTTPException(status_code=404, detail="We could not find what you're looking for :/")
@@ -552,7 +583,8 @@ def _apply_page_operation(note, operation):
         if parent_id is not None and parent_id not in page_ids:
             raise HTTPException(status_code=400, detail="Parent page not found")
         new_page = {
-            "id": new_id, "title": operation.title or "Untitled", "content": {"md": ""},
+            "id": new_id, "title": operation.title or "Untitled",
+            "content": {"md": "", "html": "", "json": None},
             "parent_id": parent_id, "revision": 0, "generation": 0, "versions": [],
         }
         if operation.before_id is None:
@@ -618,7 +650,7 @@ def _apply_page_operation(note, operation):
         pages = [candidate for candidate in pages if candidate.get("id") not in removed]
     data["pages"] = pages
     data["pages_revision"] = operation.revision + 1
-    data["search_text"] = _search_text(note["title"], pages)
+    data["content"], data["search_text"] = _rebuild_page_projection(pages)
     return data
 
 
