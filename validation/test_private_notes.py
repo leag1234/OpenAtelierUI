@@ -48,12 +48,53 @@ class PrivateNotesStoreTests(unittest.TestCase):
     def test_prepares_only_prefixed_table_and_preserves_existing_rows(self):
         tables = {row[0] for row in sqlite3.connect(self.path).execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
-        self.assertEqual(tables, {"existing_fixture", "openatelier_private_note"})
+        self.assertEqual(tables, {
+            "existing_fixture", "openatelier_private_note",
+            "openatelier_private_note_grant", "openatelier_private_note_chat",
+        })
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute("SELECT * FROM existing_fixture").fetchall(), [("keep", "unchanged")])
         indexes = {row[1] for row in sqlite3.connect(self.path).execute(
             "PRAGMA index_list(openatelier_private_note)")}
         self.assertIn("openatelier_private_note_owner_time", indexes)
+
+    def test_grants_chat_relationship_pages_and_exact_delete_persist(self):
+        note = self.add_note(
+            "related", "owner", "Related note",
+            {"content": {"md": "Synthetic"}, "pages": [{"id": "main", "title": "Related note"}],
+             "pages_revision": 0},
+        )
+        grants = [{
+            "id": "grant-1", "principal_type": "user", "principal_id": "reader",
+            "permission": "read", "created_at": 100,
+        }, {
+            "id": "grant-2", "principal_type": "group", "principal_id": "editors",
+            "permission": "write", "created_at": 101,
+        }]
+        self.assertEqual(len(self.store.replace_grants(note["id"], grants)), 2)
+        self.assertTrue(self.store.has_grant(note["id"], "reader", "read"))
+        self.assertTrue(self.store.has_grant(note["id"], "member", "write", ["editors"]))
+        self.assertFalse(self.store.has_grant(note["id"], "reader", "write"))
+        self.assertTrue(self.store.add_chat(note["id"], "chat-a", "owner", 200))
+        self.assertTrue(self.store.add_chat(note["id"], "chat-b", "owner", 201))
+        self.assertEqual(self.store.chat_ids(note["id"], "owner"), ["chat-b", "chat-a"])
+        changed = dict(note["data"])
+        changed["pages_revision"] = 1
+        changed["pages"] = [*changed["pages"], {"id": "page-a", "title": "Page A"}]
+        updated, conflict = self.store.replace_pages(note["id"], "owner", 0, changed, 202)
+        self.assertFalse(conflict)
+        self.assertEqual(updated["data"]["pages_revision"], 1)
+        stale, conflict = self.store.replace_pages(note["id"], "owner", 0, changed, 203)
+        self.assertTrue(conflict)
+        self.assertEqual(stale["updated_at"], 202)
+        reopened = self.store_module.PrivateNotes("sqlite:///" + str(self.path))
+        self.assertEqual(len(reopened.grants(note["id"])), 2)
+        self.assertEqual(reopened.chat_ids(note["id"], "owner"), ["chat-b", "chat-a"])
+        self.assertTrue(reopened.delete(note["id"], "owner"))
+        self.assertFalse(reopened.delete(note["id"], "owner"))
+        self.assertIsNone(reopened.get(note["id"]))
+        self.assertEqual(reopened.grants(note["id"]), [])
+        self.assertEqual(reopened.chat_ids(note["id"], "owner"), [])
 
     def test_private_crud_pin_search_and_reopen_persistence(self):
         note = self.add_note("n1", "owner", "Workshop plan 20%_", {"venue": "Hall"}, {"source": "user"})
@@ -259,9 +300,120 @@ class PrivateNotesStoreTests(unittest.TestCase):
                 "email": "member@example.invalid",
             })
             self.assertEqual([row["id"] for row in router.list_pinned_notes(request, owner)], [created["id"]])
-            with self.assertRaises(router.HTTPException) as sharing:
-                router._form_values(router.NoteForm(title="Private", access_grants=[{"permission": "read"}]))
-            self.assertEqual(sharing.exception.status_code, 422)
+            self.assertEqual(
+                router._normalized_grants(created["id"], [{
+                    "principal_type": "user", "principal_id": "reader", "permission": "execute"
+                }]),
+                [],
+            )
+            granted = router.update_note_access(
+                request,
+                created["id"],
+                router.NoteAccessGrantsForm(access_grants=[{
+                    "principal_type": "user", "principal_id": "reader", "permission": "read",
+                }]),
+                owner,
+            )
+            self.assertEqual(len(granted["access_grants"]), 1)
+            reader = SimpleNamespace(id="reader", role="user")
+            self.assertEqual(router.get_note(request, created["id"], reader)["id"], created["id"])
+            with self.assertRaises(router.HTTPException) as read_only:
+                router.update_note(
+                    request,
+                    created["id"],
+                    router.NoteForm(title="Denied reader edit"),
+                    reader,
+                )
+            self.assertEqual(read_only.exception.status_code, 403)
+            page_id = "5a87a33b-a79c-4b7f-a175-b82b868f3eb4"
+            page_result = router.update_note_pages(
+                request,
+                created["id"],
+                router.NotePageOperation(
+                    action="create", revision=0, new_id=page_id, title="Second page"
+                ),
+                owner,
+            )
+            self.assertEqual(page_result["data"]["pages_revision"], 1)
+            self.assertEqual(page_result["data"]["pages"][-1]["id"], page_id)
+            with self.assertRaises(router.HTTPException) as stale_page:
+                router.update_note_pages(
+                    request,
+                    created["id"],
+                    router.NotePageOperation(
+                        action="rename", revision=0, page_id=page_id, title="Stale"
+                    ),
+                    owner,
+                )
+            self.assertEqual(stale_page.exception.status_code, 409)
+
+            chat_module = types.ModuleType("open_webui.models.chats")
+            class FakeChat:
+                def __init__(self, chat_id, user_id):
+                    self.id = chat_id
+                    self.user_id = user_id
+
+                def model_dump(self):
+                    return {
+                        "id": self.id, "user_id": self.user_id, "title": "Chat",
+                        "chat": {"history": {"messages": {}, "currentId": None}},
+                        "updated_at": 100, "created_at": 100, "share_id": None,
+                        "archived": False, "pinned": False,
+                        "meta": {"internal": True, "note_id": created["id"], "type": "note"},
+                        "folder_id": None,
+                    }
+
+            class FakeChats:
+                rows = {}
+
+                @classmethod
+                def insert_note_chat(cls, user_id, _note_id):
+                    chat = FakeChat(f"chat-{len(cls.rows) + 1}", user_id)
+                    cls.rows[chat.id] = chat
+                    return chat
+
+                @classmethod
+                def get_chat_by_id_and_user_id(cls, chat_id, user_id):
+                    chat = cls.rows.get(chat_id)
+                    return chat if chat is not None and chat.user_id == user_id else None
+
+                @classmethod
+                def delete_chat_by_id_and_user_id(cls, chat_id, user_id):
+                    chat = cls.get_chat_by_id_and_user_id(chat_id, user_id)
+                    if chat is None:
+                        return False
+                    del cls.rows[chat_id]
+                    return True
+
+            chat_module.Chats = FakeChats
+            prior_chat_module = sys.modules.get("open_webui.models.chats")
+            sys.modules["open_webui.models.chats"] = chat_module
+            try:
+                first_chat = router.get_note_chat(request, created["id"], owner)
+                self.assertEqual(first_chat["id"], "chat-1")
+                self.assertEqual(
+                    router.get_note_chat(request, created["id"], owner)["id"],
+                    "chat-1",
+                )
+                second_chat = router.create_note_chat(request, created["id"], owner)
+                self.assertEqual(second_chat["id"], "chat-2")
+                self.assertEqual(
+                    [chat["id"] for chat in router.get_note_chats(request, created["id"], owner)],
+                    ["chat-2", "chat-1"],
+                )
+            finally:
+                if prior_chat_module is None:
+                    sys.modules.pop("open_webui.models.chats", None)
+                else:
+                    sys.modules["open_webui.models.chats"] = prior_chat_module
+
+            deletion = router.create_note(
+                request, router.NoteForm(title="Delete exactly"), owner
+            )
+            self.assertTrue(router.delete_note(request, deletion["id"], owner))
+            with self.assertRaises(router.HTTPException) as repeated_delete:
+                router.delete_note(request, deletion["id"], owner)
+            self.assertEqual(repeated_delete.exception.status_code, 404)
             bad = router.NoteForm(title="Private", data={"x": float("nan")})
             with self.assertRaises(router.HTTPException) as nonfinite:
                 router._form_values(bad)

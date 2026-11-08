@@ -681,6 +681,43 @@ def _prepare_bulk_chat_import(chats):
 
 
 class ChatTable:
+    def insert_note_chat(self, user_id: str, note_id: str) -> Optional[ChatModel]:
+        """Create the measured empty internal conversation owned by one note reader."""
+        with get_db() as db:
+            chat_id = str(uuid.uuid4())
+            now = int(time.time())
+            payload = {
+                "id": chat_id,
+                "title": "Chat",
+                "models": [""],
+                "params": {
+                    "system": (
+                        "CONTEXT:\nCurrent note id: " + note_id + "\n"
+                        "This chat is attached to the current note.\n"
+                        "For edit requests like make this concise, rewrite, enhance, shorten, or update: "
+                        "call view_note then replace_note_content.\n"
+                        "Do not say an edit is done unless replace_note_content succeeds."
+                    )
+                },
+                "history": {"messages": {}, "currentId": None},
+                "messages": [],
+                "tags": [],
+            }
+            chat = ChatModel(
+                id=chat_id,
+                user_id=user_id,
+                title="Chat",
+                chat=payload,
+                meta={"internal": True, "note_id": note_id, "type": "note"},
+                created_at=now,
+                updated_at=now,
+            )
+            result = Chat(**chat.model_dump())
+            db.add(result)
+            db.commit()
+            db.refresh(result)
+            return ChatModel.model_validate(result)
+
     def insert_new_chat(
         self,
         user_id: str,
