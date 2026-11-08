@@ -1,3 +1,6 @@
+import asyncio
+import hashlib
+import json
 import logging
 import os
 import uuid
@@ -8,6 +11,7 @@ from urllib.parse import quote
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     HTTPException,
@@ -88,9 +92,40 @@ def has_access_to_file(
 ############################
 
 
+def _process_uploaded_file(
+    request: Request,
+    file_id: str,
+    content_type: Optional[str],
+    file_path: str,
+    user,
+):
+    try:
+        if content_type in [
+            "audio/mpeg",
+            "audio/wav",
+            "audio/ogg",
+            "audio/x-m4a",
+        ]:
+            stored_path = Storage.get_file(file_path)
+            result = transcribe(request, stored_path)
+            process_file(
+                request,
+                ProcessFileForm(file_id=file_id, content=result.get("text", "")),
+                user=user,
+            )
+        elif content_type not in ["image/png", "image/jpeg", "image/gif"]:
+            process_file(request, ProcessFileForm(file_id=file_id), user=user)
+        Files.update_file_data_by_id(file_id, {"status": "completed"})
+    except Exception as exc:
+        log.exception(exc)
+        log.error(f"Error processing file: {file_id}")
+        Files.update_file_data_by_id(file_id, {"status": "failed"})
+
+
 @router.post("/", response_model=FileModelResponse)
 def upload_file(
     request: Request,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     user=Depends(get_verified_user),
     file_metadata: dict = {},
@@ -118,40 +153,29 @@ def upload_file(
                         "name": name,
                         "content_type": file.content_type,
                         "size": len(contents),
+                        "file_hash": hashlib.sha256(contents).hexdigest(),
                         "data": file_metadata,
                     },
                 }
             ),
         )
-        if process:
-            try:
-                if file.content_type in [
-                    "audio/mpeg",
-                    "audio/wav",
-                    "audio/ogg",
-                    "audio/x-m4a",
-                ]:
-                    file_path = Storage.get_file(file_path)
-                    result = transcribe(request, file_path)
-
-                    process_file(
-                        request,
-                        ProcessFileForm(file_id=id, content=result.get("text", "")),
-                        user=user,
-                    )
-                elif file.content_type not in ["image/png", "image/jpeg", "image/gif"]:
-                    process_file(request, ProcessFileForm(file_id=id), user=user)
-
-                file_item = Files.get_file_by_id(id=id)
-            except Exception as e:
-                log.exception(e)
-                log.error(f"Error processing file: {file_item.id}")
-                file_item = FileModelResponse(
-                    **{
-                        **file_item.model_dump(),
-                        "error": str(e.detail) if hasattr(e, "detail") else str(e),
-                    }
-                )
+        if process and file_item:
+            Files.update_file_data_by_id(id, {"status": "pending"})
+            file_item = Files.get_file_by_id(id=id)
+            background_tasks.add_task(
+                _process_uploaded_file,
+                request,
+                id,
+                file.content_type,
+                file_path,
+                user,
+            )
+            file_item = FileModelResponse(
+                **{
+                    **file_item.model_dump(),
+                    "status": True,
+                }
+            )
 
         if file_item:
             return file_item
@@ -175,6 +199,7 @@ def upload_file(
 
 
 if CURRENT_FILE_API_ENABLED:
+
     @router.get("/", response_model=FileListResponse)
     async def list_files(
         user=Depends(get_verified_user),
@@ -201,6 +226,7 @@ if CURRENT_FILE_API_ENABLED:
         return FileListResponse(items=items, total=total)
 
 else:
+
     @router.get("/", response_model=list[FileModelResponse])
     async def list_files(user=Depends(get_verified_user), content: bool = Query(True)):
         if user.role == "admin":
@@ -257,6 +283,16 @@ async def search_files(
 
 
 ############################
+# Count Files
+############################
+
+
+@router.get("/count", response_model=int)
+async def count_files(user=Depends(get_verified_user)):
+    return Files.count_files(None if user.role == "admin" else user.id)
+
+
+############################
 # Delete All Files
 ############################
 
@@ -290,9 +326,7 @@ async def delete_all_files(user=Depends(get_admin_user)):
 @router.get(
     "/{id}",
     response_model=(
-        FilePublicMetadataResponse
-        if CURRENT_FILE_API_ENABLED
-        else Optional[FileModel]
+        FilePublicMetadataResponse if CURRENT_FILE_API_ENABLED else Optional[FileModel]
     ),
 )
 async def get_file_by_id(id: str, user=Depends(get_verified_user)):
@@ -318,6 +352,103 @@ async def get_file_by_id(id: str, user=Depends(get_verified_user)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
+
+
+############################
+# Get File Process Status
+############################
+
+
+def _file_process_status(file: FileModel) -> str:
+    data = file.data if isinstance(file.data, dict) else {}
+    explicit = data.get("status")
+    if explicit in {"pending", "completed", "failed"}:
+        return explicit
+    if file.hash is not None or "content" in data:
+        return "completed"
+    return "pending"
+
+
+@router.get("/{id}/process/status")
+async def get_file_process_status(
+    id: str,
+    stream: bool = Query(False),
+    user=Depends(get_verified_user),
+):
+    file = Files.get_file_by_id(id)
+    if not file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+    if not (
+        file.user_id == user.id
+        or user.role == "admin"
+        or has_access_to_file(id, "read", user)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+    if not stream:
+        return {"status": _file_process_status(file)}
+
+    async def status_stream():
+        previous = None
+        while True:
+            current = Files.get_file_by_id(id)
+            if not current:
+                return
+            current_status = _file_process_status(current)
+            if current_status != previous:
+                yield f"data: {json.dumps({'status': current_status})}\n\n"
+                previous = current_status
+            if current_status != "pending":
+                return
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(status_stream(), media_type="text/event-stream")
+
+
+############################
+# Rename File By Id
+############################
+
+
+class FileRenameForm(BaseModel):
+    filename: str
+
+
+@router.post("/{id}/rename")
+async def rename_file_by_id(
+    id: str,
+    form_data: FileRenameForm,
+    user=Depends(get_verified_user),
+):
+    file = Files.get_file_by_id(id)
+    if not file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+    if not (
+        file.user_id == user.id
+        or user.role == "admin"
+        or has_access_to_file(id, "write", user)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+
+    renamed = Files.rename_file_by_id(id, form_data.filename)
+    if not renamed:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+    return renamed.model_dump(exclude={"access_control"})
 
 
 ############################

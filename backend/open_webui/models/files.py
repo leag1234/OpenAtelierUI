@@ -198,6 +198,13 @@ class FilesTable:
                 for file in db.query(File).filter_by(user_id=user_id).all()
             ]
 
+    def count_files(self, user_id: Optional[str] = None) -> int:
+        with get_db() as db:
+            query = db.query(File)
+            if user_id is not None:
+                query = query.filter(File.user_id == user_id)
+            return query.count()
+
     def get_files_page(
         self, user_id: Optional[str], page: int
     ) -> tuple[int, list[FileModel]]:
@@ -242,6 +249,21 @@ class FilesTable:
                 file = db.query(File).filter_by(id=id).first()
                 file.meta = {**(file.meta if file.meta else {}), **meta}
                 db.commit()
+                return FileModel.model_validate(file)
+            except Exception:
+                return None
+
+    def rename_file_by_id(self, id: str, filename: str) -> Optional[FileModel]:
+        with get_db() as db:
+            try:
+                file = db.query(File).filter_by(id=id).first()
+                if file is None:
+                    return None
+                file.filename = filename
+                file.meta = {**(file.meta if file.meta else {}), "name": filename}
+                file.updated_at = int(time.time())
+                db.commit()
+                db.refresh(file)
                 return FileModel.model_validate(file)
             except Exception:
                 return None

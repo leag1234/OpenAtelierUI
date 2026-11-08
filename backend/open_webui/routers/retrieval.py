@@ -19,6 +19,7 @@ from fastapi import (
     HTTPException,
     UploadFile,
     Request,
+    Query,
     status,
     APIRouter,
 )
@@ -115,21 +116,41 @@ def _authorized_collection(name: str, user, permission: str = "read") -> bool:
     if file and knowledge:
         return False
     if file:
-        if file.user_id == user.id or (isinstance(file.access_control, dict) and has_access(user.id, permission, file.access_control)):
+        if file.user_id == user.id or (
+            isinstance(file.access_control, dict)
+            and has_access(user.id, permission, file.access_control)
+        ):
             return True
         knowledge_id = (file.meta or {}).get("collection_name")
         linked = Knowledges.get_knowledge_by_id(knowledge_id) if knowledge_id else None
-        return bool(linked and (linked.user_id == user.id or has_access(user.id, permission, linked.access_control)))
+        return bool(
+            linked
+            and (
+                linked.user_id == user.id
+                or has_access(user.id, permission, linked.access_control)
+            )
+        )
     if knowledge:
-        return knowledge.user_id == user.id or has_access(user.id, permission, knowledge.access_control)
-    return bool(re.fullmatch(r"oa-" + hashlib.sha256(user.id.encode()).hexdigest()[:32] + r"-[0-9a-f]{24}", name))
+        return knowledge.user_id == user.id or has_access(
+            user.id, permission, knowledge.access_control
+        )
+    return bool(
+        re.fullmatch(
+            r"oa-"
+            + hashlib.sha256(user.id.encode()).hexdigest()[:32]
+            + r"-[0-9a-f]{24}",
+            name,
+        )
+    )
 
 
 def _generated_collection(user, domain: str, resource: str) -> str:
     if not isinstance(resource, str):
         raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
     try:
-        digest = hashlib.sha256((domain + "\0" + resource).encode("utf-8")).hexdigest()[:24]
+        digest = hashlib.sha256((domain + "\0" + resource).encode("utf-8")).hexdigest()[
+            :24
+        ]
         owner = hashlib.sha256(user.id.encode("utf-8")).hexdigest()[:32]
     except UnicodeError:
         raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
@@ -157,11 +178,13 @@ def authorize_chat_files(files, user):
     if not isinstance(files, list) or len(files) > 64:
         raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
     validated, inline_bytes = [], 0
+
     def content_size(value):
         try:
             return len(value.encode("utf-8"))
         except UnicodeError:
             raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+
     for original in files:
         if not isinstance(original, dict):
             raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
@@ -174,7 +197,11 @@ def authorize_chat_files(files, user):
             if not isinstance(single, str) or not single:
                 raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
             names.append(single)
-        if not isinstance(many, list) or len(many) > 64 or any(not isinstance(n, str) or not n for n in many):
+        if (
+            not isinstance(many, list)
+            or len(many) > 64
+            or any(not isinstance(n, str) or not n for n in many)
+        ):
             raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
         names.extend(many)
         if kind == "collection" and "id" in item:
@@ -191,7 +218,9 @@ def authorize_chat_files(files, user):
             raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
         if nested_id is not None and not isinstance(nested_id, str):
             raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
-        if root_id is not None and (not root_id or (nested_id is not None and root_id != nested_id)):
+        if root_id is not None and (
+            not root_id or (nested_id is not None and root_id != nested_id)
+        ):
             raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
         file_id = nested_id or root_id
         persisted = None
@@ -204,14 +233,24 @@ def authorize_chat_files(files, user):
             raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
 
         data = item.get("data")
-        if kind == "collection" and isinstance(data, dict) and data.get("file_ids") is not None:
+        if (
+            kind == "collection"
+            and isinstance(data, dict)
+            and data.get("file_ids") is not None
+        ):
             ids = data["file_ids"]
             if not isinstance(ids, list) or len(ids) > 64:
                 raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
             for linked_id in ids:
-                linked = Files.get_file_by_id(linked_id) if isinstance(linked_id, str) else None
+                linked = (
+                    Files.get_file_by_id(linked_id)
+                    if isinstance(linked_id, str)
+                    else None
+                )
                 if not linked or not _authorized_collection(f"file-{linked_id}", user):
-                    raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+                    raise HTTPException(
+                        status_code=404, detail=ERROR_MESSAGES.NOT_FOUND
+                    )
 
         for name in names:
             _require_collection(name, user)
@@ -222,7 +261,9 @@ def authorize_chat_files(files, user):
             for doc in inline:
                 content = doc.get("content") if isinstance(doc, dict) else None
                 if not isinstance(content, str):
-                    raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+                    raise HTTPException(
+                        status_code=404, detail=ERROR_MESSAGES.NOT_FOUND
+                    )
                 inline_bytes += content_size(content)
         if kind == "text":
             content = item.get("content")
@@ -231,13 +272,21 @@ def authorize_chat_files(files, user):
             inline_bytes += content_size(content)
         if item.get("context") == "full" and not persisted:
             nested_data = nested.get("data") if isinstance(nested, dict) else None
-            content = nested_data.get("content") if isinstance(nested_data, dict) else None
+            content = (
+                nested_data.get("content") if isinstance(nested_data, dict) else None
+            )
             if not isinstance(content, str):
                 raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
             inline_bytes += content_size(content)
         if inline_bytes > 65536:
             raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
-        if not persisted and not names and not inline and item.get("context") != "full" and kind not in ("text", "web_search", "web_search_result"):
+        if (
+            not persisted
+            and not names
+            and not inline
+            and item.get("context") != "full"
+            and kind not in ("text", "web_search", "web_search_result")
+        ):
             raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
         if persisted:
             canonical = persisted.model_dump()
@@ -249,6 +298,7 @@ def authorize_chat_files(files, user):
             item.pop("content", None)
         validated.append(item)
     return validated
+
 
 ##########################################
 #
@@ -327,6 +377,16 @@ class CollectionNameForm(BaseModel):
 
 class ProcessUrlForm(CollectionNameForm):
     url: str
+
+
+class ProcessUrlResponse(BaseModel):
+    status: bool
+    type: str
+    name: str
+    url: str
+    collection_name: Optional[str] = None
+    content: Optional[str] = None
+    file: Optional[dict] = None
 
 
 class SearchForm(BaseModel):
@@ -1305,7 +1365,9 @@ def process_text(
     form_data: ProcessTextForm,
     user=Depends(get_verified_user),
 ):
-    collection_name = _ingestion_collection(form_data.collection_name, user, "text", form_data.content)
+    collection_name = _ingestion_collection(
+        form_data.collection_name, user, "text", form_data.content
+    )
 
     docs = [
         Document(
@@ -1330,12 +1392,84 @@ def process_text(
         )
 
 
+@router.post("/process/url", response_model=ProcessUrlResponse)
+def process_url(
+    request: Request,
+    form_data: ProcessUrlForm,
+    process: bool = Query(
+        True,
+        description="Whether to process and save the content",
+    ),
+    user=Depends(get_verified_user),
+):
+    try:
+        loader = get_web_loader(
+            form_data.url,
+            verify_ssl=request.app.state.config.ENABLE_WEB_LOADER_SSL_VERIFICATION,
+            requests_per_second=request.app.state.config.WEB_SEARCH_CONCURRENT_REQUESTS,
+        )
+        docs = loader.load()
+        if not docs:
+            raise ValueError("Error processing URL")
+
+        content = " ".join(doc.page_content for doc in docs)
+        if not content.strip():
+            raise ValueError("Error processing URL")
+
+        first_metadata = docs[0].metadata if isinstance(docs[0].metadata, dict) else {}
+        name = first_metadata.get("title") or form_data.url
+        collection_name = None
+        if process:
+            collection_name = _ingestion_collection(
+                form_data.collection_name,
+                user,
+                "web",
+                form_data.url,
+            )
+            if not request.app.state.config.BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL:
+                saved = save_docs_to_vector_db(
+                    request,
+                    docs,
+                    collection_name,
+                    overwrite=True,
+                    user=user,
+                )
+                if not saved:
+                    raise ValueError("Error processing URL")
+            else:
+                collection_name = None
+
+        file = {
+            "data": {"content": content},
+            "meta": {"name": name, "source": form_data.url},
+        }
+        return ProcessUrlResponse(
+            status=True,
+            type="web",
+            name=name,
+            url=form_data.url,
+            collection_name=collection_name,
+            content=content,
+            file=file,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.exception(exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=ERROR_MESSAGES.DEFAULT("Error processing URL"),
+        )
+
+
 @router.post("/process/youtube")
 def process_youtube_video(
     request: Request, form_data: ProcessUrlForm, user=Depends(get_verified_user)
 ):
     try:
-        collection_name = _ingestion_collection(form_data.collection_name, user, "youtube", form_data.url)
+        collection_name = _ingestion_collection(
+            form_data.collection_name, user, "youtube", form_data.url
+        )
 
         loader = YoutubeLoader(
             form_data.url,
@@ -1379,7 +1513,9 @@ def process_web(
     request: Request, form_data: ProcessUrlForm, user=Depends(get_verified_user)
 ):
     try:
-        collection_name = _ingestion_collection(form_data.collection_name, user, "web", form_data.url)
+        collection_name = _ingestion_collection(
+            form_data.collection_name, user, "web", form_data.url
+        )
 
         loader = get_web_loader(
             form_data.url,
@@ -1653,7 +1789,12 @@ async def process_web_search(
     log.debug(f"web_results: {web_results}")
 
     try:
-        collection_names = [_generated_collection(user, "web-search", form_data.query + "-" + result.link) for result in web_results]
+        collection_names = [
+            _generated_collection(
+                user, "web-search", form_data.query + "-" + result.link
+            )
+            for result in web_results
+        ]
         for name in collection_names:
             _require_collection(name, user, "write")
         urls = [result.link for result in web_results]
@@ -1686,7 +1827,9 @@ async def process_web_search(
         else:
             for doc_idx, doc in enumerate(docs):
                 if doc and doc.page_content:
-                    collection_name = _generated_collection(user, "web-search", form_data.query + "-" + urls[doc_idx])
+                    collection_name = _generated_collection(
+                        user, "web-search", form_data.query + "-" + urls[doc_idx]
+                    )
                     _require_collection(collection_name, user, "write")
                     collection_names.append(collection_name)
                     await run_in_threadpool(
@@ -1935,7 +2078,9 @@ def process_files_batch(
     persisted = []
     for submitted in form_data.files:
         file = Files.get_file_by_id(submitted.id)
-        if not file or not _authorized_collection(f"file-{submitted.id}", user, "write"):
+        if not file or not _authorized_collection(
+            f"file-{submitted.id}", user, "write"
+        ):
             raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
         persisted.append(file)
     _require_collection(collection_name, user, "write")
