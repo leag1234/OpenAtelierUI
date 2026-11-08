@@ -27,16 +27,25 @@ class UiIdentitySourceTests(unittest.TestCase):
             "LEGACY_DEFAULT_WEBUI_NAME": "Open WebUI",
             "PROJECT_WEBUI_NAME": "OpenAtelierUI",
         }
-        exec(compile(ast.Module(body=[function], type_ignores=[]), "main.py", "exec"), namespace)
+        exec(
+            compile(ast.Module(body=[function], type_ignores=[]), "main.py", "exec"),
+            namespace,
+        )
         resolve_name = namespace["resolve_public_webui_name"]
 
         self.assertEqual(resolve_name("Open WebUI"), "OpenAtelierUI")
-        self.assertEqual(resolve_name("Open WebUI", custom_name="existing"), "Open WebUI")
+        self.assertEqual(
+            resolve_name("Open WebUI", custom_name="existing"), "Open WebUI"
+        )
         self.assertEqual(resolve_name("Community workshop"), "Community workshop")
-        self.assertIn('title=resolve_public_webui_name(WEBUI_NAME, os.environ.get("CUSTOM_NAME", ""))', source)
+        compact_source = "".join(source.split())
         self.assertIn(
-            'app.state.WEBUI_NAME = resolve_public_webui_name(WEBUI_NAME, os.environ.get("CUSTOM_NAME", ""))',
-            source,
+            'title=resolve_public_webui_name(WEBUI_NAME,os.environ.get("CUSTOM_NAME",""))',
+            compact_source,
+        )
+        self.assertIn(
+            'app.state.WEBUI_NAME=resolve_public_webui_name(WEBUI_NAME,os.environ.get("CUSTOM_NAME",""))',
+            compact_source,
         )
 
     def test_runtime_static_paths_exist_in_the_backend_static_directory(self):
@@ -55,7 +64,9 @@ class UiIdentitySourceTests(unittest.TestCase):
         ]
         for relative in source_paths:
             with self.subTest(path=relative):
-                self.assertTrue((ROOT / "backend/open_webui/static" / relative).is_file())
+                self.assertTrue(
+                    (ROOT / "backend/open_webui/static" / relative).is_file()
+                )
 
     def test_supplied_svg_and_png_copies_preserve_the_user_asset_bytes(self):
         copies = {
@@ -121,7 +132,9 @@ class UiIdentitySourceTests(unittest.TestCase):
                 self.assertEqual(image_count, 1)
                 image_size = int.from_bytes(ico[14:18], "little")
                 image_offset = int.from_bytes(ico[18:22], "little")
-                self.assertEqual(ico[image_offset : image_offset + image_size], expected)
+                self.assertEqual(
+                    ico[image_offset : image_offset + image_size], expected
+                )
 
     def test_visible_sources_use_served_legacy_paths_and_supplied_wordmark(self):
         app_html = (ROOT / "src/app.html").read_text()

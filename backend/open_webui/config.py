@@ -1209,6 +1209,49 @@ ADMIN_EMAIL = PersistentConfig(
 ####################################
 
 
+ENABLE_CONTEXT_COMPACTION = PersistentConfig(
+    "ENABLE_CONTEXT_COMPACTION",
+    "chat.context_compaction.enable",
+    os.environ.get("ENABLE_CONTEXT_COMPACTION", "False").lower() == "true",
+)
+
+CONTEXT_COMPACTION_TOKEN_THRESHOLD = PersistentConfig(
+    "CONTEXT_COMPACTION_TOKEN_THRESHOLD",
+    "chat.context_compaction.token_threshold",
+    int(os.environ.get("CONTEXT_COMPACTION_TOKEN_THRESHOLD", "80000")),
+)
+
+CONTEXT_COMPACTION_PROMPT_TEMPLATE = PersistentConfig(
+    "CONTEXT_COMPACTION_PROMPT_TEMPLATE",
+    "chat.context_compaction.prompt_template",
+    os.environ.get("CONTEXT_COMPACTION_PROMPT_TEMPLATE", ""),
+)
+
+CONTEXT_COMPACTION_MODEL = PersistentConfig(
+    "CONTEXT_COMPACTION_MODEL",
+    "chat.context_compaction.model",
+    os.environ.get("CONTEXT_COMPACTION_MODEL", ""),
+)
+
+CONTEXT_COMPACTION_RETENTION_PERCENTAGE = PersistentConfig(
+    "CONTEXT_COMPACTION_RETENTION_PERCENTAGE",
+    "chat.context_compaction.retention_percentage",
+    int(os.environ.get("CONTEXT_COMPACTION_RETENTION_PERCENTAGE", "40")),
+)
+
+CONTEXT_COMPACTION_TOKEN_CAP = PersistentConfig(
+    "CONTEXT_COMPACTION_TOKEN_CAP",
+    "chat.context_compaction.token_cap",
+    int(os.environ.get("CONTEXT_COMPACTION_TOKEN_CAP", "80000")),
+)
+
+ENABLE_TOOL_PERMISSIONS = PersistentConfig(
+    "ENABLE_TOOL_PERMISSIONS",
+    "chat.tool_permissions.enable",
+    os.environ.get("ENABLE_TOOL_PERMISSIONS", "False").lower() == "true",
+)
+
+
 TASK_MODEL = PersistentConfig(
     "TASK_MODEL",
     "task.model.default",

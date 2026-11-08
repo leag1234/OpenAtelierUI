@@ -250,7 +250,10 @@ class TerminalHTTPTests(unittest.TestCase):
 
     def test_main_registration_follows_existing_config_and_precedes_spa_fallback(self):
         main = (ROOT / "backend/open_webui/main.py").read_text(encoding="utf-8")
-        self.assertIn('or bool(environ.get("TERMINAL_SERVER_CONNECTIONS"))', main)
+        compact_main = "".join(main.split())
+        self.assertIn(
+            'orbool(environ.get("TERMINAL_SERVER_CONNECTIONS"))', compact_main
+        )
         self.assertIn("if TERMINAL_COMPAT_ENABLED:", main)
         self.assertLess(main.index("app.include_router(terminals.router"), main.index('app.mount(\n        "/"'))
 

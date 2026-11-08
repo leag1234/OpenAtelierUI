@@ -15,6 +15,7 @@ from open_webui.models.chats import (
     Chats,
     ChatTitleIdResponse,
     PrivateChatTitleIdResponse,
+    SharedChatResponse,
     _chat_current_message_id,
     _normalize_private_chat_authors,
     _public_chat_meta,
@@ -72,6 +73,7 @@ def _require_supported_saved_chat_fields(form_data):
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Folder chat behavior is not supported by this compatibility prototype.",
         )
+
 
 ############################
 # GetChatList
@@ -149,9 +151,7 @@ async def create_new_chat(form_data: PrivateChatForm, user=Depends(get_verified_
             variables=form_data.variables,
             folder_id=form_data.folder_id,
         )
-        chat = Chats.insert_new_chat(
-            user.id, prepared, compatibility_saved_work=True
-        )
+        chat = Chats.insert_new_chat(user.id, prepared, compatibility_saved_work=True)
         return _saved_chat_response(chat, user)
     except Exception as e:
         log.exception(e)
@@ -165,11 +165,18 @@ async def create_new_chat(form_data: PrivateChatForm, user=Depends(get_verified_
 ############################
 
 
-@router.post("/import", response_model=Optional[Union[ChatResponse, list[ChatResponse]]])
-async def import_chat(form_data: Union[ChatImportForm, ChatsImportForm], user=Depends(get_verified_user)):
+@router.post(
+    "/import", response_model=Optional[Union[ChatResponse, list[ChatResponse]]]
+)
+async def import_chat(
+    form_data: Union[ChatImportForm, ChatsImportForm], user=Depends(get_verified_user)
+):
     if isinstance(form_data, ChatsImportForm):
         try:
-            chats = Chats.import_chats(user.id, [chat.model_dump(exclude_unset=True) for chat in form_data.chats])
+            chats = Chats.import_chats(
+                user.id,
+                [chat.model_dump(exclude_unset=True) for chat in form_data.chats],
+            )
             return [ChatResponse(**chat.model_dump()) for chat in chats]
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e))
@@ -249,6 +256,26 @@ async def get_chats_by_folder_id(folder_id: str, user=Depends(get_verified_user)
         ChatResponse(**chat.model_dump())
         for chat in Chats.get_chats_by_folder_ids_and_user_id(folder_ids, user.id)
     ]
+
+
+@router.get(
+    "/folder/{folder_id}/list",
+    response_model=list[ChatTitleIdResponse],
+)
+async def get_chat_list_by_folder_id(
+    folder_id: str,
+    page: Optional[int] = 1,
+    sort_by: str = "unread_updated_at",
+    sort_dir: str = "desc",
+    user=Depends(get_verified_user),
+):
+    return Chats.get_chat_title_id_list_by_folder_id_and_user_id(
+        folder_id,
+        user.id,
+        page=page or 1,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
 
 
 ############################
@@ -334,6 +361,11 @@ async def get_archived_session_user_chat_list(
     return Chats.get_archived_chat_list_by_user_id(user.id, skip, limit)
 
 
+@router.get("/archived/count", response_model=int)
+async def get_archived_session_user_chat_count(user=Depends(get_verified_user)):
+    return Chats.count_archived_chats_by_user_id(user.id)
+
+
 ############################
 # ArchiveAllChats
 ############################
@@ -353,9 +385,86 @@ class ChatSharedAccessForm(BaseModel):
     access_grants: list[dict]
 
 
+@router.get("/shared", response_model=list[SharedChatResponse])
+async def get_shared_session_user_chat_list(
+    page: Optional[int] = None,
+    query: Optional[str] = None,
+    order_by: Optional[str] = None,
+    direction: Optional[str] = None,
+    user=Depends(get_verified_user),
+):
+    return Chats.get_shared_chat_list_by_user_id(
+        user.id,
+        page=page,
+        query_text=query,
+        order_by=order_by,
+        direction=direction,
+    )
+
+
+class ChatConfigForm(BaseModel):
+    ENABLE_CONTEXT_COMPACTION: bool
+    CONTEXT_COMPACTION_TOKEN_THRESHOLD: int
+    CONTEXT_COMPACTION_PROMPT_TEMPLATE: str
+    CONTEXT_COMPACTION_MODEL: Optional[str] = ""
+    CONTEXT_COMPACTION_RETENTION_PERCENTAGE: int = 40
+    CONTEXT_COMPACTION_TOKEN_CAP: Optional[int] = None
+    ENABLE_TOOL_PERMISSIONS: bool = False
+
+
+def _chat_config_values(request: Request):
+    return ChatConfigForm(
+        ENABLE_CONTEXT_COMPACTION=request.app.state.config.ENABLE_CONTEXT_COMPACTION,
+        CONTEXT_COMPACTION_TOKEN_THRESHOLD=request.app.state.config.CONTEXT_COMPACTION_TOKEN_THRESHOLD,
+        CONTEXT_COMPACTION_PROMPT_TEMPLATE=request.app.state.config.CONTEXT_COMPACTION_PROMPT_TEMPLATE,
+        CONTEXT_COMPACTION_MODEL=request.app.state.config.CONTEXT_COMPACTION_MODEL,
+        CONTEXT_COMPACTION_RETENTION_PERCENTAGE=request.app.state.config.CONTEXT_COMPACTION_RETENTION_PERCENTAGE,
+        CONTEXT_COMPACTION_TOKEN_CAP=request.app.state.config.CONTEXT_COMPACTION_TOKEN_CAP,
+        ENABLE_TOOL_PERMISSIONS=request.app.state.config.ENABLE_TOOL_PERMISSIONS,
+    )
+
+
+@router.get("/config", response_model=ChatConfigForm)
+async def get_chat_config(request: Request, user=Depends(get_admin_user)):
+    return _chat_config_values(request)
+
+
+@router.post("/config", response_model=ChatConfigForm)
+async def set_chat_config(
+    request: Request,
+    form_data: ChatConfigForm,
+    user=Depends(get_admin_user),
+):
+    request.app.state.config.ENABLE_CONTEXT_COMPACTION = (
+        form_data.ENABLE_CONTEXT_COMPACTION
+    )
+    request.app.state.config.CONTEXT_COMPACTION_TOKEN_THRESHOLD = (
+        form_data.CONTEXT_COMPACTION_TOKEN_THRESHOLD
+    )
+    request.app.state.config.CONTEXT_COMPACTION_PROMPT_TEMPLATE = (
+        form_data.CONTEXT_COMPACTION_PROMPT_TEMPLATE
+    )
+    request.app.state.config.CONTEXT_COMPACTION_MODEL = (
+        form_data.CONTEXT_COMPACTION_MODEL
+    )
+    request.app.state.config.CONTEXT_COMPACTION_RETENTION_PERCENTAGE = min(
+        form_data.CONTEXT_COMPACTION_RETENTION_PERCENTAGE,
+        50,
+    )
+    request.app.state.config.CONTEXT_COMPACTION_TOKEN_CAP = (
+        form_data.CONTEXT_COMPACTION_TOKEN_CAP
+    )
+    request.app.state.config.ENABLE_TOOL_PERMISSIONS = form_data.ENABLE_TOOL_PERMISSIONS
+    return _chat_config_values(request)
+
+
 def _shared_grants(source):
     grants = (source.meta or {}).get("_oa_shared_access_grants", [])
-    return [grant for grant in grants if isinstance(grant, dict)] if isinstance(grants, list) else []
+    return (
+        [grant for grant in grants if isinstance(grant, dict)]
+        if isinstance(grants, list)
+        else []
+    )
 
 
 @router.get("/shared/{id}/access")
@@ -367,23 +476,45 @@ async def get_shared_access(id: str, user=Depends(get_verified_user)):
 
 
 @router.post("/shared/{id}/access/update")
-async def update_shared_access(id: str, form_data: ChatSharedAccessForm, user=Depends(get_verified_user)):
+async def update_shared_access(
+    id: str, form_data: ChatSharedAccessForm, user=Depends(get_verified_user)
+):
     source = Chats.get_chat_by_id_and_user_id(id, user.id)
     if source is None:
         raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
     import uuid
+
     grants = []
     seen = set()
     for item in form_data.access_grants:
-        kind, principal, permission = item.get("principal_type"), item.get("principal_id"), item.get("permission")
-        if kind not in {"user", "group"} or permission not in {"read", "write"} or not isinstance(principal, str):
+        kind, principal, permission = (
+            item.get("principal_type"),
+            item.get("principal_id"),
+            item.get("permission"),
+        )
+        if (
+            kind not in {"user", "group"}
+            or permission not in {"read", "write"}
+            or not isinstance(principal, str)
+        ):
             raise HTTPException(status_code=422, detail="Unsupported access grant")
-        existing = Users.get_user_by_id(principal) if kind == "user" else Groups.get_group_by_id(principal)
+        existing = (
+            Users.get_user_by_id(principal)
+            if kind == "user"
+            else Groups.get_group_by_id(principal)
+        )
         identity = (kind, principal, permission)
         if existing is None or identity in seen:
             continue
         seen.add(identity)
-        grants.append({"id": str(uuid.uuid4()), "principal_type": kind, "principal_id": principal, "permission": permission})
+        grants.append(
+            {
+                "id": str(uuid.uuid4()),
+                "principal_type": kind,
+                "principal_id": principal,
+                "permission": permission,
+            }
+        )
     source = Chats.update_shared_access_grants(id, user.id, grants)
     if source is None:
         raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
@@ -396,10 +527,20 @@ def _shared_source_read_allowed(source, user):
     if source.user_id == user.id or (user.role == "admin" and ENABLE_ADMIN_CHAT_ACCESS):
         return True
     memberships = {group.id for group in Groups.get_groups_by_member_id(user.id)}
-    return any(grant.get("permission") == "read" and (
-        (grant.get("principal_type") == "user" and grant.get("principal_id") == user.id)
-        or (grant.get("principal_type") == "group" and grant.get("principal_id") in memberships)
-    ) for grant in _shared_grants(source))
+    return any(
+        grant.get("permission") == "read"
+        and (
+            (
+                grant.get("principal_type") == "user"
+                and grant.get("principal_id") == user.id
+            )
+            or (
+                grant.get("principal_type") == "group"
+                and grant.get("principal_id") in memberships
+            )
+        )
+        for grant in _shared_grants(source)
+    )
 
 
 def _authorized_shared_snapshot(share_id, user):
@@ -410,7 +551,7 @@ def _authorized_shared_snapshot(share_id, user):
     """
     snapshot = Chats.get_chat_by_share_id(share_id)
     if snapshot is not None and snapshot.user_id.startswith("shared-"):
-        source = Chats.get_chat_by_id(snapshot.user_id[len("shared-"):])
+        source = Chats.get_chat_by_id(snapshot.user_id[len("shared-") :])
         if source is not None and source.share_id == snapshot.id:
             if _shared_source_read_allowed(source, user):
                 return snapshot
@@ -423,12 +564,16 @@ def _authorized_shared_snapshot(share_id, user):
 
 @router.get("/share/{share_id}", response_model=Optional[PrivateChatResponse])
 async def get_shared_chat_by_id(share_id: str, user=Depends(get_verified_user)):
-    chat = None if user.role == "pending" else _authorized_shared_snapshot(share_id, user)
+    chat = (
+        None if user.role == "pending" else _authorized_shared_snapshot(share_id, user)
+    )
     if chat is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.NOT_FOUND)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.NOT_FOUND
+        )
     values = chat.model_dump()
     if chat.user_id.startswith("shared-"):
-        source = Chats.get_chat_by_id(chat.user_id[len("shared-"):])
+        source = Chats.get_chat_by_id(chat.user_id[len("shared-") :])
         if source is None or source.share_id != chat.id:
             raise HTTPException(status_code=401, detail=ERROR_MESSAGES.NOT_FOUND)
         values["user_id"] = source.user_id
@@ -487,9 +632,14 @@ async def get_chat_by_id(id: str, user=Depends(get_verified_user)):
             chat = candidate
 
     if chat:
-        response_user = Users.get_user_by_id(chat.user_id) if chat.user_id != user.id else user
+        response_user = (
+            Users.get_user_by_id(chat.user_id) if chat.user_id != user.id else user
+        )
         return _saved_chat_response(
-            chat, response_user or user, mark_continue=True, user_lookup=Users.get_user_by_id
+            chat,
+            response_user or user,
+            mark_continue=True,
+            user_lookup=Users.get_user_by_id,
         )
 
     else:
@@ -796,7 +946,9 @@ async def share_chat_by_id(id: str, user=Depends(get_verified_user)):
     if chat:
         if chat.share_id:
             shared_chat = Chats.update_shared_chat_by_chat_id(chat.id)
-            return _saved_chat_response(Chats.get_chat_by_id_and_user_id(id, user.id), user)
+            return _saved_chat_response(
+                Chats.get_chat_by_id_and_user_id(id, user.id), user
+            )
 
         shared_chat = Chats.insert_shared_chat_by_chat_id(chat.id)
         if not shared_chat:

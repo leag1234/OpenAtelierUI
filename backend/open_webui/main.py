@@ -79,14 +79,14 @@ from open_webui.routers import (
     utils,
 )
 
+
 def notes_compat_enabled(environ):
     return environ.get("OPENATELIER_PRIVATE_NOTES_COMPAT", "1") != "0"
 
 
 def terminal_compat_enabled(environ):
-    return (
-        environ.get("OPENATELIER_TERMINAL_DOWNLOAD_COMPAT") == "1"
-        or bool(environ.get("TERMINAL_SERVER_CONNECTIONS"))
+    return environ.get("OPENATELIER_TERMINAL_DOWNLOAD_COMPAT") == "1" or bool(
+        environ.get("TERMINAL_SERVER_CONNECTIONS")
     )
 
 
@@ -333,6 +333,13 @@ from open_webui.config import (
     ENABLE_ADMIN_CHAT_ACCESS,
     ENABLE_ADMIN_EXPORT,
     # Tasks
+    ENABLE_CONTEXT_COMPACTION,
+    CONTEXT_COMPACTION_TOKEN_THRESHOLD,
+    CONTEXT_COMPACTION_PROMPT_TEMPLATE,
+    CONTEXT_COMPACTION_MODEL,
+    CONTEXT_COMPACTION_RETENTION_PERCENTAGE,
+    CONTEXT_COMPACTION_TOKEN_CAP,
+    ENABLE_TOOL_PERMISSIONS,
     TASK_MODEL,
     TASK_MODEL_EXTERNAL,
     ENABLE_TAGS_GENERATION,
@@ -481,7 +488,10 @@ PROJECT_WEBUI_NAME = "OpenAtelierUI"
 
 def resolve_public_webui_name(configured_name: str, custom_name: str = "") -> str:
     """Use the project identity for the inherited default, retaining overrides."""
-    if configured_name in {DEFAULT_WEBUI_NAME, LEGACY_DEFAULT_WEBUI_NAME} and not custom_name:
+    if (
+        configured_name in {DEFAULT_WEBUI_NAME, LEGACY_DEFAULT_WEBUI_NAME}
+        and not custom_name
+    ):
         return PROJECT_WEBUI_NAME
     return configured_name
 
@@ -501,7 +511,9 @@ app.state.config = AppConfig(
     redis_sentinels=get_sentinels_from_env(REDIS_SENTINEL_HOSTS, REDIS_SENTINEL_PORT),
 )
 
-app.state.WEBUI_NAME = resolve_public_webui_name(WEBUI_NAME, os.environ.get("CUSTOM_NAME", ""))
+app.state.WEBUI_NAME = resolve_public_webui_name(
+    WEBUI_NAME, os.environ.get("CUSTOM_NAME", "")
+)
 app.state.LICENSE_METADATA = None
 
 
@@ -884,6 +896,17 @@ app.state.speech_speaker_embeddings_dataset = None
 ########################################
 
 
+app.state.config.ENABLE_CONTEXT_COMPACTION = ENABLE_CONTEXT_COMPACTION
+app.state.config.CONTEXT_COMPACTION_TOKEN_THRESHOLD = CONTEXT_COMPACTION_TOKEN_THRESHOLD
+app.state.config.CONTEXT_COMPACTION_PROMPT_TEMPLATE = CONTEXT_COMPACTION_PROMPT_TEMPLATE
+app.state.config.CONTEXT_COMPACTION_MODEL = CONTEXT_COMPACTION_MODEL
+app.state.config.CONTEXT_COMPACTION_RETENTION_PERCENTAGE = (
+    CONTEXT_COMPACTION_RETENTION_PERCENTAGE
+)
+app.state.config.CONTEXT_COMPACTION_TOKEN_CAP = CONTEXT_COMPACTION_TOKEN_CAP
+app.state.config.ENABLE_TOOL_PERMISSIONS = ENABLE_TOOL_PERMISSIONS
+
+
 app.state.config.TASK_MODEL = TASK_MODEL
 app.state.config.TASK_MODEL_EXTERNAL = TASK_MODEL_EXTERNAL
 
@@ -1179,11 +1202,19 @@ def _authorize_direct_model(request, item, form_data, user):
         if item.get(key) or form_data.get(key):
             raise HTTPException(status_code=404, detail="Resource not found")
     info_value = item.get("info")
-    info = dict(info_value) if isinstance(info_value, dict) else ({} if info_value is None else None)
+    info = (
+        dict(info_value)
+        if isinstance(info_value, dict)
+        else ({} if info_value is None else None)
+    )
     if info is None:
         raise HTTPException(status_code=404, detail="Resource not found")
     meta_value = info.get("meta")
-    meta = dict(meta_value) if isinstance(meta_value, dict) else ({} if meta_value is None else None)
+    meta = (
+        dict(meta_value)
+        if isinstance(meta_value, dict)
+        else ({} if meta_value is None else None)
+    )
     if meta is None:
         raise HTTPException(status_code=404, detail="Resource not found")
     item["info"] = info
@@ -1238,7 +1269,9 @@ async def chat_completion(
     if "files" in form_data:
         form_data["files"] = retrieval.authorize_chat_files(form_data["files"], user)
 
-    model_item = _authorize_direct_model(request, form_data.pop("model_item", {}), form_data, user)
+    model_item = _authorize_direct_model(
+        request, form_data.pop("model_item", {}), form_data, user
+    )
 
     if not request.app.state.MODELS:
         await get_all_models(request, user=user)
@@ -1299,9 +1332,8 @@ async def chat_completion(
             request, form_data, user, metadata, model
         )
 
-        if (
-            form_data.get("stream") is False
-            and _async_plugin_compat_requested(form_data, model_item, model, metadata)
+        if form_data.get("stream") is False and _async_plugin_compat_requested(
+            form_data, model_item, model, metadata
         ):
             task_id, _ = create_task(
                 run_async_plugin_completion(
@@ -1376,10 +1408,14 @@ def _validate_private_chat_context(form_data, user):
     if chat_id is None or (isinstance(chat_id, str) and chat_id.startswith("local:")):
         return
     if not isinstance(chat_id, str) or not chat_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found"
+        )
     chat = Chats.get_chat_by_id(chat_id)
     if chat is None or chat.user_id != user.id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found"
+        )
 
 
 # Alias for chat_completion (Legacy)
@@ -1393,9 +1429,13 @@ async def chat_completed(
 ):
     _validate_private_chat_context(form_data, user)
     try:
-        model_item = _authorize_direct_model(request, form_data.pop("model_item", {}), form_data, user)
+        model_item = _authorize_direct_model(
+            request, form_data.pop("model_item", {}), form_data, user
+        )
         if "files" in form_data:
-            form_data["files"] = retrieval.authorize_chat_files(form_data["files"], user)
+            form_data["files"] = retrieval.authorize_chat_files(
+                form_data["files"], user
+            )
 
         if model_item.get("direct", False):
             request.state.direct = True
@@ -1417,9 +1457,13 @@ async def chat_action(
 ):
     _validate_private_chat_context(form_data, user)
     try:
-        model_item = _authorize_direct_model(request, form_data.pop("model_item", {}), form_data, user)
+        model_item = _authorize_direct_model(
+            request, form_data.pop("model_item", {}), form_data, user
+        )
         if "files" in form_data:
-            form_data["files"] = retrieval.authorize_chat_files(form_data["files"], user)
+            form_data["files"] = retrieval.authorize_chat_files(
+                form_data["files"], user
+            )
 
         if model_item.get("direct", False):
             request.state.direct = True
@@ -1462,9 +1506,7 @@ async def list_tasks_by_chat_id_endpoint(chat_id: str, user=Depends(get_verified
 
 
 @app.post("/api/tasks/chat/{chat_id}/stop")
-async def stop_tasks_by_chat_id_endpoint(
-    chat_id: str, user=Depends(get_verified_user)
-):
+async def stop_tasks_by_chat_id_endpoint(chat_id: str, user=Depends(get_verified_user)):
     if chat_id.startswith("local:"):
         task_ids = list(list_task_ids_by_chat_id_for_user(chat_id, user.id))
     else:
@@ -1559,7 +1601,11 @@ async def get_app_config(request: Request):
                     "enable_admin_chat_access": ENABLE_ADMIN_CHAT_ACCESS,
                     "enable_google_drive_integration": app.state.config.ENABLE_GOOGLE_DRIVE_INTEGRATION,
                     "enable_onedrive_integration": app.state.config.ENABLE_ONEDRIVE_INTEGRATION,
-                    **({"openatelier_private_notes": True} if NOTES_COMPAT_ENABLED else {}),
+                    **(
+                        {"openatelier_private_notes": True}
+                        if NOTES_COMPAT_ENABLED
+                        else {}
+                    ),
                 }
                 if user is not None
                 else {}
@@ -1651,10 +1697,19 @@ async def get_app_latest_release_version(user=Depends(get_verified_user)):
                 data = await response.json()
                 latest_version = data["tag_name"]
 
-                return {"current": VERSION, "latest": latest_version.removeprefix("v"), "check_enabled": True}
+                return {
+                    "current": VERSION,
+                    "latest": latest_version.removeprefix("v"),
+                    "check_enabled": True,
+                }
     except Exception as e:
         log.debug(e)
-        return {"current": VERSION, "latest": VERSION, "check_enabled": True, "check_failed": True}
+        return {
+            "current": VERSION,
+            "latest": VERSION,
+            "check_enabled": True,
+            "check_failed": True,
+        }
 
 
 @app.get("/api/changelog")
