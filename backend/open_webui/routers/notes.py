@@ -6,7 +6,7 @@ import json
 import os
 import time
 import uuid
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -36,9 +36,9 @@ notes_store = (
 
 class NoteForm(BaseModel):
     title: str
-    data: Optional[dict] = None
-    meta: Optional[dict] = None
-    access_grants: Optional[List[dict]] = None
+    data: Optional[dict[str, Any]] = None
+    meta: Optional[dict[str, Any]] = None
+    access_grants: Optional[List[dict[str, Any]]] = None
 
 
 class NoteOwner(BaseModel):
@@ -64,10 +64,10 @@ class NoteModel(BaseModel):
     title: str
     created_at: int
     updated_at: int
-    data: Optional[dict] = None
-    meta: Optional[dict] = None
+    data: Optional[dict[str, Any]] = None
+    meta: Optional[dict[str, Any]] = None
     access_grants: List[AccessGrantModel] = Field(default_factory=list)
-    is_pinned: Optional[bool] = None
+    is_pinned: Optional[bool] = False
 
 
 class NoteItemResponse(BaseModel):
@@ -94,7 +94,7 @@ class NoteListResponse(BaseModel):
 
 
 class NoteAccessGrantsForm(BaseModel):
-    access_grants: list[dict]
+    access_grants: list[dict[str, Any]]
 
 
 class NotePageOperation(BaseModel):
@@ -108,23 +108,23 @@ class NotePageOperation(BaseModel):
     order: Optional[list[str]] = None
 
 
-class NoteChatResponse(BaseModel):
+class ChatResponse(BaseModel):
     id: str
     user_id: str
     title: str
-    chat: dict
+    chat: dict[str, Any]
     updated_at: int
     created_at: int
     share_id: Optional[str] = None
-    archived: bool = False
+    archived: bool
     pinned: Optional[bool] = False
-    meta: dict = Field(default_factory=dict)
+    meta: dict[str, Any] = {}
     folder_id: Optional[str] = None
-    variables: dict = Field(default_factory=dict)
+    variables: dict[str, Any] = {}
     tasks: Optional[list] = None
     summary: Optional[str] = None
     current_message_id: Optional[str] = None
-    context_usage: Optional[dict] = None
+    context_usage: Optional[dict[str, Any]] = None
 
 
 def _explicitly_disabled(permissions):
@@ -432,8 +432,8 @@ def query_private_notes(
         raise _unavailable(error) from None
 
 
-@router.post("/create", response_model=NoteModel)
-def create_note(request: Request, form_data: NoteForm, user=Depends(get_verified_user)):
+@router.post("/create", response_model=Optional[NoteModel])
+def create_new_note(request: Request, form_data: NoteForm, user=Depends(get_verified_user)):
     _allow_notes(request, user)
     data, meta = _form_values(form_data)
     now = time.time_ns()
@@ -486,30 +486,30 @@ def pin_note(request: Request, id: str, user=Depends(get_verified_user)):
     return note
 
 
-@router.get("/{id}/chat", response_model=NoteChatResponse)
-def get_note_chat(request: Request, id: str, user=Depends(get_verified_user)):
+@router.get("/{id}/chat", response_model=ChatResponse)
+def get_note_chat_by_id(request: Request, id: str, user=Depends(get_verified_user)):
     _allow_notes(request, user)
     _get_note_for(user, id, "read")
     chats = _note_chats(id, user)
     return chats[0] if chats else _create_note_chat(id, user)
 
 
-@router.get("/{id}/chats", response_model=list[NoteChatResponse])
-def get_note_chats(request: Request, id: str, user=Depends(get_verified_user)):
+@router.get("/{id}/chats", response_model=list[ChatResponse])
+def get_note_chats_by_id(request: Request, id: str, user=Depends(get_verified_user)):
     _allow_notes(request, user)
     _get_note_for(user, id, "read")
     return _note_chats(id, user)
 
 
-@router.post("/{id}/chat", response_model=NoteChatResponse)
-def create_note_chat(request: Request, id: str, user=Depends(get_verified_user)):
+@router.post("/{id}/chat", response_model=ChatResponse)
+def create_note_chat_by_id(request: Request, id: str, user=Depends(get_verified_user)):
     _allow_notes(request, user)
     _get_note_for(user, id, "read")
     return _create_note_chat(id, user)
 
 
-@router.post("/{id}/access/update", response_model=NoteModel)
-def update_note_access(
+@router.post("/{id}/access/update", response_model=Optional[NoteModel])
+def update_note_access_by_id(
     request: Request,
     id: str,
     form_data: NoteAccessGrantsForm,
@@ -536,7 +536,7 @@ def update_note_access(
 
 
 @router.delete("/{id}/delete", response_model=bool)
-def delete_note(request: Request, id: str, user=Depends(get_verified_user)):
+def delete_note_by_id(request: Request, id: str, user=Depends(get_verified_user)):
     _allow_notes(request, user)
     try:
         note = notes_store.get(id)

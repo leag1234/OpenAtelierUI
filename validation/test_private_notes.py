@@ -223,7 +223,7 @@ class PrivateNotesStoreTests(unittest.TestCase):
             owner = SimpleNamespace(id="owner", name="Workshop member", role="user", email="member@example.invalid")
             created_ns, updated_ns = 1792949159000000000, 1792949160000000000
             with patch.object(router.time, "time_ns", side_effect=[created_ns, updated_ns]):
-                created = router.create_note(request, router.NoteForm(title="Private", data=None, meta=None), owner)
+                created = router.create_new_note(request, router.NoteForm(title="Private", data=None, meta=None), owner)
                 pinned_note = router.pin_note(request, created["id"], owner)
                 updated_note = router.update_note(
                     request, created["id"], router.NoteForm(title="Private", data=None, meta=None), owner
@@ -306,7 +306,7 @@ class PrivateNotesStoreTests(unittest.TestCase):
                 }]),
                 [],
             )
-            granted = router.update_note_access(
+            granted = router.update_note_access_by_id(
                 request,
                 created["id"],
                 router.NoteAccessGrantsForm(access_grants=[{
@@ -400,16 +400,16 @@ class PrivateNotesStoreTests(unittest.TestCase):
             prior_chat_module = sys.modules.get("open_webui.models.chats")
             sys.modules["open_webui.models.chats"] = chat_module
             try:
-                first_chat = router.get_note_chat(request, created["id"], owner)
+                first_chat = router.get_note_chat_by_id(request, created["id"], owner)
                 self.assertEqual(first_chat["id"], "chat-1")
                 self.assertEqual(
-                    router.get_note_chat(request, created["id"], owner)["id"],
+                    router.get_note_chat_by_id(request, created["id"], owner)["id"],
                     "chat-1",
                 )
-                second_chat = router.create_note_chat(request, created["id"], owner)
+                second_chat = router.create_note_chat_by_id(request, created["id"], owner)
                 self.assertEqual(second_chat["id"], "chat-2")
                 self.assertEqual(
-                    [chat["id"] for chat in router.get_note_chats(request, created["id"], owner)],
+                    [chat["id"] for chat in router.get_note_chats_by_id(request, created["id"], owner)],
                     ["chat-2", "chat-1"],
                 )
             finally:
@@ -418,12 +418,12 @@ class PrivateNotesStoreTests(unittest.TestCase):
                 else:
                     sys.modules["open_webui.models.chats"] = prior_chat_module
 
-            deletion = router.create_note(
+            deletion = router.create_new_note(
                 request, router.NoteForm(title="Delete exactly"), owner
             )
-            self.assertTrue(router.delete_note(request, deletion["id"], owner))
+            self.assertTrue(router.delete_note_by_id(request, deletion["id"], owner))
             with self.assertRaises(router.HTTPException) as repeated_delete:
-                router.delete_note(request, deletion["id"], owner)
+                router.delete_note_by_id(request, deletion["id"], owner)
             self.assertEqual(repeated_delete.exception.status_code, 404)
             bad = router.NoteForm(title="Private", data={"x": float("nan")})
             with self.assertRaises(router.HTTPException) as nonfinite:
