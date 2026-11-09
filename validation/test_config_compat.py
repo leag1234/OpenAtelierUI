@@ -68,7 +68,7 @@ class ConfigurationCompatibilityTests(unittest.TestCase):
     def test_baseline_connection_body_preserves_current_additive_default(self):
         source = ROUTER.read_text()
         self.assertIn("ENABLE_DIRECT_INTEGRATIONS: Optional[bool] = None", source)
-        self.assertIn("if form_data.ENABLE_DIRECT_INTEGRATIONS is not None", source)
+        self.assertIn("else request.app.state.config.ENABLE_DIRECT_INTEGRATIONS", source)
 
 
 if __name__ == "__main__":

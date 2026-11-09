@@ -96,8 +96,11 @@ async def set_connections_config(
 ):
     request.app.state.config.ENABLE_DIRECT_CONNECTIONS = form_data.ENABLE_DIRECT_CONNECTIONS
     request.app.state.config.ENABLE_BASE_MODELS_CACHE = form_data.ENABLE_BASE_MODELS_CACHE
-    if form_data.ENABLE_DIRECT_INTEGRATIONS is not None:
-        request.app.state.config.ENABLE_DIRECT_INTEGRATIONS = form_data.ENABLE_DIRECT_INTEGRATIONS
+    request.app.state.config.ENABLE_DIRECT_INTEGRATIONS = (
+        form_data.ENABLE_DIRECT_INTEGRATIONS
+        if form_data.ENABLE_DIRECT_INTEGRATIONS is not None
+        else request.app.state.config.ENABLE_DIRECT_INTEGRATIONS
+    )
     return _connections_config(request)
 
 
