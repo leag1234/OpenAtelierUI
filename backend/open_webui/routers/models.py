@@ -22,6 +22,17 @@ from open_webui.utils.imported_history import (
     get_current_version_id as get_imported_model_current_version_id,
     list_history as list_imported_model_history,
 )
+from open_webui.utils.version_history import (
+    VersionHistoryNotFound,
+    VersionHistoryUnavailable,
+    append_version,
+    current_version_id,
+    delete_version,
+    ensure_root,
+    get_version,
+    list_versions,
+    select_version,
+)
 from open_webui.constants import ERROR_MESSAGES
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
@@ -50,6 +61,42 @@ class ModelsImportForm(BaseModel):
 
 class SyncModelsForm(BaseModel):
     models: list[ModelModel] = []
+
+
+class ModelVersionForm(BaseModel):
+    version_id: str
+
+
+class ModelHistoryModel(BaseModel):
+    id: str
+    model_id: str
+    parent_id: Optional[str] = None
+    user_id: str
+    commit_message: Optional[str] = None
+    created_at: int
+    user: Optional[dict[str, Any]] = None
+    snapshot: dict[str, Any]
+
+
+def _model_snapshot(model) -> dict:
+    return {
+        "name": model.name,
+        "base_model_id": model.base_model_id,
+        "params": model.params.model_dump(),
+        "meta": model.meta.model_dump(),
+    }
+
+
+def _record_model(model, user_id: str, commit_message: Optional[str]) -> str:
+    return append_version(
+        DATA_DIR,
+        "model",
+        model.id,
+        model.user_id,
+        _model_snapshot(model),
+        user_id,
+        commit_message,
+    )
 
 
 @router.post("/import", response_model=bool)
@@ -110,11 +157,14 @@ def _visible_models(user):
 
 def _current_version_id(model):
     try:
-        return get_imported_model_current_version_id(
-            DATA_DIR, DATABASE_URL, "model", model
-        )
-    except (HistoryNotFound, HistoryUnavailable):
-        return local_model_version_id(model)
+        return current_version_id(DATA_DIR, "model", model.id, model.user_id)
+    except VersionHistoryNotFound:
+        try:
+            return get_imported_model_current_version_id(
+                DATA_DIR, DATABASE_URL, "model", model
+            )
+        except (HistoryNotFound, HistoryUnavailable):
+            return local_model_version_id(model)
 
 
 def _model_owner(model):
@@ -262,6 +312,9 @@ async def create_new_model(
     else:
         model = Models.insert_new_model(form_data, user.id)
         if model:
+            model.version_id = _record_model(
+                model, user.id, form_data.commit_message
+            )
             response = model.model_dump()
             response.update(_model_access_fields(model, user))
             response["user"] = None
@@ -293,13 +346,7 @@ async def get_model_by_id(id: str, user=Depends(get_verified_user)):
             response["user"] = None
             if user.role != "admin" and model.user_id != user.id:
                 response["params"] = {}
-            response["version_id"] = None
-            try:
-                response["version_id"] = get_imported_model_current_version_id(
-                    DATA_DIR, DATABASE_URL, "model", model
-                )
-            except (HistoryNotFound, HistoryUnavailable):
-                pass
+            response["version_id"] = _current_version_id(model)
             return response
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -369,6 +416,14 @@ async def list_imported_model_versions(id: str, page: int = 1, user=Depends(get_
     if user.role != "admin" and model.user_id != user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
     try:
+        return list_versions(
+            DATA_DIR, "model", model.id, model.user_id, page, Users.get_user_by_id
+        )
+    except VersionHistoryNotFound:
+        pass
+    except VersionHistoryUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error))
+    try:
         return list_imported_model_history(DATA_DIR, DATABASE_URL, "model", model, page, Users.get_user_by_id)
     except HistoryNotFound:
         raise HTTPException(status_code=404, detail="We could not find what you're looking for :/")
@@ -377,21 +432,108 @@ async def list_imported_model_versions(id: str, page: int = 1, user=Depends(get_
 
 
 @router.get(
-    "/model/history/{version_id}",
-    operation_id="get_model_history_version_api_v1_models_model_history__version_id__get",
+    "/model/history/{history_id}",
+    response_model=ModelHistoryModel,
+    operation_id="get_model_history_entry_api_v1_models_model_history__history_id__get",
 )
-async def read_imported_model_version(id: str, version_id: str, user=Depends(get_verified_user)):
+async def get_model_history_entry(id: str, history_id: str, user=Depends(get_verified_user)):
     model = Models.get_model_by_id(id)
     if not model:
         raise HTTPException(status_code=404, detail="We could not find what you're looking for :/")
     if user.role != "admin" and model.user_id != user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
     try:
-        return get_imported_model_history(DATA_DIR, DATABASE_URL, "model", model, version_id, Users.get_user_by_id)
+        return get_version(
+            DATA_DIR,
+            "model",
+            model.id,
+            model.user_id,
+            history_id,
+            Users.get_user_by_id,
+        )
+    except VersionHistoryNotFound:
+        pass
+    except VersionHistoryUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error))
+    try:
+        return get_imported_model_history(DATA_DIR, DATABASE_URL, "model", model, history_id, Users.get_user_by_id)
     except HistoryNotFound:
         raise HTTPException(status_code=404, detail="Model version not found")
     except HistoryUnavailable as error:
         raise HTTPException(status_code=503, detail=str(error))
+
+
+@router.delete(
+    "/model/history/{history_id}",
+    response_model=bool,
+    operation_id="delete_model_history_entry_api_v1_models_model_history__history_id__delete",
+)
+async def delete_model_history_entry(
+    history_id: str, id: str, user=Depends(get_verified_user)
+):
+    model = Models.get_model_by_id(id)
+    if not model:
+        raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+    if user.role != "admin" and model.user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+        )
+    try:
+        return delete_version(DATA_DIR, "model", model.id, model.user_id, history_id)
+    except VersionHistoryNotFound:
+        raise HTTPException(status_code=404, detail="Model version not found")
+    except VersionHistoryUnavailable as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+
+@router.post(
+    "/model/update/version",
+    response_model=ModelModel,
+    operation_id="set_model_version_api_v1_models_model_update_version_post",
+)
+async def set_model_version(
+    id: str,
+    form_data: ModelVersionForm,
+    user=Depends(get_verified_user),
+):
+    model = Models.get_model_by_id(id)
+    if not model:
+        raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+    if user.role != "admin" and model.user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+        )
+    try:
+        entry = get_version(
+            DATA_DIR,
+            "model",
+            model.id,
+            model.user_id,
+            form_data.version_id,
+            Users.get_user_by_id,
+        )
+        selected = ModelForm(
+            id=id,
+            **entry["snapshot"],
+            access_control=model.access_control,
+            is_active=model.is_active,
+        )
+        updated = Models.update_model_by_id(id, selected)
+        if not updated:
+            raise VersionHistoryUnavailable("Error selecting model version")
+        select_version(DATA_DIR, "model", model.id, model.user_id, form_data.version_id)
+        response = updated.model_dump(mode="json", exclude={"access_control"})
+        response["access_grants"] = access_grants_for_acl(
+            updated.access_control, "model", updated.id, updated.created_at
+        )
+        response["version_id"] = form_data.version_id
+        return JSONResponse(content=response)
+    except VersionHistoryNotFound:
+        raise HTTPException(status_code=404, detail="Model version not found")
+    except (VersionHistoryUnavailable, ValueError) as error:
+        raise HTTPException(status_code=400, detail=str(error))
 
 
 @router.post(
@@ -502,6 +644,14 @@ async def update_model_by_id(
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
 
+    ensure_root(
+        DATA_DIR,
+        "model",
+        model.id,
+        model.user_id,
+        _model_snapshot(model),
+        user.id,
+    )
     form_data.access_control = model.access_control
     model = Models.update_model_by_id(id, form_data)
     if not model:
@@ -510,6 +660,9 @@ async def update_model_by_id(
             detail=ERROR_MESSAGES.DEFAULT("Error updating model"),
         )
     response = model.model_dump()
+    response["version_id"] = _record_model(
+        model, user.id, form_data.commit_message
+    )
     response.update(_model_access_fields(model, user))
     response["user"] = None
     return response

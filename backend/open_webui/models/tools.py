@@ -68,6 +68,7 @@ class ToolModel(BaseModel):
 
     updated_at: int  # timestamp in epoch
     created_at: int  # timestamp in epoch
+    version_id: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -101,6 +102,7 @@ class ToolForm(BaseModel):
     content: str
     meta: ToolMeta
     access_control: Optional[dict] = None
+    commit_message: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -119,7 +121,7 @@ class ToolsTable:
         with get_db() as db:
             tool = ToolModel(
                 **{
-                    **form_data.model_dump(),
+                    **form_data.model_dump(exclude={"commit_message"}),
                     "specs": specs,
                     "user_id": user_id,
                     "updated_at": int(time.time()),
@@ -128,7 +130,7 @@ class ToolsTable:
             )
 
             try:
-                result = Tool(**tool.model_dump())
+                result = Tool(**tool.model_dump(exclude={"version_id"}))
                 db.add(result)
                 db.commit()
                 db.refresh(result)

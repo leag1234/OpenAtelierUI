@@ -121,6 +121,7 @@ class ModelModel(BaseModel):
     is_active: bool
     updated_at: int  # timestamp in epoch
     created_at: int  # timestamp in epoch
+    version_id: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -197,6 +198,7 @@ class ModelForm(BaseModel):
     params: ModelParams
     access_control: Optional[dict] = None
     is_active: bool = True
+    commit_message: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -210,7 +212,7 @@ class ModelsTable:
     ) -> Optional[ModelModel]:
         model = ModelModel(
             **{
-                **form_data.model_dump(),
+                **form_data.model_dump(exclude={"commit_message"}),
                 "user_id": user_id,
                 "created_at": int(time.time()),
                 "updated_at": int(time.time()),
@@ -218,7 +220,7 @@ class ModelsTable:
         )
         try:
             with get_db() as db:
-                result = Model(**model.model_dump())
+                result = Model(**model.model_dump(exclude={"version_id"}))
                 db.add(result)
                 db.commit()
                 db.refresh(result)
@@ -300,7 +302,7 @@ class ModelsTable:
                 result = (
                     db.query(Model)
                     .filter_by(id=id)
-                    .update(model.model_dump(exclude={"id"}))
+                    .update(model.model_dump(exclude={"id", "commit_message"}))
                 )
                 db.commit()
 

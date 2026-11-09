@@ -17,11 +17,24 @@ from open_webui.utils.imported_history import (
     get_history as get_imported_function_history,
     list_history as list_imported_function_history,
 )
+from open_webui.utils.version_history import (
+    VersionHistoryNotFound,
+    VersionHistoryUnavailable,
+    append_version,
+    compare_versions,
+    current_version_id,
+    delete_version,
+    ensure_root,
+    get_version,
+    list_versions,
+    select_version,
+)
 from open_webui.utils.plugin import load_function_module_by_id, replace_imports
 from open_webui.utils.bounded_url_loader import LoadUrlForm, load_source_url
 from open_webui.config import CACHE_DIR
 from open_webui.constants import ERROR_MESSAGES
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, WithJsonSchema
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.env import DATA_DIR, DATABASE_URL, SRC_LOG_LEVELS
@@ -44,6 +57,39 @@ class FunctionWithValvesModel(FunctionModel):
 
 class SyncFunctionsForm(BaseModel):
     functions: list[FunctionWithValvesModel] = []
+
+
+class FunctionVersionForm(BaseModel):
+    version_id: str
+
+
+def _function_snapshot(function) -> dict:
+    meta = function.meta.model_dump(exclude={"manifest"})
+    return {"name": function.name, "content": function.content, "meta": meta}
+
+
+def _function_current_version(function) -> Optional[str]:
+    try:
+        return current_version_id(DATA_DIR, "function", function.id, function.user_id)
+    except VersionHistoryNotFound:
+        try:
+            return get_current_function_metadata(
+                DATA_DIR, DATABASE_URL, function
+            )["version_id"]
+        except (HistoryNotFound, HistoryUnavailable):
+            return None
+
+
+def _record_function(function, user_id: str, commit_message: Optional[str]) -> str:
+    return append_version(
+        DATA_DIR,
+        "function",
+        function.id,
+        function.user_id,
+        _function_snapshot(function),
+        user_id,
+        commit_message,
+    )
 
 
 @router.post("/load/url", response_model=Optional[JsonObject])
@@ -161,6 +207,9 @@ async def create_new_function(
             function_cache_dir.mkdir(parents=True, exist_ok=True)
 
             if function:
+                function.version_id = _record_function(
+                    function, user.id, form_data.commit_message
+                )
                 return function
             else:
                 raise HTTPException(
@@ -193,16 +242,23 @@ async def get_function_by_id(id: str, user=Depends(get_admin_user)):
     function = Functions.get_function_by_id(id)
 
     if function:
+        native_reader = globals().get("_function_current_version")
+        native_version_id = native_reader(function) if native_reader else None
         if _FUNCTION_HISTORY_READS:
-            try:
-                metadata = get_current_function_metadata(DATA_DIR, DATABASE_URL, function)
-            except HistoryUnavailable as error:
-                raise HTTPException(status_code=503, detail=str(error))
             response = function.model_dump()
-            response["version_id"] = metadata["version_id"]
-            if "toggle" in metadata:
-                response.setdefault("meta", {})["toggle"] = metadata["toggle"]
+            response["version_id"] = native_version_id
+            if native_version_id is None:
+                try:
+                    metadata = get_current_function_metadata(
+                        DATA_DIR, DATABASE_URL, function
+                    )
+                except HistoryUnavailable as error:
+                    raise HTTPException(status_code=503, detail=str(error))
+                response["version_id"] = metadata["version_id"]
+                if "toggle" in metadata:
+                    response.setdefault("meta", {})["toggle"] = metadata["toggle"]
             return response
+        function.version_id = native_version_id
         return function
     else:
         raise HTTPException(
@@ -217,6 +273,17 @@ async def get_function_history(id: str, page: int = Query(default=1), user=Depen
     function = Functions.get_function_by_id(id)
     if not function:
         raise HTTPException(status_code=404, detail="Not found")
+    native_reader = globals().get("list_versions")
+    if native_reader:
+        try:
+            return native_reader(
+                DATA_DIR, "function", function.id, function.user_id, page, Users.get_user_by_id
+            )
+        except Exception as error:
+            if isinstance(error, globals()["VersionHistoryUnavailable"]):
+                raise HTTPException(status_code=503, detail=str(error))
+            if not isinstance(error, globals()["VersionHistoryNotFound"]):
+                raise
     try:
         return list_imported_function_history(
             DATA_DIR, DATABASE_URL, "function", function, page, Users.get_user_by_id
@@ -235,6 +302,22 @@ async def get_function_history_version(
     function = Functions.get_function_by_id(id)
     if not function:
         raise HTTPException(status_code=404, detail="Not found")
+    native_reader = globals().get("get_version")
+    if native_reader:
+        try:
+            return native_reader(
+                DATA_DIR,
+                "function",
+                function.id,
+                function.user_id,
+                history_id,
+                Users.get_user_by_id,
+            )
+        except Exception as error:
+            if isinstance(error, globals()["VersionHistoryUnavailable"]):
+                raise HTTPException(status_code=503, detail=str(error))
+            if not isinstance(error, globals()["VersionHistoryNotFound"]):
+                raise
     try:
         return get_imported_function_history(
             DATA_DIR, DATABASE_URL, "function", function, history_id, Users.get_user_by_id
@@ -245,13 +328,123 @@ async def get_function_history_version(
         raise HTTPException(status_code=503, detail=str(error))
 
 
-if _FUNCTION_HISTORY_READS:
-    router.add_api_route(
-        "/id/{id}/history", get_function_history, methods=["GET"]
-    )
-    router.add_api_route(
-        "/id/{id}/history/{history_id}", get_function_history_version, methods=["GET"]
-    )
+router.add_api_route(
+    "/id/{id}/history",
+    get_function_history,
+    methods=["GET"],
+    operation_id="get_function_history_api_v1_functions_id__id__history_get",
+)
+
+
+@router.get(
+    "/id/{id}/history/diff",
+    operation_id="get_function_history_diff_api_v1_functions_id__id__history_diff_get",
+)
+async def get_function_history_diff(
+    id: str,
+    from_id: str,
+    to_id: str,
+    user=Depends(get_admin_user),
+):
+    function = Functions.get_function_by_id(id)
+    if not function:
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        return compare_versions(
+            DATA_DIR,
+            "function",
+            function.id,
+            function.user_id,
+            from_id,
+            to_id,
+            Users.get_user_by_id,
+        )
+    except VersionHistoryNotFound:
+        raise HTTPException(status_code=404, detail="Version not found")
+    except VersionHistoryUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error))
+
+
+@router.delete(
+    "/id/{id}/history/{history_id}",
+    operation_id="delete_function_history_entry_api_v1_functions_id__id__history__history_id__delete",
+)
+async def delete_function_history_entry(
+    id: str, history_id: str, user=Depends(get_admin_user)
+):
+    function = Functions.get_function_by_id(id)
+    if not function:
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        return delete_version(
+            DATA_DIR, "function", function.id, function.user_id, history_id
+        )
+    except VersionHistoryNotFound:
+        raise HTTPException(status_code=404, detail="Version not found")
+    except VersionHistoryUnavailable as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+
+@router.post(
+    "/id/{id}/update/version",
+    response_model=FunctionModel,
+    operation_id="set_function_production_api_v1_functions_id__id__update_version_post",
+)
+async def set_function_production(
+    request: Request,
+    id: str,
+    form_data: FunctionVersionForm,
+    user=Depends(get_admin_user),
+):
+    function = Functions.get_function_by_id(id)
+    if not function:
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        entry = get_version(
+            DATA_DIR,
+            "function",
+            function.id,
+            function.user_id,
+            form_data.version_id,
+            Users.get_user_by_id,
+        )
+        snapshot = entry["snapshot"]
+        selected = FunctionForm(id=id, **snapshot)
+        selected.content = replace_imports(selected.content)
+        module, function_type, frontmatter = load_function_module_by_id(
+            id, content=selected.content
+        )
+        selected.meta.manifest = frontmatter
+        request.app.state.FUNCTIONS[id] = module
+        updated = Functions.update_function_by_id(
+            id,
+            {
+                **selected.model_dump(exclude={"id", "commit_message"}),
+                "type": function_type,
+            },
+        )
+        if not updated:
+            raise VersionHistoryUnavailable("Error selecting function version")
+        select_version(
+            DATA_DIR, "function", function.id, function.user_id, form_data.version_id
+        )
+        response = updated.model_dump(mode="json")
+        response["version_id"] = form_data.version_id
+        response.setdefault("meta", {})["toggle"] = False
+        return JSONResponse(content=response)
+    except VersionHistoryNotFound:
+        raise HTTPException(status_code=404, detail="Version not found")
+    except (VersionHistoryUnavailable, ValueError) as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+
+router.add_api_route(
+    "/id/{id}/history/{history_id}",
+    get_function_history_version,
+    methods=["GET"],
+    operation_id="get_function_history_entry_api_v1_functions_id__id__history__history_id__get",
+    summary="Get Function History Entry",
+)
 
 
 ############################
@@ -318,6 +511,17 @@ async def update_function_by_id(
     request: Request, id: str, form_data: FunctionForm, user=Depends(get_admin_user)
 ):
     try:
+        existing = Functions.get_function_by_id(id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Not found")
+        ensure_root(
+            DATA_DIR,
+            "function",
+            existing.id,
+            existing.user_id,
+            _function_snapshot(existing),
+            user.id,
+        )
         form_data.content = replace_imports(form_data.content)
         function_module, function_type, frontmatter = load_function_module_by_id(
             id, content=form_data.content
@@ -327,12 +531,18 @@ async def update_function_by_id(
         FUNCTIONS = request.app.state.FUNCTIONS
         FUNCTIONS[id] = function_module
 
-        updated = {**form_data.model_dump(exclude={"id"}), "type": function_type}
+        updated = {
+            **form_data.model_dump(exclude={"id", "commit_message"}),
+            "type": function_type,
+        }
         log.debug(updated)
 
         function = Functions.update_function_by_id(id, updated)
 
         if function:
+            function.version_id = _record_function(
+                function, user.id, form_data.commit_message
+            )
             return function
         else:
             raise HTTPException(

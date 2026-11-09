@@ -50,6 +50,7 @@ class FunctionModel(BaseModel):
     is_global: bool = False
     updated_at: int  # timestamp in epoch
     created_at: int  # timestamp in epoch
+    version_id: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -76,6 +77,7 @@ class FunctionForm(BaseModel):
     name: str
     content: str
     meta: FunctionMeta
+    commit_message: Optional[str] = None
 
 
 class FunctionValves(BaseModel):
@@ -88,7 +90,7 @@ class FunctionsTable:
     ) -> Optional[FunctionModel]:
         function = FunctionModel(
             **{
-                **form_data.model_dump(),
+                **form_data.model_dump(exclude={"commit_message"}),
                 "user_id": user_id,
                 "type": type,
                 "updated_at": int(time.time()),
@@ -98,7 +100,7 @@ class FunctionsTable:
 
         try:
             with get_db() as db:
-                result = Function(**function.model_dump())
+                result = Function(**function.model_dump(exclude={"version_id"}))
                 db.add(result)
                 db.commit()
                 db.refresh(result)

@@ -21,12 +21,25 @@ from open_webui.utils.imported_history import (
     get_current_version_id as get_imported_tool_current_version_id,
     list_history as list_imported_tool_history,
 )
+from open_webui.utils.version_history import (
+    VersionHistoryNotFound,
+    VersionHistoryUnavailable,
+    append_version,
+    compare_versions,
+    current_version_id,
+    delete_version,
+    ensure_root,
+    get_version,
+    list_versions,
+    select_version,
+)
 from open_webui.utils.plugin import load_tool_module_by_id, replace_imports
 from open_webui.utils.bounded_url_loader import LoadUrlForm, load_source_url
 from open_webui.config import CACHE_DIR
 from open_webui.constants import ERROR_MESSAGES
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import WithJsonSchema
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, WithJsonSchema
 from open_webui.utils.tools import (
     _named_server_config,
     _tool_server_connection_binding,
@@ -53,6 +66,50 @@ router = APIRouter()
 JsonObject = Annotated[
     dict[str, Any], WithJsonSchema({"type": "object", "additionalProperties": True})
 ]
+
+
+class ToolVersionForm(BaseModel):
+    version_id: str
+
+
+def _tool_snapshot(tool) -> dict:
+    return {
+        "name": tool.name,
+        "content": tool.content,
+        "meta": tool.meta.model_dump(exclude={"manifest"}),
+    }
+
+
+def _tool_current_version(tool) -> Optional[str]:
+    try:
+        return current_version_id(DATA_DIR, "tool", tool.id, tool.user_id)
+    except VersionHistoryNotFound:
+        try:
+            return get_imported_tool_current_version_id(
+                DATA_DIR, DATABASE_URL, "tool", tool
+            )
+        except (HistoryNotFound, HistoryUnavailable):
+            return None
+
+
+def _record_tool(tool, user_id: str, commit_message: Optional[str]) -> str:
+    return append_version(
+        DATA_DIR,
+        "tool",
+        tool.id,
+        tool.user_id,
+        _tool_snapshot(tool),
+        user_id,
+        commit_message,
+    )
+
+
+def _require_tool_owner(tool, user) -> None:
+    if user.role != "admin" and tool.user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+        )
 
 
 @router.post("/load/url", response_model=Optional[JsonObject])
@@ -369,6 +426,9 @@ async def create_new_tools(
             tool_cache_dir.mkdir(parents=True, exist_ok=True)
 
             if tools:
+                tools.version_id = _record_tool(
+                    tools, user.id, form_data.commit_message
+                )
                 response = tools.model_dump(exclude={"content", "specs"})
                 response.update(_tool_access_fields(tools, user))
                 response["user"] = None
@@ -411,13 +471,7 @@ async def get_tools_by_id(id: str, user=Depends(get_verified_user)):
             response["user"] = None
             if tools.user_id != user.id and user.role != "admin":
                 response.pop("content", None)
-            response["version_id"] = None
-            try:
-                response["version_id"] = get_imported_tool_current_version_id(
-                    DATA_DIR, DATABASE_URL, "tool", tools
-                )
-            except (HistoryNotFound, HistoryUnavailable):
-                pass
+            response["version_id"] = _tool_current_version(tools)
             return response
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -435,8 +489,15 @@ async def get_tool_history(id: str, page: int = 1, user=Depends(get_verified_use
     tool = Tools.get_tool_by_id(id)
     if not tool:
         raise HTTPException(status_code=404, detail="Not found")
-    if user.role != "admin" and tool.user_id != user.id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+    _require_tool_owner(tool, user)
+    try:
+        return list_versions(
+            DATA_DIR, "tool", tool.id, tool.user_id, page, Users.get_user_by_id
+        )
+    except VersionHistoryNotFound:
+        pass
+    except VersionHistoryUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error))
     try:
         return list_imported_tool_history(DATA_DIR, DATABASE_URL, "tool", tool, page, Users.get_user_by_id)
     except HistoryNotFound:
@@ -445,19 +506,140 @@ async def get_tool_history(id: str, page: int = 1, user=Depends(get_verified_use
         raise HTTPException(status_code=503, detail=str(error))
 
 
-@router.get("/id/{id}/history/{version_id}")
-async def get_tool_history_version(id: str, version_id: str, user=Depends(get_verified_user)):
+async def get_tool_history_version(id: str, history_id: str, user=Depends(get_verified_user)):
     tool = Tools.get_tool_by_id(id)
     if not tool:
         raise HTTPException(status_code=404, detail="Not found")
-    if user.role != "admin" and tool.user_id != user.id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+    _require_tool_owner(tool, user)
     try:
-        return get_imported_tool_history(DATA_DIR, DATABASE_URL, "tool", tool, version_id, Users.get_user_by_id)
+        return get_version(
+            DATA_DIR,
+            "tool",
+            tool.id,
+            tool.user_id,
+            history_id,
+            Users.get_user_by_id,
+        )
+    except VersionHistoryNotFound:
+        pass
+    except VersionHistoryUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error))
+    try:
+        return get_imported_tool_history(DATA_DIR, DATABASE_URL, "tool", tool, history_id, Users.get_user_by_id)
     except HistoryNotFound:
         raise HTTPException(status_code=404, detail="Version not found")
     except HistoryUnavailable as error:
         raise HTTPException(status_code=503, detail=str(error))
+
+
+@router.get(
+    "/id/{id}/history/diff",
+    operation_id="get_tool_history_diff_api_v1_tools_id__id__history_diff_get",
+)
+async def get_tool_history_diff(
+    id: str, from_id: str, to_id: str, user=Depends(get_verified_user)
+):
+    tool = Tools.get_tool_by_id(id)
+    if not tool:
+        raise HTTPException(status_code=404, detail="Not found")
+    _require_tool_owner(tool, user)
+    try:
+        return compare_versions(
+            DATA_DIR,
+            "tool",
+            tool.id,
+            tool.user_id,
+            from_id,
+            to_id,
+            Users.get_user_by_id,
+        )
+    except VersionHistoryNotFound:
+        raise HTTPException(status_code=404, detail="Version not found")
+    except VersionHistoryUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error))
+
+
+@router.delete(
+    "/id/{id}/history/{history_id}",
+    operation_id="delete_tool_history_entry_api_v1_tools_id__id__history__history_id__delete",
+)
+async def delete_tool_history_entry(
+    id: str, history_id: str, user=Depends(get_verified_user)
+):
+    tool = Tools.get_tool_by_id(id)
+    if not tool:
+        raise HTTPException(status_code=404, detail="Not found")
+    _require_tool_owner(tool, user)
+    try:
+        return delete_version(DATA_DIR, "tool", tool.id, tool.user_id, history_id)
+    except VersionHistoryNotFound:
+        raise HTTPException(status_code=404, detail="Version not found")
+    except VersionHistoryUnavailable as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+
+@router.post(
+    "/id/{id}/update/version",
+    response_model=ToolModel,
+    operation_id="set_tool_production_api_v1_tools_id__id__update_version_post",
+)
+async def set_tool_production(
+    request: Request,
+    id: str,
+    form_data: ToolVersionForm,
+    user=Depends(get_verified_user),
+):
+    tool = Tools.get_tool_by_id(id)
+    if not tool:
+        raise HTTPException(status_code=404, detail="Not found")
+    _require_tool_owner(tool, user)
+    try:
+        entry = get_version(
+            DATA_DIR,
+            "tool",
+            tool.id,
+            tool.user_id,
+            form_data.version_id,
+            Users.get_user_by_id,
+        )
+        selected = ToolForm(id=id, **entry["snapshot"])
+        selected.content = replace_imports(selected.content)
+        module, frontmatter = load_tool_module_by_id(id, content=selected.content)
+        selected.meta.manifest = frontmatter
+        request.app.state.TOOLS[id] = module
+        specs = get_tool_specs(module)
+        updated = Tools.update_tool_by_id(
+            id,
+            {
+                **selected.model_dump(exclude={"id", "commit_message", "access_control"}),
+                "access_control": tool.access_control,
+                "specs": specs,
+            },
+        )
+        if not updated:
+            raise VersionHistoryUnavailable("Error selecting tool version")
+        select_version(DATA_DIR, "tool", tool.id, tool.user_id, form_data.version_id)
+        response = updated.model_dump(mode="json", exclude={"access_control"})
+        response["access_grants"] = access_grants_for_acl(
+            updated.access_control, "tool", updated.id, updated.created_at
+        )
+        response.setdefault("meta", {})["has_user_valves"] = False
+        response["meta"].setdefault("i18n", None)
+        response["version_id"] = form_data.version_id
+        return JSONResponse(content=response)
+    except VersionHistoryNotFound:
+        raise HTTPException(status_code=404, detail="Version not found")
+    except (VersionHistoryUnavailable, ValueError) as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+
+router.add_api_route(
+    "/id/{id}/history/{history_id}",
+    get_tool_history_version,
+    methods=["GET"],
+    operation_id="get_tool_history_entry_api_v1_tools_id__id__history__history_id__get",
+    summary="Get Tool History Entry",
+)
 
 
 @router.post("/id/{id}/access/update")
@@ -530,6 +712,14 @@ async def update_tools_by_id(
         )
 
     try:
+        ensure_root(
+            DATA_DIR,
+            "tool",
+            tools.id,
+            tools.user_id,
+            _tool_snapshot(tools),
+            user.id,
+        )
         form_data.content = replace_imports(form_data.content)
         tool_module, frontmatter = load_tool_module_by_id(id, content=form_data.content)
         form_data.meta.manifest = frontmatter
@@ -540,7 +730,7 @@ async def update_tools_by_id(
         specs = get_tool_specs(TOOLS[id])
 
         updated = {
-            **form_data.model_dump(exclude={"id"}),
+            **form_data.model_dump(exclude={"id", "commit_message"}),
             "specs": specs,
         }
         updated = preserve_access_control_for_update(updated, tools.access_control)
@@ -549,6 +739,9 @@ async def update_tools_by_id(
         tools = Tools.update_tool_by_id(id, updated)
 
         if tools:
+            tools.version_id = _record_tool(
+                tools, user.id, form_data.commit_message
+            )
             response = tools.model_dump()
             response.update(_tool_access_fields(tools, user))
             response["user"] = None
