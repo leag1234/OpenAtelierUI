@@ -908,6 +908,12 @@ TOOL_SERVER_CONNECTIONS = PersistentConfig(
     [],
 )
 
+TERMINAL_SERVER_CONNECTIONS = PersistentConfig(
+    "TERMINAL_SERVER_CONNECTIONS",
+    "terminal_server.connections",
+    [],
+)
+
 ####################################
 # WEBUI
 ####################################

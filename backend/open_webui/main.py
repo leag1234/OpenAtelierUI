@@ -161,6 +161,7 @@ from open_webui.config import (
     SUBAGENTS_SYSTEM_PROMPT,
     # Tool Server Configs
     TOOL_SERVER_CONNECTIONS,
+    TERMINAL_SERVER_CONNECTIONS,
     # Code Execution
     ENABLE_CODE_EXECUTION,
     CODE_EXECUTION_ENGINE,
@@ -601,6 +602,7 @@ app.state.OPENAI_MODELS = {}
 ########################################
 
 app.state.config.TOOL_SERVER_CONNECTIONS = TOOL_SERVER_CONNECTIONS
+app.state.config.TERMINAL_SERVER_CONNECTIONS = TERMINAL_SERVER_CONNECTIONS
 app.state.TOOL_SERVERS = []
 
 ########################################

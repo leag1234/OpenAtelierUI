@@ -1,7 +1,10 @@
+import aiohttp
+
 from fastapi import APIRouter, Depends, Request, HTTPException
 from pydantic import BaseModel, ConfigDict
 
 from typing import Optional
+from urllib.parse import quote
 
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.config import get_config, save_config
@@ -256,6 +259,206 @@ async def verify_tool_servers_config(
             status_code=400,
             detail=f"Failed to connect to the tool server: {str(e)}",
         )
+
+
+############################
+# TerminalServers Config
+############################
+
+
+class TerminalServerConnection(BaseModel):
+    url: str
+    path: Optional[str] = "/openapi.json"
+    auth_type: Optional[str] = "bearer"
+    key: Optional[str] = ""
+    config: Optional[dict] = None
+    enabled: Optional[bool] = True
+    id: Optional[str] = ""
+    name: Optional[str] = ""
+    policy_id: Optional[str] = None
+    server_type: Optional[str] = None
+    forward_cookies: bool = False
+
+    model_config = ConfigDict(extra="allow")
+
+
+class TerminalServersConfigForm(BaseModel):
+    TERMINAL_SERVER_CONNECTIONS: list[TerminalServerConnection]
+
+
+class TerminalServerPolicyForm(BaseModel):
+    url: str
+    policy_id: str
+    auth_type: Optional[str] = "bearer"
+    key: Optional[str] = ""
+    policy_data: Optional[dict] = None
+
+
+class TerminalServerLifecycleForm(BaseModel):
+    url: str
+    policy_id: str
+    auth_type: Optional[str] = "bearer"
+    key: Optional[str] = ""
+    lifecycle_data: Optional[dict] = None
+
+
+class TerminalServerRefreshForm(BaseModel):
+    url: str
+    auth_type: Optional[str] = "bearer"
+    key: Optional[str] = ""
+    policy_id: Optional[str] = None
+    user_id: Optional[str] = None
+    only_idle: bool = True
+    reset: bool = False
+
+
+def _terminal_server_headers(auth_type, key, include_content_type=False):
+    headers = {"Accept": "application/json"}
+    if include_content_type:
+        headers["Content-Type"] = "application/json"
+    if auth_type == "bearer" and key:
+        headers["Authorization"] = f"Bearer {key}"
+    return headers
+
+
+async def _terminal_server_request(
+    method, url, auth_type="bearer", key="", body=None, include_content_type=False
+):
+    headers = _terminal_server_headers(auth_type, key, include_content_type)
+    timeout = aiohttp.ClientTimeout(total=15, connect=5)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout, trust_env=False) as session:
+            async with session.request(
+                method,
+                url,
+                headers=headers,
+                json=body,
+                allow_redirects=False,
+            ) as response:
+                payload = await response.json(content_type=None)
+                if response.status != 200:
+                    raise RuntimeError(payload)
+                return payload
+    except HTTPException:
+        raise
+    except Exception as error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to connect to the terminal server: {error}",
+        ) from error
+
+
+def _terminal_server_url(base, path):
+    return base.rstrip("/") + "/" + path.lstrip("/")
+
+
+@router.get("/terminal_servers", response_model=TerminalServersConfigForm)
+async def get_terminal_servers_config(request: Request, user=Depends(get_admin_user)):
+    return {
+        "TERMINAL_SERVER_CONNECTIONS": request.app.state.config.TERMINAL_SERVER_CONNECTIONS,
+    }
+
+
+@router.post("/terminal_servers", response_model=TerminalServersConfigForm)
+async def set_terminal_servers_config(
+    request: Request,
+    form_data: TerminalServersConfigForm,
+    user=Depends(get_admin_user),
+):
+    request.app.state.config.TERMINAL_SERVER_CONNECTIONS = [
+        connection.model_dump() for connection in form_data.TERMINAL_SERVER_CONNECTIONS
+    ]
+    return {
+        "TERMINAL_SERVER_CONNECTIONS": request.app.state.config.TERMINAL_SERVER_CONNECTIONS,
+    }
+
+
+@router.post("/terminal_servers/verify")
+async def verify_terminal_server_config(
+    form_data: TerminalServerConnection,
+    user=Depends(get_admin_user),
+):
+    if form_data.policy_id:
+        policy_id = quote(form_data.policy_id, safe="")
+        await _terminal_server_request(
+            "GET",
+            _terminal_server_url(form_data.url, f"p/{policy_id}/openapi.json"),
+            form_data.auth_type,
+            form_data.key,
+            include_content_type=True,
+        )
+        await _terminal_server_request(
+            "GET",
+            _terminal_server_url(form_data.url, "api/v1/policies"),
+            form_data.auth_type,
+            form_data.key,
+        )
+        return {"status": True, "type": "orchestrator"}
+    await _terminal_server_request(
+        "GET",
+        _terminal_server_url(form_data.url, form_data.path or "/openapi.json"),
+        form_data.auth_type,
+        form_data.key,
+        include_content_type=True,
+    )
+    return {"status": True, "type": "openapi"}
+
+
+@router.post("/terminal_servers/policy")
+async def update_terminal_server_policy(
+    form_data: TerminalServerPolicyForm,
+    user=Depends(get_admin_user),
+):
+    policy_id = quote(form_data.policy_id, safe="")
+    return await _terminal_server_request(
+        "PUT",
+        _terminal_server_url(form_data.url, f"api/v1/policies/{policy_id}"),
+        form_data.auth_type,
+        form_data.key,
+        form_data.policy_data,
+        include_content_type=True,
+    )
+
+
+@router.post("/terminal_servers/lifecycle")
+async def update_terminal_server_lifecycle(
+    form_data: TerminalServerLifecycleForm,
+    user=Depends(get_admin_user),
+):
+    policy_id = quote(form_data.policy_id, safe="")
+    return await _terminal_server_request(
+        "PUT",
+        _terminal_server_url(
+            form_data.url, f"api/v1/policies/{policy_id}/lifecycle"
+        ),
+        form_data.auth_type,
+        form_data.key,
+        form_data.lifecycle_data,
+        include_content_type=True,
+    )
+
+
+@router.post("/terminal_servers/refresh")
+async def refresh_terminal_server(
+    form_data: TerminalServerRefreshForm,
+    user=Depends(get_admin_user),
+):
+    body = {
+        "only_idle": form_data.only_idle,
+        "reset": form_data.reset,
+    }
+    if form_data.policy_id is not None:
+        body["policy_id"] = form_data.policy_id
+    if form_data.user_id is not None:
+        body["user_id"] = form_data.user_id
+    return await _terminal_server_request(
+        "POST",
+        _terminal_server_url(form_data.url, "api/v1/terminals/refresh"),
+        form_data.auth_type,
+        form_data.key,
+        body,
+        include_content_type=True,
+    )
 
 
 ############################
