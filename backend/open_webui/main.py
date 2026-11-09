@@ -50,6 +50,7 @@ from open_webui.utils import logger
 from open_webui.utils.audit import AuditLevel, AuditLoggingMiddleware
 from open_webui.utils.logger import start_logger
 from open_webui.socket.main import (
+    USAGE_POOL,
     app as socket_app,
     periodic_usage_pool_cleanup,
 )
@@ -1862,6 +1863,31 @@ async def healthcheck():
 async def healthcheck_with_db():
     Session.execute(text("SELECT 1;")).all()
     return {"status": True}
+
+
+@app.get(
+    "/ready",
+    summary="Readiness Check",
+    description="Returns 200 only when the application is ready to accept traffic.",
+)
+async def readiness_check():
+    Session.execute(text("SELECT 1;")).all()
+    return {"status": True}
+
+
+@app.get(
+    "/api/usage",
+    summary="Get Current Usage",
+    description=(
+        "Get current usage statistics for Open WebUI.\n"
+        "This is an experimental endpoint and subject to change."
+    ),
+)
+async def get_current_usage(user=Depends(get_verified_user)):
+    return {
+        "model_ids": list(USAGE_POOL.keys()),
+        "user_count": Users.get_num_users(),
+    }
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
