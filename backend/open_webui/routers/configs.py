@@ -1,9 +1,9 @@
 import aiohttp
 
 from fastapi import APIRouter, Depends, Request, HTTPException
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, WithJsonSchema
 
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 from urllib.parse import quote
 
 from open_webui.utils.auth import get_admin_user, get_verified_user
@@ -266,12 +266,18 @@ async def verify_tool_servers_config(
 ############################
 
 
+TerminalServerObject = Annotated[
+    dict[str, Any],
+    WithJsonSchema({"type": "object", "additionalProperties": True}),
+]
+
+
 class TerminalServerConnection(BaseModel):
     url: str
     path: Optional[str] = "/openapi.json"
     auth_type: Optional[str] = "bearer"
     key: Optional[str] = ""
-    config: Optional[dict[str, Any]] = None
+    config: Optional[TerminalServerObject] = None
     enabled: Optional[bool] = True
     id: Optional[str] = ""
     name: Optional[str] = ""
@@ -291,7 +297,7 @@ class TerminalServerPolicyForm(BaseModel):
     policy_id: str
     auth_type: Optional[str] = "bearer"
     key: Optional[str] = ""
-    policy_data: Optional[dict[str, Any]] = None
+    policy_data: Optional[TerminalServerObject] = None
 
 
 class TerminalServerLifecycleForm(BaseModel):
@@ -299,7 +305,7 @@ class TerminalServerLifecycleForm(BaseModel):
     policy_id: str
     auth_type: Optional[str] = "bearer"
     key: Optional[str] = ""
-    lifecycle_data: Optional[dict[str, Any]] = None
+    lifecycle_data: Optional[TerminalServerObject] = None
 
 
 class TerminalServerRefreshForm(BaseModel):
@@ -352,14 +358,14 @@ def _terminal_server_url(base, path):
     return base.rstrip("/") + "/" + path.lstrip("/")
 
 
-@router.get("/terminal_servers", response_model=TerminalServersConfigForm)
+@router.get("/terminal_servers")
 async def get_terminal_servers_config(request: Request, user=Depends(get_admin_user)):
     return {
         "TERMINAL_SERVER_CONNECTIONS": request.app.state.config.TERMINAL_SERVER_CONNECTIONS,
     }
 
 
-@router.post("/terminal_servers", response_model=TerminalServersConfigForm)
+@router.post("/terminal_servers")
 async def set_terminal_servers_config(
     request: Request,
     form_data: TerminalServersConfigForm,
