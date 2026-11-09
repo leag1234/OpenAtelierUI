@@ -80,6 +80,7 @@ from open_webui.routers import (
     utils,
     analytics,
     notifications,
+    events,
 )
 
 
@@ -306,6 +307,7 @@ from open_webui.config import (
     WEBUI_NAME,
     WEBUI_BANNERS,
     WEBHOOK_URL,
+    EVENT_WEBHOOKS,
     ADMIN_EMAIL,
     SHOW_ADMIN_DETAILS,
     JWT_EXPIRES_IN,
@@ -651,6 +653,7 @@ app.state.config.DEFAULT_USER_ROLE = DEFAULT_USER_ROLE
 
 app.state.config.USER_PERMISSIONS = USER_PERMISSIONS
 app.state.config.WEBHOOK_URL = WEBHOOK_URL
+app.state.config.EVENT_WEBHOOKS = EVENT_WEBHOOKS
 app.state.config.BANNERS = WEBUI_BANNERS
 app.state.config.MODEL_ORDER_LIST = MODEL_ORDER_LIST
 
@@ -1089,6 +1092,7 @@ app.include_router(auths.router, prefix="/api/v1/auths", tags=["auths"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
 app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["analytics"])
 app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["notifications"])
+app.include_router(events.router, prefix="/api/events")
 
 
 app.include_router(channels.router, prefix="/api/v1/channels", tags=["channels"])
