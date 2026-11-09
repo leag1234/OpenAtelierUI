@@ -6,7 +6,7 @@ import ast
 import pathlib
 import time
 import uuid
-from typing import Any, Literal, Optional
+from typing import Any, Generic, Literal, Optional, TypeVar
 
 import pytest
 from pydantic import BaseModel, Field, ValidationError
@@ -57,6 +57,20 @@ router_types = _load_definitions(
 FolderTable = model_types["FolderTable"]
 folder_permission_for_grants = model_types["folder_permission_for_grants"]
 FolderAccessGrantsForm = router_types["FolderAccessGrantsForm"]
+
+
+def _persistent_config_type(persisted, enabled):
+    namespace = {
+        "ENABLE_PERSISTENT_CONFIG": enabled,
+        "Generic": Generic,
+        "PERSISTENT_CONFIG_REGISTRY": [],
+        "T": TypeVar("T"),
+        "get_config_value": lambda _path: persisted,
+        "log": type("Log", (), {"info": staticmethod(lambda _message: None)})(),
+    }
+    return _load_definitions(OPEN_WEBUI / "config.py", {"PersistentConfig"}, namespace)[
+        "PersistentConfig"
+    ]
 
 
 def test_baseline_and_current_grant_forms_are_accepted():
@@ -136,3 +150,17 @@ def test_write_wins_and_group_membership_is_explicit():
     assert folder_permission_for_grants(grants, "member-id") == "read"
     assert folder_permission_for_grants(grants, "member-id", {"writers-id"}) == "write"
     assert folder_permission_for_grants(grants, "unrelated-id") is None
+
+
+def test_user_permission_config_can_retain_admin_choice_when_global_gate_is_off():
+    persisted = {"sharing": {"folders": True}}
+    persistent_config = _persistent_config_type(persisted, enabled=False)
+    ordinary = persistent_config("ORDINARY", "ordinary.path", {"fallback": True})
+    selected = persistent_config(
+        "USER_PERMISSIONS",
+        "user.permissions",
+        {"sharing": {"folders": False}},
+        load_persisted_when_disabled=True,
+    )
+    assert ordinary.value == {"fallback": True}
+    assert selected.value == persisted

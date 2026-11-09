@@ -205,12 +205,20 @@ ENABLE_PERSISTENT_CONFIG = (
 
 
 class PersistentConfig(Generic[T]):
-    def __init__(self, env_name: str, config_path: str, env_value: T):
+    def __init__(
+        self,
+        env_name: str,
+        config_path: str,
+        env_value: T,
+        load_persisted_when_disabled: bool = False,
+    ):
         self.env_name = env_name
         self.config_path = config_path
         self.env_value = env_value
         self.config_value = get_config_value(config_path)
-        if self.config_value is not None and ENABLE_PERSISTENT_CONFIG:
+        if self.config_value is not None and (
+            ENABLE_PERSISTENT_CONFIG or load_persisted_when_disabled
+        ):
             log.info(f"'{env_name}' loaded from the latest database entry")
             self.value = self.config_value
         else:
@@ -1084,6 +1092,7 @@ USER_PERMISSIONS = PersistentConfig(
     "USER_PERMISSIONS",
     "user.permissions",
     DEFAULT_USER_PERMISSIONS,
+    load_persisted_when_disabled=True,
 )
 
 ENABLE_CHANNELS = PersistentConfig(

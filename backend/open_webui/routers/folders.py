@@ -323,9 +323,14 @@ async def update_folder_name_by_id(
     id: str, form_data: FolderForm, user=Depends(get_verified_user)
 ):
     folder = Folders.get_folder_by_id_and_user_id(id, user.id)
+    owner_id = user.id
+    if folder is None and user.role == "admin":
+        folder = Folders.get_folder_by_id(id)
+        if folder is not None:
+            owner_id = folder.user_id
     if folder:
         existing_folder = Folders.get_folder_by_parent_id_and_user_id_and_name(
-            folder.parent_id, user.id, form_data.name
+            folder.parent_id, owner_id, form_data.name
         )
         if existing_folder:
             raise HTTPException(
@@ -335,7 +340,7 @@ async def update_folder_name_by_id(
 
         try:
             folder = Folders.update_folder_name_by_id_and_user_id(
-                id, user.id, form_data.name
+                id, owner_id, form_data.name
             )
 
             return folder
@@ -440,6 +445,13 @@ async def update_folder_is_expanded_by_id(
 async def delete_folder_by_id(
     request: Request, id: str, user=Depends(get_verified_user)
 ):
+    folder = Folders.get_folder_by_id(id)
+    if folder is not None and user.role != "admin" and folder.user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
+        )
+
     chat_delete_permission = has_permission(
         user.id, "chat.delete", request.app.state.config.USER_PERMISSIONS
     )
@@ -450,10 +462,13 @@ async def delete_folder_by_id(
             detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
         )
 
-    folder = Folders.get_folder_by_id_and_user_id(id, user.id)
+    owner_id = (
+        folder.user_id if folder is not None and user.role == "admin" else user.id
+    )
+    folder = Folders.get_folder_by_id_and_user_id(id, owner_id)
     if folder:
         try:
-            result = Folders.delete_folder_by_id_and_user_id(id, user.id)
+            result = Folders.delete_folder_by_id_and_user_id(id, owner_id)
             if result:
                 return result
             else:
