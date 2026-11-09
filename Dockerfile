@@ -170,6 +170,7 @@ COPY --chown=$UID:$GID ./packaging/start-with-atlas.sh /opt/openatelier/start-wi
 COPY --chown=$UID:$GID ./validation/migrate_atlas_copy.py /opt/openatelierui/migration/migrate_copy.py
 COPY --chown=$UID:$GID ./validation/migrate_sqlite.py /opt/openatelierui/migration/migrate_sqlite.py
 COPY --chown=$UID:$GID ./validation/import_private_notes.py /opt/openatelierui/migration/import_private_notes.py
+COPY --chown=$UID:$GID ./validation/fixtures /opt/openatelierui/migration/fixtures
 COPY --chown=$UID:$GID ./backend/open_webui/utils/imported_history.py /opt/openatelierui/backend/open_webui/utils/imported_history.py
 COPY --chown=$UID:$GID ./backend/open_webui/config.py /opt/openatelierui/backend/open_webui/config.py
 COPY --chown=$UID:$GID ./packaging/openatelierui-migrate-v0113 /usr/local/bin/openatelierui-migrate-v0113
