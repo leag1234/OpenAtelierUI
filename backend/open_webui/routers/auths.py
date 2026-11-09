@@ -64,6 +64,10 @@ router = APIRouter()
 PROFILE_FIELDS_ENABLED = user_profile_fields_enabled()
 ProfileUpdateForm = ImportedProfileUpdateForm if PROFILE_FIELDS_ENABLED else UpdateProfileForm
 
+
+class UpdateTimezoneForm(BaseModel):
+    timezone: str
+
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MAIN"])
 
@@ -185,6 +189,23 @@ async def update_profile(
             raise HTTPException(400, detail=ERROR_MESSAGES.DEFAULT())
     else:
         raise HTTPException(400, detail=ERROR_MESSAGES.INVALID_CRED)
+
+
+############################
+# Update Timezone
+############################
+
+
+@router.post("/update/timezone")
+async def update_timezone(
+    form_data: UpdateTimezoneForm, session_user=Depends(get_verified_user)
+):
+    user = Users.update_user_settings_by_id(
+        session_user.id, {"timezone": form_data.timezone}
+    )
+    if user:
+        return {"status": True}
+    raise HTTPException(400, detail=ERROR_MESSAGES.USER_NOT_FOUND)
 
 
 ############################
