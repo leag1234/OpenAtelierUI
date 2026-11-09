@@ -4,6 +4,9 @@ from typing import Literal, Optional
 import logging
 
 from open_webui.models.users import Users
+from open_webui.models.models import Models
+from open_webui.models.tools import Tools
+from open_webui.models.knowledge import Knowledges
 from open_webui.models.groups import (
     Groups,
     GroupForm,
@@ -12,6 +15,8 @@ from open_webui.models.groups import (
     CurrentGroupResponse,
     GroupMembersResponse,
     GroupUserIdsForm,
+    GroupExportResponse,
+    GroupInfoResponse,
 )
 
 from open_webui.config import CACHE_DIR
@@ -20,7 +25,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.env import SRC_LOG_LEVELS
-from open_webui.utils.group_compat import project_group_members, project_group_response
+from open_webui.utils.group_compat import (
+    project_group_export,
+    project_group_info,
+    project_group_members,
+    project_group_preview,
+    project_group_response,
+)
 
 
 log = logging.getLogger(__name__)
@@ -80,6 +91,83 @@ async def get_group_by_id(id: str, user=Depends(get_admin_user)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail="We could not find what you're looking for :/",
         )
+
+
+@router.get("/id/{id}/export", response_model=Optional[GroupExportResponse])
+async def export_group_by_id(id: str, user=Depends(get_admin_user)):
+    group = Groups.get_group_by_id(id)
+    if group:
+        return project_group_export(group)
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="We could not find what you're looking for :/",
+    )
+
+
+@router.get("/id/{id}/info", response_model=Optional[GroupInfoResponse])
+async def get_group_info_by_id(id: str, user=Depends(get_verified_user)):
+    group = Groups.get_group_by_id(id)
+    if group:
+        return project_group_info(group)
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="We could not find what you're looking for :/",
+    )
+
+
+@router.get("/id/{id}/preview")
+async def preview_group_access(
+    request: Request, id: str, user=Depends(get_admin_user)
+):
+    group = Groups.get_group_by_id(id)
+    if group is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="We could not find what you're looking for :/",
+        )
+    return project_group_preview(
+        group,
+        request.app.state.config.USER_PERMISSIONS,
+        Models.get_all_models(),
+        Tools.get_tools(),
+        Knowledges.get_knowledge_bases(),
+    )
+
+
+@router.post("/id/{id}/users")
+async def get_users_in_group(id: str, user=Depends(get_admin_user)):
+    group = Groups.get_group_by_id(id)
+    if group is None:
+        return []
+    raw_ids = group.user_ids if isinstance(group.user_ids, list) else []
+    exact_ids = list(dict.fromkeys(value for value in raw_ids if isinstance(value, str)))
+    users = {entry.id: entry for entry in Users.get_users_by_user_ids(exact_ids)}
+    result = []
+    for user_id in exact_ids:
+        entry = users.get(user_id)
+        if entry is None:
+            continue
+        settings = (
+            entry.settings.model_dump()
+            if hasattr(entry.settings, "model_dump")
+            else entry.settings
+        )
+        result.append(
+            {
+                "id": entry.id,
+                "name": entry.name,
+                "email": entry.email,
+                "role": entry.role,
+                "bio": None,
+                "groups": [],
+                "is_active": False,
+                "status_emoji": None,
+                "status_message": None,
+                "status_expires_at": None,
+                "timezone": settings.get("timezone") if isinstance(settings, dict) else None,
+            }
+        )
+    return result
 
 
 @router.get("/id/{id}/members", response_model=GroupMembersResponse)

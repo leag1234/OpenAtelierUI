@@ -93,6 +93,32 @@ class CurrentGroupResponse(BaseModel):
     updated_at: int
 
 
+class GroupExportResponse(BaseModel):
+    id: str
+    user_id: str
+    name: str
+    description: str
+    permissions: Optional[dict] = None
+    data: Optional[dict] = None
+    meta: Optional[dict] = None
+    parent_group_id: Optional[str] = None
+    member_count: Optional[int] = None
+    user_ids: list[str] = []
+    created_at: int
+    updated_at: int
+
+
+class GroupInfoResponse(BaseModel):
+    id: str
+    user_id: str
+    name: str
+    description: str
+    parent_group_id: Optional[str] = None
+    member_count: Optional[int] = None
+    created_at: int
+    updated_at: int
+
+
 class GroupMemberResponse(BaseModel):
     id: str
     name: str

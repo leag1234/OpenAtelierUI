@@ -3,6 +3,7 @@
 """Narrow current-style projections for the measured flat-group REST bridge."""
 
 from collections.abc import Mapping
+from copy import deepcopy
 
 
 MEMBER_PAGE_SIZE = 30
@@ -32,6 +33,81 @@ def project_group_response(group):
         "member_count": len(exact_ids),
         "created_at": _get(group, "created_at"),
         "updated_at": _get(group, "updated_at"),
+    }
+
+
+def project_group_export(group):
+    """Render the current additive export without mutating stored membership."""
+    projected = project_group_response(group)
+    user_ids = _get(group, "user_ids", [])
+    projected["user_ids"] = list(
+        dict.fromkeys(value for value in user_ids if isinstance(value, str))
+    ) if isinstance(user_ids, list) else []
+    return projected
+
+
+def project_group_info(group):
+    """Expose the deliberately small verified-user group summary."""
+    projected = project_group_response(group)
+    return {
+        key: projected[key]
+        for key in (
+            "id", "user_id", "name", "description", "parent_group_id",
+            "member_count", "created_at", "updated_at",
+        )
+    }
+
+
+def group_has_resource_access(access_control, group_id):
+    """Return whether a legacy ACL directly names the group for read or write."""
+    if not isinstance(access_control, Mapping):
+        return False
+    for permission in ("read", "write"):
+        values = access_control.get(permission, {})
+        if isinstance(values, Mapping) and group_id in values.get("group_ids", []):
+            return True
+    return False
+
+
+def _merge_permissions(base, overlay):
+    result = deepcopy(base) if isinstance(base, Mapping) else {}
+    if not isinstance(overlay, Mapping):
+        return result
+    for key, value in overlay.items():
+        if isinstance(value, Mapping) and isinstance(result.get(key), Mapping):
+            result[key] = _merge_permissions(result[key], value)
+        else:
+            result[key] = deepcopy(value)
+    return result
+
+
+def project_group_preview(group, default_permissions, models=(), tools=(), knowledge=()):
+    """Build the measured flat-group preview, including additive current fields."""
+    group_id = _get(group, "id")
+    direct_permissions = _get(group, "permissions")
+    if not isinstance(direct_permissions, Mapping):
+        direct_permissions = {}
+    inherited = deepcopy(default_permissions) if isinstance(default_permissions, Mapping) else {}
+    effective = _merge_permissions(inherited, direct_permissions)
+
+    def resources(rows):
+        selected = [
+            {"id": _get(row, "id"), "name": _get(row, "name")}
+            for row in rows
+            if group_has_resource_access(_get(row, "access_control"), group_id)
+        ]
+        selected.sort(key=lambda row: (str(row["name"]).casefold(), str(row["id"])))
+        return {"items": selected, "total": len(selected)}
+
+    return {
+        "group": {"id": group_id, "name": _get(group, "name")},
+        "permissions": deepcopy(direct_permissions),
+        "inherited_permissions": inherited,
+        "effective_permissions": effective,
+        "default_models": {"local": None, "effective": [], "source_group_id": None},
+        "models": resources(models),
+        "tools": resources(tools),
+        "knowledge": resources(knowledge),
     }
 
 
