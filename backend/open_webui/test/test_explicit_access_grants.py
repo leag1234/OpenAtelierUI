@@ -9,7 +9,14 @@ import pathlib
 import unittest
 from typing import Any, Optional
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    model_validator,
+)
 
 
 OPEN_WEBUI = pathlib.Path(__file__).resolve().parents[1]
@@ -22,17 +29,22 @@ HELPER_SPEC.loader.exec_module(access_grants)
 convert_explicit_access_grants = access_grants.convert_explicit_access_grants
 access_grants_for_acl = access_grants.access_grants_for_acl
 preserve_access_control_for_update = access_grants.preserve_access_control_for_update
+knowledge_access_control_for_grants = access_grants.knowledge_access_control_for_grants
 
 
 def load_form_classes(path, requested, extra_namespace=None):
     """Compile selected classes verbatim from the checked-in model source."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     classes = [
-        node for node in tree.body if isinstance(node, ast.ClassDef) and node.name in requested
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name in requested
     ]
     found = {node.name for node in classes}
     if found != set(requested):
-        raise AssertionError(f"missing form classes from {path}: {set(requested) - found}")
+        raise AssertionError(
+            f"missing form classes from {path}: {set(requested) - found}"
+        )
     module = ast.Module(body=classes, type_ignores=[])
     namespace = {
         "BaseModel": BaseModel,
@@ -43,6 +55,7 @@ def load_form_classes(path, requested, extra_namespace=None):
         "Optional": Optional,
         "model_validator": model_validator,
         "convert_explicit_access_grants": convert_explicit_access_grants,
+        "knowledge_access_control_for_grants": knowledge_access_control_for_grants,
     }
     if extra_namespace:
         namespace.update(extra_namespace)
@@ -50,17 +63,15 @@ def load_form_classes(path, requested, extra_namespace=None):
     return namespace
 
 
-tool_types = load_form_classes(
-    OPEN_WEBUI / "models/tools.py", {"ToolMeta", "ToolForm"}
-)
+tool_types = load_form_classes(OPEN_WEBUI / "models/tools.py", {"ToolMeta", "ToolForm"})
 model_types = load_form_classes(
     OPEN_WEBUI / "models/models.py", {"ModelParams", "ModelMeta", "ModelForm"}
 )
-knowledge_types = load_form_classes(OPEN_WEBUI / "models/knowledge.py", {"KnowledgeForm"})
-prompt_types = load_form_classes(OPEN_WEBUI / "models/prompts.py", {"PromptForm"})
-channel_types = load_form_classes(
-    OPEN_WEBUI / "models/channels.py", {"ChannelForm"}
+knowledge_types = load_form_classes(
+    OPEN_WEBUI / "models/knowledge.py", {"KnowledgeForm"}
 )
+prompt_types = load_form_classes(OPEN_WEBUI / "models/prompts.py", {"PromptForm"})
+channel_types = load_form_classes(OPEN_WEBUI / "models/channels.py", {"ChannelForm"})
 FORMS = (
     (
         "ToolForm",
@@ -114,7 +125,11 @@ class ExplicitAccessGrantFormTests(unittest.TestCase):
         self.assertEqual(form.access_grants, [])
         self.assertEqual(form.model_dump()["name"], "Workshop prompt")
         legacy = prompt_types["PromptForm"].model_validate(
-            {"command": "workshop", "title": "Legacy title", "content": "Synthetic prompt"}
+            {
+                "command": "workshop",
+                "title": "Legacy title",
+                "content": "Synthetic prompt",
+            }
         )
         self.assertEqual(legacy.name, "Legacy title")
 
@@ -172,15 +187,51 @@ class ExplicitAccessGrantFormTests(unittest.TestCase):
     def test_user_and_public_read_grants_map_to_existing_acl(self):
         for name, form_class, base in FORMS:
             cases = (
-                ([{"principal_type": "user", "principal_id": "member-01", "permission": "read"}],
-                 {"read": {"user_ids": ["member-01"]}}),
-                ([{"principal_type": "group", "principal_id": "group-01", "permission": "read"}],
-                 {"read": {"group_ids": ["group-01"]}}),
-                ([
-                    {"principal_type": "user", "principal_id": "member-01", "permission": "read"},
-                    {"principal_type": "group", "principal_id": "group-01", "permission": "read"},
-                 ], {"read": {"user_ids": ["member-01"], "group_ids": ["group-01"]}}),
-                ([{"principal_type": "user", "principal_id": "*", "permission": "read"}], None),
+                (
+                    [
+                        {
+                            "principal_type": "user",
+                            "principal_id": "member-01",
+                            "permission": "read",
+                        }
+                    ],
+                    {"read": {"user_ids": ["member-01"]}},
+                ),
+                (
+                    [
+                        {
+                            "principal_type": "group",
+                            "principal_id": "group-01",
+                            "permission": "read",
+                        }
+                    ],
+                    {"read": {"group_ids": ["group-01"]}},
+                ),
+                (
+                    [
+                        {
+                            "principal_type": "user",
+                            "principal_id": "member-01",
+                            "permission": "read",
+                        },
+                        {
+                            "principal_type": "group",
+                            "principal_id": "group-01",
+                            "permission": "read",
+                        },
+                    ],
+                    {"read": {"user_ids": ["member-01"], "group_ids": ["group-01"]}},
+                ),
+                (
+                    [
+                        {
+                            "principal_type": "user",
+                            "principal_id": "*",
+                            "permission": "read",
+                        }
+                    ],
+                    None,
+                ),
             )
             for grants, expected in cases:
                 with self.subTest(form=name, grants=grants):
@@ -192,9 +243,7 @@ class ExplicitAccessGrantFormTests(unittest.TestCase):
             acl = {"read": {"user_ids": ["member-01"]}}
             for grants in (None, []):
                 form = form_class.model_validate(dict(base, access_grants=grants))
-                payload = preserve_access_control_for_update(
-                    form.model_dump(), acl
-                )
+                payload = preserve_access_control_for_update(form.model_dump(), acl)
                 self.assertEqual(payload["access_control"], acl)
             public = preserve_access_control_for_update(
                 form_class.model_validate(dict(base)).model_dump(), None
@@ -217,33 +266,61 @@ class ExplicitAccessGrantFormTests(unittest.TestCase):
             {"read": {"user_ids": ["member-01"]}}, "tool", "resource-01", 123
         )
         self.assertEqual(
-            [{k: grant[k] for k in ("principal_type", "principal_id", "permission")} for grant in targeted],
-            [{"principal_type": "user", "principal_id": "member-01", "permission": "read"}],
+            [
+                {k: grant[k] for k in ("principal_type", "principal_id", "permission")}
+                for grant in targeted
+            ],
+            [
+                {
+                    "principal_type": "user",
+                    "principal_id": "member-01",
+                    "permission": "read",
+                }
+            ],
         )
         self.assertEqual(targeted[0]["resource_type"], "tool")
         self.assertEqual(targeted[0]["resource_id"], "resource-01")
         self.assertEqual(targeted[0]["created_at"], 123)
-        self.assertEqual(access_grants_for_acl(None, "model", "resource-01")[0]["principal_id"], "*")
+        self.assertEqual(
+            access_grants_for_acl(None, "model", "resource-01")[0]["principal_id"], "*"
+        )
         self.assertEqual(access_grants_for_acl({}, "tool", "resource-01"), [])
 
     def test_named_group_read_grants_mix_with_user_read_and_roundtrip(self):
         grants = [
-            {"principal_type": "user", "principal_id": "member-01", "permission": "read"},
-            {"principal_type": "group", "principal_id": "group-01", "permission": "read"},
+            {
+                "principal_type": "user",
+                "principal_id": "member-01",
+                "permission": "read",
+            },
+            {
+                "principal_type": "group",
+                "principal_id": "group-01",
+                "permission": "read",
+            },
         ]
         expected_acl = {"read": {"user_ids": ["member-01"], "group_ids": ["group-01"]}}
         self.assertEqual(access_grants.access_control_for_grants(grants), expected_acl)
         projected = access_grants_for_acl(expected_acl, "tool", "resource-01", 123)
         self.assertEqual(
-            [(grant["principal_type"], grant["principal_id"], grant["permission"]) for grant in projected],
+            [
+                (grant["principal_type"], grant["principal_id"], grant["permission"])
+                for grant in projected
+            ],
             [("user", "member-01", "read"), ("group", "group-01", "read")],
         )
-        self.assertTrue(all(grant["resource_id"] == "resource-01" for grant in projected))
+        self.assertTrue(
+            all(grant["resource_id"] == "resource-01" for grant in projected)
+        )
 
     def test_group_wildcard_and_write_grants_remain_rejected(self):
         for grant in (
             {"principal_type": "group", "principal_id": "*", "permission": "read"},
-            {"principal_type": "group", "principal_id": "group-01", "permission": "write"},
+            {
+                "principal_type": "group",
+                "principal_id": "group-01",
+                "permission": "write",
+            },
         ):
             with self.subTest(grant=grant), self.assertRaises(ValueError):
                 access_grants.access_control_for_grants([grant])
@@ -268,7 +345,11 @@ class ExplicitAccessGrantFormTests(unittest.TestCase):
             ("non-object grant", {"access_grants": [None]}),
             (
                 "missing permission",
-                {"access_grants": [{"principal_type": "user", "principal_id": "member-01"}]},
+                {
+                    "access_grants": [
+                        {"principal_type": "user", "principal_id": "member-01"}
+                    ]
+                },
             ),
             (
                 "extra field",
@@ -287,7 +368,11 @@ class ExplicitAccessGrantFormTests(unittest.TestCase):
                 "write permission",
                 {
                     "access_grants": [
-                        {"principal_type": "user", "principal_id": "member-01", "permission": "write"}
+                        {
+                            "principal_type": "user",
+                            "principal_id": "member-01",
+                            "permission": "write",
+                        }
                     ]
                 },
             ),
@@ -295,8 +380,16 @@ class ExplicitAccessGrantFormTests(unittest.TestCase):
                 "mixed read and write",
                 {
                     "access_grants": [
-                        {"principal_type": "user", "principal_id": "member-01", "permission": "read"},
-                        {"principal_type": "user", "principal_id": "member-02", "permission": "write"},
+                        {
+                            "principal_type": "user",
+                            "principal_id": "member-01",
+                            "permission": "read",
+                        },
+                        {
+                            "principal_type": "user",
+                            "principal_id": "member-02",
+                            "permission": "write",
+                        },
                     ]
                 },
             ),
@@ -304,7 +397,11 @@ class ExplicitAccessGrantFormTests(unittest.TestCase):
                 "empty ID",
                 {
                     "access_grants": [
-                        {"principal_type": "user", "principal_id": "", "permission": "read"}
+                        {
+                            "principal_type": "user",
+                            "principal_id": "",
+                            "permission": "read",
+                        }
                     ]
                 },
             ),
@@ -312,7 +409,11 @@ class ExplicitAccessGrantFormTests(unittest.TestCase):
                 "whitespace-only ID",
                 {
                     "access_grants": [
-                        {"principal_type": "user", "principal_id": "   ", "permission": "read"}
+                        {
+                            "principal_type": "user",
+                            "principal_id": "   ",
+                            "permission": "read",
+                        }
                     ]
                 },
             ),
@@ -320,8 +421,16 @@ class ExplicitAccessGrantFormTests(unittest.TestCase):
                 "duplicate ID",
                 {
                     "access_grants": [
-                        {"principal_type": "user", "principal_id": "member-01", "permission": "read"},
-                        {"principal_type": "user", "principal_id": "member-01", "permission": "read"},
+                        {
+                            "principal_type": "user",
+                            "principal_id": "member-01",
+                            "permission": "read",
+                        },
+                        {
+                            "principal_type": "user",
+                            "principal_id": "member-01",
+                            "permission": "read",
+                        },
                     ]
                 },
             ),

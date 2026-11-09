@@ -8,16 +8,17 @@ from open_webui.internal.db import Base, get_db
 from open_webui.env import SRC_LOG_LEVELS
 
 from open_webui.models.files import FileMetadataResponse
+from open_webui.models.skills import AccessGrantModel
 from open_webui.models.users import Users, UserResponse
 
 
-from pydantic import BaseModel, ConfigDict, computed_field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 from sqlalchemy import BigInteger, Column, String, Text, JSON
 
 from open_webui.utils.access_control import has_access
 from open_webui.utils.access_grants import (
-    access_grants_for_acl,
-    convert_explicit_access_grants,
+    knowledge_access_control_for_grants,
+    knowledge_access_grants_for_acl,
 )
 
 log = logging.getLogger(__name__)
@@ -94,7 +95,7 @@ class KnowledgeResponse(KnowledgeModel):
     @computed_field
     @property
     def access_grants(self) -> list[dict]:
-        return access_grants_for_acl(
+        return knowledge_access_grants_for_acl(
             self.access_control, "knowledge", self.id, self.created_at
         )
 
@@ -105,7 +106,7 @@ class KnowledgeUserResponse(KnowledgeUserModel):
     @computed_field
     @property
     def access_grants(self) -> list[dict]:
-        return access_grants_for_acl(
+        return knowledge_access_grants_for_acl(
             self.access_control, "knowledge", self.id, self.created_at
         )
 
@@ -120,8 +121,83 @@ class KnowledgeForm(BaseModel):
     @classmethod
     def convert_access_grants(cls, data):
         if isinstance(data, dict) and "access_grants" in data:
-            return convert_explicit_access_grants(data)
+            converted = dict(data)
+            converted.pop("access_control", None)
+            converted["access_control"] = knowledge_access_control_for_grants(
+                converted.pop("access_grants")
+            )
+            return converted
         return data
+
+
+class KnowledgeAccessResponse(BaseModel):
+    id: str
+    user_id: str
+    name: str
+    description: str
+    meta: Optional[dict] = None
+    user: Optional[UserResponse] = None
+    created_at: int
+    updated_at: int
+    file_count: Optional[int] = None
+    write_access: Optional[bool] = False
+    access_grants: list[AccessGrantModel] = Field(default_factory=list)
+
+
+class KnowledgeAccessListResponse(BaseModel):
+    items: list[KnowledgeAccessResponse]
+    total: int
+
+
+class KnowledgeDirectoryCreateForm(BaseModel):
+    name: str
+    parent_id: Optional[str] = None
+
+
+class KnowledgeDirectoryUpdateForm(BaseModel):
+    name: Optional[str] = None
+    parent_id: Optional[str] = "__unset__"
+
+
+class KnowledgeDirectoryModel(BaseModel):
+    id: str
+    knowledge_id: str
+    name: str
+    user_id: str
+    parent_id: Optional[str] = None
+    created_at: int
+    updated_at: int
+
+
+class FileManifestEntry(BaseModel):
+    filename: str
+    path: str
+    checksum: str
+    size: int
+
+
+class KnowledgeFileMoveForm(BaseModel):
+    file_id: str
+    directory_id: Optional[str] = None
+
+
+class SyncCleanupForm(BaseModel):
+    file_ids: list[str]
+    dir_ids: list[str] = Field(default_factory=list)
+
+
+class SyncDiffForm(BaseModel):
+    manifest: list[FileManifestEntry]
+
+
+class SyncDiffResponse(BaseModel):
+    added: list[dict]
+    modified: list[dict]
+    deleted: list[dict]
+    mkdir: list[str]
+    rmdir: list[str]
+    unmodified_count: int
+    directory_map: dict[str, str]
 
 
 class KnowledgeTable:
@@ -233,11 +309,15 @@ class KnowledgeTable:
     ) -> Optional[KnowledgeModel]:
         try:
             with get_db() as db:
-                updated = db.query(Knowledge).filter_by(id=id).update(
-                    {
-                        "access_control": access_control,
-                        "updated_at": int(time.time()),
-                    }
+                updated = (
+                    db.query(Knowledge)
+                    .filter_by(id=id)
+                    .update(
+                        {
+                            "access_control": access_control,
+                            "updated_at": int(time.time()),
+                        }
+                    )
                 )
                 if updated != 1:
                     db.rollback()

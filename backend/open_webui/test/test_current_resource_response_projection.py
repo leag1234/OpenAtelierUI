@@ -46,6 +46,7 @@ def load_classes(path, names):
         "Optional": Optional,
         "UserResponse": UserResponse,
         "access_grants_for_acl": access_grants.access_grants_for_acl,
+        "knowledge_access_grants_for_acl": access_grants.knowledge_access_grants_for_acl,
         "computed_field": computed_field,
     }
     exec(
@@ -98,7 +99,9 @@ class CurrentResourceResponseProjectionTests(unittest.TestCase):
             "updated_at": 124,
         }
         private = knowledge["KnowledgeResponse"](**base, access_control={}).model_dump()
-        public = knowledge["KnowledgeResponse"](**base, access_control=None).model_dump()
+        public = knowledge["KnowledgeResponse"](
+            **base, access_control=None
+        ).model_dump()
         self.assertEqual(private["access_grants"], [])
         self.assertEqual(public["access_grants"][0]["principal_id"], "*")
 
