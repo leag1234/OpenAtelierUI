@@ -25,6 +25,28 @@ class ImportConfigForm(BaseModel):
     config: dict
 
 
+class OAuthClientRegistrationForm(BaseModel):
+    url: str
+    client_id: str
+    client_secret: Optional[str] = None
+    client_name: Optional[str] = None
+    oauth_scope: Optional[str] = None
+    oauth_server_url: Optional[str] = None
+
+
+@router.post("/oauth/clients/register")
+async def register_oauth_client(
+    form_data: OAuthClientRegistrationForm,
+    type: Optional[str] = None,
+    user=Depends(get_admin_user),
+):
+    metadata_url = form_data.url.rstrip("/") + "/.well-known/oauth-authorization-server"
+    raise HTTPException(
+        status_code=400,
+        detail=f"Failed to register OAuth client: {metadata_url}",
+    )
+
+
 @router.post("/import", response_model=dict)
 async def import_config(form_data: ImportConfigForm, user=Depends(get_admin_user)):
     save_config(form_data.config)

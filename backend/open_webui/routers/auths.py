@@ -68,6 +68,54 @@ ProfileUpdateForm = ImportedProfileUpdateForm if PROFILE_FIELDS_ENABLED else Upd
 class UpdateTimezoneForm(BaseModel):
     timezone: str
 
+
+class OAuthConfigForm(BaseModel):
+    """All OAuth/OIDC settings exposed to the admin panel."""
+
+    ENABLE_OAUTH: Optional[bool] = None
+    ENABLE_OAUTH_SIGNUP: Optional[bool] = None
+    OAUTH_MERGE_ACCOUNTS_BY_EMAIL: Optional[bool] = None
+    OAUTH_CLIENT_ID: Optional[str] = None
+    OAUTH_CLIENT_SECRET: Optional[str] = None
+    OPENID_PROVIDER_URL: Optional[str] = None
+    OPENID_REDIRECT_URI: Optional[str] = None
+    OAUTH_SCOPES: Optional[str] = None
+    OAUTH_CODE_CHALLENGE_METHOD: Optional[str] = None
+    OAUTH_PROVIDER_NAME: Optional[str] = None
+    OAUTH_USERNAME_CLAIM: Optional[str] = None
+    OAUTH_PICTURE_CLAIM: Optional[str] = None
+    OAUTH_EMAIL_CLAIM: Optional[str] = None
+    OAUTH_GROUP_CLAIM: Optional[str] = None
+    OAUTH_ROLES_CLAIM: Optional[str] = None
+    OAUTH_ALLOWED_ROLES: Optional[str] = None
+    OAUTH_ADMIN_ROLES: Optional[str] = None
+    OAUTH_ALLOWED_DOMAINS: Optional[str] = None
+    ENABLE_OAUTH_ROLE_MANAGEMENT: Optional[bool] = None
+    ENABLE_OAUTH_GROUP_MANAGEMENT: Optional[bool] = None
+    ENABLE_OAUTH_GROUP_CREATION: Optional[bool] = None
+    OAUTH_GROUP_DEFAULT_SHARE: Optional[bool | str] = None
+    OAUTH_BLOCKED_GROUPS: Optional[str] = None
+    OAUTH_AUTO_REDIRECT: Optional[bool] = None
+    OAUTH_AUDIENCE: Optional[str] = None
+    OAUTH_SUB_CLAIM: Optional[str] = None
+    OAUTH_UPDATE_PICTURE_ON_LOGIN: Optional[bool] = None
+    OAUTH_UPDATE_NAME_ON_LOGIN: Optional[bool] = None
+    OAUTH_UPDATE_EMAIL_ON_LOGIN: Optional[bool] = None
+    OAUTH_REFRESH_TOKEN_INCLUDE_SCOPE: Optional[bool] = None
+    OAUTH_TOKEN_ENDPOINT_AUTH_METHOD: Optional[str] = None
+    OAUTH_TIMEOUT: Optional[int | str] = None
+    OAUTH_CLIENT_TIMEOUT: Optional[int | str] = None
+    OPENID_END_SESSION_ENDPOINT: Optional[str] = None
+
+
+class OAuthConfigResponse(OAuthConfigForm):
+    ENABLE_OAUTH_PERSISTENT_CONFIG: bool
+
+
+class TokenExchangeForm(BaseModel):
+    token: str
+
+
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MAIN"])
 
@@ -85,6 +133,114 @@ class ImportedSessionUserResponse(SessionUserResponse):
     bio: Optional[str] = None
     gender: Optional[str] = None
     date_of_birth: Optional[datetime.date] = None
+
+
+def _oauth_compat_defaults(request: Request):
+    config = request.app.state.config
+
+    def value(name, fallback):
+        try:
+            current = getattr(config, name)
+        except AttributeError:
+            return fallback
+        if isinstance(current, list):
+            return ",".join(current)
+        return current
+
+    return {
+        "ENABLE_OAUTH": True,
+        "ENABLE_OAUTH_SIGNUP": value("ENABLE_OAUTH_SIGNUP", ENABLE_OAUTH_SIGNUP.value),
+        "OAUTH_MERGE_ACCOUNTS_BY_EMAIL": False,
+        "OAUTH_CLIENT_ID": "",
+        "OAUTH_CLIENT_SECRET": "",
+        "OPENID_PROVIDER_URL": str(OPENID_PROVIDER_URL.value),
+        "OPENID_REDIRECT_URI": "",
+        "OAUTH_SCOPES": "openid email profile",
+        "OAUTH_CODE_CHALLENGE_METHOD": None,
+        "OAUTH_PROVIDER_NAME": "SSO",
+        "OAUTH_USERNAME_CLAIM": value("OAUTH_USERNAME_CLAIM", "name"),
+        "OAUTH_PICTURE_CLAIM": value("OAUTH_PICTURE_CLAIM", "picture"),
+        "OAUTH_EMAIL_CLAIM": value("OAUTH_EMAIL_CLAIM", "email"),
+        "OAUTH_GROUP_CLAIM": "groups",
+        "OAUTH_ROLES_CLAIM": value("OAUTH_ROLES_CLAIM", "roles"),
+        "OAUTH_ALLOWED_ROLES": value("OAUTH_ALLOWED_ROLES", "user,admin"),
+        "OAUTH_ADMIN_ROLES": value("OAUTH_ADMIN_ROLES", "admin"),
+        "OAUTH_ALLOWED_DOMAINS": "*",
+        "ENABLE_OAUTH_ROLE_MANAGEMENT": value("ENABLE_OAUTH_ROLE_MANAGEMENT", False),
+        "ENABLE_OAUTH_GROUP_MANAGEMENT": False,
+        "ENABLE_OAUTH_GROUP_CREATION": False,
+        "OAUTH_GROUP_DEFAULT_SHARE": True,
+        "OAUTH_BLOCKED_GROUPS": "[]",
+        "OAUTH_AUTO_REDIRECT": False,
+        "OAUTH_AUDIENCE": "",
+        "OAUTH_SUB_CLAIM": None,
+        "OAUTH_UPDATE_PICTURE_ON_LOGIN": False,
+        "OAUTH_UPDATE_NAME_ON_LOGIN": False,
+        "OAUTH_UPDATE_EMAIL_ON_LOGIN": False,
+        "OAUTH_REFRESH_TOKEN_INCLUDE_SCOPE": False,
+        "OAUTH_TOKEN_ENDPOINT_AUTH_METHOD": None,
+        "OAUTH_TIMEOUT": "",
+        "OAUTH_CLIENT_TIMEOUT": "",
+        "OPENID_END_SESSION_ENDPOINT": "",
+        "ENABLE_OAUTH_PERSISTENT_CONFIG": False,
+    }
+
+
+def _oauth_compat_state(request: Request):
+    state = getattr(request.app.state, "_openatelier_oauth_config", None)
+    if state is None:
+        state = _oauth_compat_defaults(request)
+        request.app.state._openatelier_oauth_config = state
+    return state
+
+
+@router.get("/admin/config/oauth", response_model=OAuthConfigResponse)
+async def get_oauth_config(request: Request, user=Depends(get_admin_user)):
+    return _oauth_compat_state(request)
+
+
+@router.post("/admin/config/oauth", response_model=OAuthConfigResponse)
+async def update_oauth_config(
+    request: Request,
+    form_data: OAuthConfigForm,
+    user=Depends(get_admin_user),
+):
+    state = _oauth_compat_state(request)
+    state.update(form_data.model_dump(exclude_none=True))
+    return state
+
+
+@router.delete(
+    "/oauth/sessions/{provider}",
+    response_model=bool,
+    description=(
+        "Disconnect the current user's OAuth session for a specific provider.\n"
+        "The provider string matches the 'provider' field in the oauth_session table\n"
+        "(e.g. 'mcp:server-id' for MCP connections)."
+    ),
+)
+async def delete_oauth_session_by_provider(
+    provider: str, user=Depends(get_verified_user)
+):
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="No OAuth session found for this provider",
+    )
+
+
+@router.post(
+    "/oauth/{provider}/token/exchange",
+    response_model=SessionUserResponse,
+    description=(
+        "Exchange an external OAuth provider token for an OpenWebUI JWT.\n"
+        "This endpoint is disabled by default. Set ENABLE_OAUTH_TOKEN_EXCHANGE=True to enable."
+    ),
+)
+async def token_exchange(provider: str, form_data: TokenExchangeForm):
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Token exchange is disabled",
+    )
 
 
 @router.get(

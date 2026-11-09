@@ -1809,6 +1809,39 @@ async def oauth_callback(provider: str, request: Request, response: Response):
     return await oauth_manager.handle_callback(request, provider, response)
 
 
+@app.get("/oauth/clients/{client_id}/authorize")
+async def oauth_client_authorize(
+    client_id: str, user=Depends(get_verified_user)
+):
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+
+@app.get("/oauth/clients/{client_id}/callback")
+async def oauth_client_callback(client_id: str):
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+
+@app.get(
+    "/oauth/{provider}/login/callback",
+    description=(
+        "Handle the OAuth provider callback.\n\n"
+        "Resolution order:\n"
+        "1. Match by subject ID bound to the provider.\n"
+        "2. If ``OAUTH_MERGE_ACCOUNTS_BY_EMAIL`` is enabled, match by email\n"
+        "   (note: some providers do not verify email addresses).\n"
+        "3. If no match and ``ENABLE_OAUTH_SIGNUP`` is enabled, create a new user\n"
+        "   (fails if the email is already registered)."
+    ),
+)
+async def oauth_login_callback(provider: str):
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+
+@app.post("/oauth/backchannel-logout")
+async def oauth_backchannel_logout():
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+
 @app.get("/manifest.json")
 async def get_manifest_json():
     if app.state.EXTERNAL_PWA_MANIFEST_URL:
