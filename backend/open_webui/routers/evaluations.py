@@ -12,6 +12,13 @@ from open_webui.models.feedbacks import (
 
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.utils.auth import get_admin_user, get_verified_user
+from open_webui.utils.evaluation_compat import (
+    id_projection,
+    leaderboard as leaderboard_projection,
+    list_projection,
+    model_history,
+    model_ids,
+)
 
 router = APIRouter()
 
@@ -71,6 +78,42 @@ class FeedbackUserResponse(FeedbackResponse):
     user: Optional[FeedbackUserReponse] = None
 
 
+class FeedbackIdResponse(BaseModel):
+    id: str
+    user_id: str
+    created_at: int
+    updated_at: int
+
+
+class FeedbackListResponse(BaseModel):
+    items: list[FeedbackUserResponse]
+    total: int
+
+
+class LeaderboardEntry(BaseModel):
+    model_id: str
+    rating: int
+    won: int
+    lost: int
+    count: int
+    top_tags: list[dict]
+
+
+class LeaderboardResponse(BaseModel):
+    entries: list[LeaderboardEntry]
+
+
+class ModelHistoryEntry(BaseModel):
+    date: str
+    won: int
+    lost: int
+
+
+class ModelHistoryResponse(BaseModel):
+    model_id: str
+    history: list[ModelHistoryEntry]
+
+
 @router.get("/feedbacks/all", response_model=list[FeedbackUserResponse])
 async def get_all_feedbacks(user=Depends(get_admin_user)):
     feedbacks = Feedbacks.get_all_feedbacks()
@@ -83,6 +126,44 @@ async def get_all_feedbacks(user=Depends(get_admin_user)):
         )
         for feedback in feedbacks
     ]
+
+
+@router.get("/feedbacks/all/ids", response_model=list[FeedbackIdResponse])
+async def get_all_feedback_ids(user=Depends(get_admin_user)):
+    return id_projection(Feedbacks.get_all_feedbacks())
+
+
+@router.get("/feedbacks/list", response_model=FeedbackListResponse)
+async def get_feedback_list(
+    order_by: Optional[str] = None,
+    direction: Optional[str] = None,
+    page: Optional[int] = 1,
+    model_id: Optional[str] = None,
+    user=Depends(get_admin_user),
+):
+    return list_projection(
+        Feedbacks.get_all_feedbacks(),
+        Users.get_user_by_id,
+        order_by=order_by,
+        direction=direction,
+        page=page,
+        model_id=model_id,
+    )
+
+
+@router.get("/feedbacks/models", response_model=list[str])
+async def get_feedback_models(user=Depends(get_admin_user)):
+    return model_ids(Feedbacks.get_all_feedbacks())
+
+
+@router.get("/leaderboard", response_model=LeaderboardResponse)
+async def get_leaderboard(query: Optional[str] = None, user=Depends(get_admin_user)):
+    return leaderboard_projection(Feedbacks.get_all_feedbacks())
+
+
+@router.get("/leaderboard/{model_id}/history", response_model=ModelHistoryResponse)
+async def get_model_history(model_id: str, days: int = 30, user=Depends(get_admin_user)):
+    return model_history(Feedbacks.get_all_feedbacks(), model_id, days)
 
 
 @router.delete("/feedbacks/all")
