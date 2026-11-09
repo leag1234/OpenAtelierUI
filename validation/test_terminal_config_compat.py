@@ -18,10 +18,10 @@ class TerminalConfigurationCompatibilityTests(unittest.TestCase):
         names = {
             "get_terminal_servers_config",
             "set_terminal_servers_config",
-            "verify_terminal_server_config",
-            "update_terminal_server_policy",
-            "update_terminal_server_lifecycle",
-            "refresh_terminal_server",
+            "verify_terminal_server_connection",
+            "put_terminal_server_policy",
+            "put_terminal_server_lifecycle",
+            "refresh_terminal_server_terminals",
         }
         functions = {
             node.name: node
@@ -39,6 +39,9 @@ class TerminalConfigurationCompatibilityTests(unittest.TestCase):
             'auth_type: Optional[str] = "bearer"',
             'enabled: Optional[bool] = True',
             'forward_cookies: bool = False',
+            'config: Optional[dict[str, Any]] = None',
+            'policy_data: Optional[dict[str, Any]] = None',
+            'lifecycle_data: Optional[dict[str, Any]] = None',
             'only_idle: bool = True',
             'reset: bool = False',
             'model_config = ConfigDict(extra="allow")',

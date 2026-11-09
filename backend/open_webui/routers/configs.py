@@ -3,7 +3,7 @@ import aiohttp
 from fastapi import APIRouter, Depends, Request, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from typing import Optional
+from typing import Any, Optional
 from urllib.parse import quote
 
 from open_webui.utils.auth import get_admin_user, get_verified_user
@@ -271,7 +271,7 @@ class TerminalServerConnection(BaseModel):
     path: Optional[str] = "/openapi.json"
     auth_type: Optional[str] = "bearer"
     key: Optional[str] = ""
-    config: Optional[dict] = None
+    config: Optional[dict[str, Any]] = None
     enabled: Optional[bool] = True
     id: Optional[str] = ""
     name: Optional[str] = ""
@@ -291,7 +291,7 @@ class TerminalServerPolicyForm(BaseModel):
     policy_id: str
     auth_type: Optional[str] = "bearer"
     key: Optional[str] = ""
-    policy_data: Optional[dict] = None
+    policy_data: Optional[dict[str, Any]] = None
 
 
 class TerminalServerLifecycleForm(BaseModel):
@@ -299,7 +299,7 @@ class TerminalServerLifecycleForm(BaseModel):
     policy_id: str
     auth_type: Optional[str] = "bearer"
     key: Optional[str] = ""
-    lifecycle_data: Optional[dict] = None
+    lifecycle_data: Optional[dict[str, Any]] = None
 
 
 class TerminalServerRefreshForm(BaseModel):
@@ -374,10 +374,15 @@ async def set_terminal_servers_config(
 
 
 @router.post("/terminal_servers/verify")
-async def verify_terminal_server_config(
+async def verify_terminal_server_connection(
     form_data: TerminalServerConnection,
     user=Depends(get_admin_user),
 ):
+    """Verify the connection to a terminal server by detecting its type.
+
+    Tries GET {url}/api/v1/policies (orchestrator) then GET {url}/api/config
+    (plain terminal).  Returns ``{status: true, type: "orchestrator"|"terminal"}``.
+    """
     if form_data.policy_id:
         policy_id = quote(form_data.policy_id, safe="")
         await _terminal_server_request(
@@ -405,10 +410,11 @@ async def verify_terminal_server_config(
 
 
 @router.post("/terminal_servers/policy")
-async def update_terminal_server_policy(
+async def put_terminal_server_policy(
     form_data: TerminalServerPolicyForm,
     user=Depends(get_admin_user),
 ):
+    """Proxy a policy read or update to an orchestrator terminal server."""
     policy_id = quote(form_data.policy_id, safe="")
     return await _terminal_server_request(
         "PUT",
@@ -421,10 +427,11 @@ async def update_terminal_server_policy(
 
 
 @router.post("/terminal_servers/lifecycle")
-async def update_terminal_server_lifecycle(
+async def put_terminal_server_lifecycle(
     form_data: TerminalServerLifecycleForm,
     user=Depends(get_admin_user),
 ):
+    """Proxy a lifecycle read or update to an orchestrator terminal server."""
     policy_id = quote(form_data.policy_id, safe="")
     return await _terminal_server_request(
         "PUT",
@@ -439,10 +446,11 @@ async def update_terminal_server_lifecycle(
 
 
 @router.post("/terminal_servers/refresh")
-async def refresh_terminal_server(
+async def refresh_terminal_server_terminals(
     form_data: TerminalServerRefreshForm,
     user=Depends(get_admin_user),
 ):
+    """Proxy a terminal refresh request to an orchestrator terminal server."""
     body = {
         "only_idle": form_data.only_idle,
         "reset": form_data.reset,
