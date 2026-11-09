@@ -139,6 +139,7 @@
 
 	let model = null;
 	$: model = $models.find((m) => m.id === message.model);
+	$: responseName = model?.name ?? message.model ?? $config?.name ?? $i18n.t('Assistant');
 
 	let edit = false;
 	let editedContent = '';
@@ -598,9 +599,9 @@
 
 		<div class="flex-auto w-0 pl-1">
 			<Name>
-				<Tooltip content={model?.name ?? message.model} placement="top-start">
+				<Tooltip content={responseName} placement="top-start">
 					<span class="line-clamp-1 text-black dark:text-white">
-						{model?.name ?? message.model}
+						{responseName}
 					</span>
 				</Tooltip>
 			</Name>

@@ -40,6 +40,15 @@ class AccessibleControlsTests(unittest.TestCase):
         ):
             self.assertIn(f"aria-label={{$i18n.t('{label}')}}", source, label)
 
+    def test_legacy_response_without_model_has_a_readable_name(self):
+        source = RESPONSE.read_text(encoding="utf-8")
+        self.assertIn(
+            "model?.name ?? message.model ?? $config?.name ?? $i18n.t('Assistant')",
+            source,
+        )
+        self.assertIn("<Tooltip content={responseName}", source)
+        self.assertIn("{responseName}", source)
+
     def test_general_selectors_and_settings_close_have_names(self):
         general = GENERAL.read_text(encoding="utf-8")
         settings = SETTINGS.read_text(encoding="utf-8")
