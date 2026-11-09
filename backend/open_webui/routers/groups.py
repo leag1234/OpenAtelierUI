@@ -139,7 +139,6 @@ async def preview_group_access(
 @router.post(
     "/id/{id}/users",
     response_model=list[UserInfoResponse],
-    response_model_exclude={"__all__": {"last_active_at"}},
 )
 async def get_users_in_group(id: str, user=Depends(get_admin_user)):
     group = Groups.get_group_by_id(id)
@@ -171,6 +170,7 @@ async def get_users_in_group(id: str, user=Depends(get_admin_user)):
                 "status_message": None,
                 "status_expires_at": None,
                 "timezone": settings.get("timezone") if isinstance(settings, dict) else None,
+                "last_active_at": entry.last_active_at,
             }
         )
     return result
