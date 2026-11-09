@@ -9,6 +9,7 @@ import shutil
 import sys
 import time
 import random
+from pathlib import Path
 
 from contextlib import asynccontextmanager, suppress
 from urllib.parse import urlencode, parse_qs, urlparse
@@ -37,7 +38,7 @@ from fastapi import (
 from fastapi.openapi.docs import get_swagger_ui_html
 
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -2020,7 +2021,32 @@ async def get_current_usage(user=Depends(get_verified_user)):
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-app.mount("/cache", StaticFiles(directory=CACHE_DIR), name="cache")
+
+
+@app.get("/cache/{path:path}")
+async def serve_cache_file(path: str, user=Depends(get_verified_user)):
+    """Serve a bounded cache file while forcing active content to download."""
+
+    root = Path(CACHE_DIR).resolve()
+    candidate = (root / path).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="File not found") from None
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    media_type, _ = mimetypes.guess_type(candidate.name)
+    inline = media_type is not None and media_type.split("/", 1)[0] in {
+        "image",
+        "audio",
+        "video",
+    }
+    return FileResponse(
+        candidate,
+        media_type=media_type,
+        filename=None if inline else candidate.name,
+        content_disposition_type="inline" if inline else "attachment",
+    )
 
 
 def swagger_ui_html(*args, **kwargs):

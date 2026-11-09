@@ -36,6 +36,8 @@ class FunctionMeta(BaseModel):
     description: Optional[str] = None
     manifest: Optional[dict] = {}
 
+    model_config = ConfigDict(extra="allow")
+
 
 class FunctionModel(BaseModel):
     id: str

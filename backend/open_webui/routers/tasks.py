@@ -44,6 +44,33 @@ log.setLevel(SRC_LOG_LEVELS["MODELS"])
 router = APIRouter()
 
 
+@router.post("/follow_up/completions")
+async def generate_follow_ups(
+    request: Request, form_data: dict, user=Depends(get_verified_user)
+):
+    model_id = form_data["model"]
+    models = request.app.state.MODELS
+    if model_id not in models:
+        raise HTTPException(status_code=404, detail='Model "" was not found')
+    payload = {
+        "model": get_task_model_id(
+            model_id,
+            request.app.state.config.TASK_MODEL,
+            request.app.state.config.TASK_MODEL_EXTERNAL,
+            models,
+        ),
+        "messages": form_data.get("messages", []),
+        "stream": False,
+        "metadata": {
+            **(request.state.metadata if hasattr(request.state, "metadata") else {}),
+            "task": "follow_up_generation",
+            "task_body": form_data,
+            "chat_id": form_data.get("chat_id"),
+        },
+    }
+    return await generate_chat_completion(request, form_data=payload, user=user)
+
+
 ##################################
 #
 # Task Endpoints

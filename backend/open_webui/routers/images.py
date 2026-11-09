@@ -422,6 +422,30 @@ class GenerateImageForm(BaseModel):
     negative_prompt: Optional[str] = None
 
 
+class EditImageForm(BaseModel):
+    image: str | list[str]
+    prompt: str
+    background: Optional[str] = None
+    model: Optional[str] = None
+    n: Optional[int] = None
+    negative_prompt: Optional[str] = None
+    size: Optional[str] = None
+
+
+@router.post("/edit")
+async def edit_images(
+    request: Request,
+    form_data: EditImageForm,
+    user=Depends(get_verified_user),
+):
+    if not request.app.state.config.ENABLE_IMAGE_GENERATION:
+        raise HTTPException(status_code=403, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+    raise HTTPException(
+        status_code=400,
+        detail="Image editing is not supported by the configured engine",
+    )
+
+
 def load_b64_image_data(b64_str):
     try:
         if "," in b64_str:

@@ -22,6 +22,7 @@ from open_webui.utils.imported_history import (
     list_history as list_imported_tool_history,
 )
 from open_webui.utils.plugin import load_tool_module_by_id, replace_imports
+from open_webui.utils.bounded_url_loader import LoadUrlForm, load_source_url
 from open_webui.config import CACHE_DIR
 from open_webui.constants import ERROR_MESSAGES
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -48,6 +49,15 @@ log.setLevel(SRC_LOG_LEVELS["MAIN"])
 
 
 router = APIRouter()
+
+
+@router.post("/load/url", response_model=Optional[dict])
+async def load_tool_from_url(form_data: LoadUrlForm, user=Depends(get_admin_user)):
+    try:
+        content, name = await load_source_url(str(form_data.url))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from None
+    return {"content": content, "name": name}
 
 
 def _valid_named_server_display_text(value, maximum, *, nonempty):

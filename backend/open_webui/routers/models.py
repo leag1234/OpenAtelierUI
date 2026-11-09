@@ -25,7 +25,7 @@ from open_webui.utils.imported_history import (
 from open_webui.constants import ERROR_MESSAGES
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse, RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 from open_webui.utils.auth import get_admin_user, get_verified_user
@@ -42,6 +42,44 @@ from open_webui.env import DATA_DIR, DATABASE_URL, STATIC_DIR
 
 
 router = APIRouter()
+
+
+class ModelsImportForm(BaseModel):
+    models: list[dict]
+
+
+class SyncModelsForm(BaseModel):
+    models: list[ModelModel] = Field(default_factory=list)
+
+
+@router.post("/import", response_model=bool)
+async def import_models(
+    form_data: ModelsImportForm, user=Depends(get_verified_user)
+):
+    if user.role != "admin":
+        raise HTTPException(status_code=401, detail="401 Unauthorized")
+    forms = [ModelForm.model_validate(value) for value in form_data.models]
+    for form in forms:
+        existing = Models.get_model_by_id(form.id)
+        result = (
+            Models.update_model_by_id(form.id, form)
+            if existing is not None
+            else Models.insert_new_model(form, user.id)
+        )
+        if result is None:
+            raise HTTPException(status_code=400, detail="Error importing model")
+    return True
+
+
+@router.post("/sync", response_model=list[ModelModel])
+async def sync_models(
+    form_data: SyncModelsForm, user=Depends(get_admin_user)
+):
+    return [
+        model
+        for value in form_data.models
+        if (model := Models.get_model_by_id(value.id)) is not None
+    ]
 
 
 def _model_access_fields(model, user):

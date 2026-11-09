@@ -18,9 +18,11 @@ from open_webui.utils.imported_history import (
     list_history as list_imported_function_history,
 )
 from open_webui.utils.plugin import load_function_module_by_id, replace_imports
+from open_webui.utils.bounded_url_loader import LoadUrlForm, load_source_url
 from open_webui.config import CACHE_DIR
 from open_webui.constants import ERROR_MESSAGES
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import BaseModel, Field
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.env import DATA_DIR, DATABASE_URL, SRC_LOG_LEVELS
 
@@ -30,6 +32,73 @@ log.setLevel(SRC_LOG_LEVELS["MAIN"])
 
 router = APIRouter()
 _FUNCTION_HISTORY_READS = os.environ.get("OPEN_WEBUI_IMPORTED_HISTORY_READS") == "1"
+
+
+class FunctionWithValvesModel(FunctionModel):
+    valves: Optional[dict] = None
+
+
+class SyncFunctionsForm(BaseModel):
+    functions: list[FunctionWithValvesModel] = Field(default_factory=list)
+
+
+@router.post("/load/url", response_model=Optional[dict])
+async def load_function_from_url(
+    form_data: LoadUrlForm, user=Depends(get_admin_user)
+):
+    try:
+        content, name = await load_source_url(str(form_data.url))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from None
+    return {"content": content, "name": name}
+
+
+@router.post("/sync", response_model=list[FunctionWithValvesModel])
+async def sync_functions(
+    request: Request,
+    form_data: SyncFunctionsForm,
+    user=Depends(get_admin_user),
+):
+    synced = []
+    for incoming in form_data.functions:
+        content = replace_imports(incoming.content)
+        module, function_type, frontmatter = load_function_module_by_id(
+            incoming.id, content=content
+        )
+        meta = incoming.meta.model_copy(update={"manifest": frontmatter})
+        form = FunctionForm(
+            id=incoming.id,
+            name=incoming.name,
+            content=content,
+            meta=meta,
+        )
+        existing = Functions.get_function_by_id(incoming.id)
+        if existing is None:
+            Functions.insert_new_function(user.id, function_type, form)
+        updated = Functions.update_function_by_id(
+            incoming.id,
+            {
+                "user_id": user.id,
+                "name": incoming.name,
+                "type": function_type,
+                "content": content,
+                "meta": meta.model_dump(),
+                "valves": incoming.valves or {},
+                "is_active": incoming.is_active,
+                "is_global": incoming.is_global,
+                "created_at": incoming.created_at,
+            },
+        )
+        if updated is None:
+            raise HTTPException(status_code=400, detail="Error syncing function")
+        request.app.state.FUNCTIONS[incoming.id] = module
+        synced.append(
+            FunctionWithValvesModel(
+                **updated.model_dump(),
+                valves=Functions.get_function_valves_by_id(incoming.id) or {},
+            )
+        )
+    return synced
 
 ############################
 # GetFunctions
