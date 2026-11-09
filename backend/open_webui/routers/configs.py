@@ -39,6 +39,123 @@ async def export_config(user=Depends(get_admin_user)):
 
 
 ############################
+# Namespaced Config
+############################
+
+
+def _flatten_config(value, prefix=""):
+    flattened = {}
+    for key, item in value.items():
+        path = f"{prefix}.{key}" if prefix else key
+        if isinstance(item, dict):
+            flattened.update(_flatten_config(item, path))
+        else:
+            flattened[path] = item
+    return flattened
+
+
+@router.get("/namespace/{namespace}", response_model=dict[str, object])
+async def get_config_namespace(namespace: str, user=Depends(get_admin_user)):
+    prefix = namespace + "."
+    return {
+        key: value
+        for key, value in _flatten_config(get_config()).items()
+        if key.startswith(prefix)
+    }
+
+
+############################
+# Connections Config
+############################
+
+
+class ConnectionsConfigForm(BaseModel):
+    ENABLE_DIRECT_CONNECTIONS: bool
+    ENABLE_BASE_MODELS_CACHE: bool
+    ENABLE_DIRECT_INTEGRATIONS: Optional[bool] = None
+
+
+def _connections_config(request: Request):
+    return {
+        "ENABLE_DIRECT_CONNECTIONS": request.app.state.config.ENABLE_DIRECT_CONNECTIONS,
+        "ENABLE_BASE_MODELS_CACHE": request.app.state.config.ENABLE_BASE_MODELS_CACHE,
+        "ENABLE_DIRECT_INTEGRATIONS": request.app.state.config.ENABLE_DIRECT_INTEGRATIONS,
+    }
+
+
+@router.get("/connections", response_model=ConnectionsConfigForm)
+async def get_connections_config(request: Request, user=Depends(get_admin_user)):
+    return _connections_config(request)
+
+
+@router.post("/connections", response_model=ConnectionsConfigForm)
+async def set_connections_config(
+    request: Request,
+    form_data: ConnectionsConfigForm,
+    user=Depends(get_admin_user),
+):
+    request.app.state.config.ENABLE_DIRECT_CONNECTIONS = form_data.ENABLE_DIRECT_CONNECTIONS
+    request.app.state.config.ENABLE_BASE_MODELS_CACHE = form_data.ENABLE_BASE_MODELS_CACHE
+    if form_data.ENABLE_DIRECT_INTEGRATIONS is not None:
+        request.app.state.config.ENABLE_DIRECT_INTEGRATIONS = form_data.ENABLE_DIRECT_INTEGRATIONS
+    return _connections_config(request)
+
+
+############################
+# Subagents Config
+############################
+
+
+class SubagentsConfigForm(BaseModel):
+    ENABLE_SUBAGENTS: bool
+    SUBAGENTS_BACKGROUND_ENABLED: bool
+    SUBAGENTS_MAX_CONCURRENT: int
+    SUBAGENTS_MAX_ASYNC: int
+    SUBAGENTS_MAX_ITERATIONS: int
+    SUBAGENTS_MAX_OUTPUT: int
+    SUBAGENTS_SYSTEM_PROMPT: str
+
+
+def _subagents_config(request: Request):
+    keys = (
+        "ENABLE_SUBAGENTS",
+        "SUBAGENTS_BACKGROUND_ENABLED",
+        "SUBAGENTS_MAX_CONCURRENT",
+        "SUBAGENTS_MAX_ASYNC",
+        "SUBAGENTS_MAX_ITERATIONS",
+        "SUBAGENTS_MAX_OUTPUT",
+        "SUBAGENTS_SYSTEM_PROMPT",
+    )
+    return {key: getattr(request.app.state.config, key) for key in keys}
+
+
+@router.get("/subagents", response_model=SubagentsConfigForm)
+async def get_subagents_config(request: Request, user=Depends(get_admin_user)):
+    return _subagents_config(request)
+
+
+@router.post("/subagents", response_model=SubagentsConfigForm)
+async def set_subagents_config(
+    request: Request,
+    form_data: SubagentsConfigForm,
+    user=Depends(get_admin_user),
+):
+    for key, value in form_data.model_dump().items():
+        setattr(request.app.state.config, key, value)
+    return _subagents_config(request)
+
+
+############################
+# Model Defaults
+############################
+
+
+@router.get("/models/defaults")
+async def get_models_defaults(request: Request, user=Depends(get_verified_user)):
+    return {"DEFAULT_MODEL_METADATA": request.app.state.config.DEFAULT_MODEL_METADATA}
+
+
+############################
 # Direct Connections Config
 ############################
 

@@ -725,7 +725,59 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 ENABLE_DIRECT_CONNECTIONS = PersistentConfig(
     "ENABLE_DIRECT_CONNECTIONS",
     "direct.enable",
-    os.environ.get("ENABLE_DIRECT_CONNECTIONS", "True").lower() == "true",
+    os.environ.get("ENABLE_DIRECT_CONNECTIONS", "False").lower() == "true",
+)
+
+ENABLE_BASE_MODELS_CACHE = PersistentConfig(
+    "ENABLE_BASE_MODELS_CACHE",
+    "direct.base_models_cache",
+    os.environ.get("ENABLE_BASE_MODELS_CACHE", "False").lower() == "true",
+)
+
+ENABLE_DIRECT_INTEGRATIONS = PersistentConfig(
+    "ENABLE_DIRECT_INTEGRATIONS",
+    "direct.integrations.enable",
+    os.environ.get("ENABLE_DIRECT_INTEGRATIONS", "False").lower() == "true",
+)
+
+####################################
+# SUBAGENTS
+####################################
+
+ENABLE_SUBAGENTS = PersistentConfig(
+    "ENABLE_SUBAGENTS",
+    "subagents.enable",
+    os.environ.get("ENABLE_SUBAGENTS", "False").lower() == "true",
+)
+SUBAGENTS_BACKGROUND_ENABLED = PersistentConfig(
+    "SUBAGENTS_BACKGROUND_ENABLED",
+    "subagents.background_enabled",
+    os.environ.get("SUBAGENTS_BACKGROUND_ENABLED", "False").lower() == "true",
+)
+SUBAGENTS_MAX_CONCURRENT = PersistentConfig(
+    "SUBAGENTS_MAX_CONCURRENT",
+    "subagents.max_concurrent",
+    int(os.environ.get("SUBAGENTS_MAX_CONCURRENT", "20")),
+)
+SUBAGENTS_MAX_ASYNC = PersistentConfig(
+    "SUBAGENTS_MAX_ASYNC",
+    "subagents.max_async",
+    int(os.environ.get("SUBAGENTS_MAX_ASYNC", "20")),
+)
+SUBAGENTS_MAX_ITERATIONS = PersistentConfig(
+    "SUBAGENTS_MAX_ITERATIONS",
+    "subagents.max_iterations",
+    int(os.environ.get("SUBAGENTS_MAX_ITERATIONS", "30")),
+)
+SUBAGENTS_MAX_OUTPUT = PersistentConfig(
+    "SUBAGENTS_MAX_OUTPUT",
+    "subagents.max_output",
+    int(os.environ.get("SUBAGENTS_MAX_OUTPUT", "30000")),
+)
+SUBAGENTS_SYSTEM_PROMPT = PersistentConfig(
+    "SUBAGENTS_SYSTEM_PROMPT",
+    "subagents.system_prompt",
+    os.environ.get("SUBAGENTS_SYSTEM_PROMPT", ""),
 )
 
 ####################################
@@ -891,6 +943,10 @@ DEFAULT_LOCALE = PersistentConfig(
 
 DEFAULT_MODELS = PersistentConfig(
     "DEFAULT_MODELS", "ui.default_models", os.environ.get("DEFAULT_MODELS", None)
+)
+
+DEFAULT_MODEL_METADATA = PersistentConfig(
+    "DEFAULT_MODEL_METADATA", "models.defaults", {}
 )
 
 DEFAULT_PROMPT_SUGGESTIONS = PersistentConfig(
