@@ -2025,7 +2025,12 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/cache/{path:path}")
 async def serve_cache_file(path: str, user=Depends(get_verified_user)):
-    """Serve a bounded cache file while forcing active content to download."""
+    """Serve cached files (e.g. tool outputs) with path-traversal protection.
+
+    Only ``image/*``, ``audio/*``, and ``video/*`` MIME types are served inline;
+    everything else gets a ``Content-Disposition: attachment`` header to prevent
+    XSS from user-generated HTML stored in the cache directory.
+    """
 
     root = Path(CACHE_DIR).resolve()
     candidate = (root / path).resolve()

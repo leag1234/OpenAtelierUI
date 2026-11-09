@@ -1,7 +1,7 @@
 import base64
 import binascii
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from urllib.parse import unquote
 
 from open_webui.models.models import (
@@ -45,11 +45,11 @@ router = APIRouter()
 
 
 class ModelsImportForm(BaseModel):
-    models: list[dict]
+    models: list[dict[str, Any]]
 
 
 class SyncModelsForm(BaseModel):
-    models: list[ModelModel] = Field(default_factory=list)
+    models: list[ModelModel] = []
 
 
 @router.post("/import", response_model=bool)
@@ -81,7 +81,9 @@ async def sync_models(
         if model is None:
             continue
         response = model.model_dump(exclude={"access_control"})
-        response.update(_model_access_fields(model, user))
+        response["access_grants"] = access_grants_for_acl(
+            model.access_control, "model", model.id, model.created_at
+        )
         response["version_id"] = _current_version_id(model)
         responses.append(response)
     # A concrete response preserves the additive recent fields while the

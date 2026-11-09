@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from pydantic import BaseModel
-from typing import Optional
+from typing import Any, Optional
 import logging
 import re
 
@@ -46,7 +46,7 @@ router = APIRouter()
 
 @router.post("/follow_up/completions")
 async def generate_follow_ups(
-    request: Request, form_data: dict, user=Depends(get_verified_user)
+    request: Request, form_data: dict[str, Any], user=Depends(get_verified_user)
 ):
     model_id = form_data["model"]
     models = request.app.state.MODELS

@@ -34,7 +34,7 @@ class Function(Base):
 
 class FunctionMeta(BaseModel):
     description: Optional[str] = None
-    manifest: Optional[dict] = {}
+    manifest: Optional[dict[str, object]] = {}
 
     model_config = ConfigDict(extra="allow")
 

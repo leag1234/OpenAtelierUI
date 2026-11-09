@@ -1,7 +1,7 @@
 import os
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from open_webui.models.functions import (
     FunctionForm,
@@ -35,14 +35,15 @@ _FUNCTION_HISTORY_READS = os.environ.get("OPEN_WEBUI_IMPORTED_HISTORY_READS") ==
 
 
 class FunctionWithValvesModel(FunctionModel):
-    valves: Optional[dict] = None
+    user_id: Optional[str] = None
+    valves: Optional[dict[str, Any]] = None
 
 
 class SyncFunctionsForm(BaseModel):
-    functions: list[FunctionWithValvesModel] = Field(default_factory=list)
+    functions: list[FunctionWithValvesModel] = []
 
 
-@router.post("/load/url", response_model=Optional[dict])
+@router.post("/load/url", response_model=Optional[dict[str, Any]])
 async def load_function_from_url(
     form_data: LoadUrlForm, user=Depends(get_admin_user)
 ):

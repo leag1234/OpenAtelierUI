@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 import time
 import unicodedata
 from urllib.parse import urlsplit
@@ -51,7 +51,7 @@ log.setLevel(SRC_LOG_LEVELS["MAIN"])
 router = APIRouter()
 
 
-@router.post("/load/url", response_model=Optional[dict])
+@router.post("/load/url", response_model=Optional[dict[str, Any]])
 async def load_tool_from_url(form_data: LoadUrlForm, user=Depends(get_admin_user)):
     try:
         content, name = await load_source_url(str(form_data.url))
