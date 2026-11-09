@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
-from pydantic import BaseModel
-from typing import Any, Optional
+from pydantic import BaseModel, WithJsonSchema
+from typing import Annotated, Any, Optional
 import logging
 import re
 
@@ -42,11 +42,14 @@ log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MODELS"])
 
 router = APIRouter()
+JsonObject = Annotated[
+    dict[str, Any], WithJsonSchema({"type": "object", "additionalProperties": True})
+]
 
 
 @router.post("/follow_up/completions")
 async def generate_follow_ups(
-    request: Request, form_data: dict[str, Any], user=Depends(get_verified_user)
+    request: Request, form_data: JsonObject, user=Depends(get_verified_user)
 ):
     model_id = form_data["model"]
     models = request.app.state.MODELS

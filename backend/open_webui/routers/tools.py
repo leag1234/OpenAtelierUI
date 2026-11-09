@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 import time
 import unicodedata
 from urllib.parse import urlsplit
@@ -26,6 +26,7 @@ from open_webui.utils.bounded_url_loader import LoadUrlForm, load_source_url
 from open_webui.config import CACHE_DIR
 from open_webui.constants import ERROR_MESSAGES
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import WithJsonSchema
 from open_webui.utils.tools import (
     _named_server_config,
     _tool_server_connection_binding,
@@ -49,9 +50,12 @@ log.setLevel(SRC_LOG_LEVELS["MAIN"])
 
 
 router = APIRouter()
+JsonObject = Annotated[
+    dict[str, Any], WithJsonSchema({"type": "object", "additionalProperties": True})
+]
 
 
-@router.post("/load/url", response_model=Optional[dict[str, Any]])
+@router.post("/load/url", response_model=Optional[JsonObject])
 async def load_tool_from_url(form_data: LoadUrlForm, user=Depends(get_admin_user)):
     try:
         content, name = await load_source_url(str(form_data.url))

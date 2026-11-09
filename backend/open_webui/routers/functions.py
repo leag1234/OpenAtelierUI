@@ -1,7 +1,7 @@
 import os
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
 from open_webui.models.functions import (
     FunctionForm,
@@ -22,7 +22,7 @@ from open_webui.utils.bounded_url_loader import LoadUrlForm, load_source_url
 from open_webui.config import CACHE_DIR
 from open_webui.constants import ERROR_MESSAGES
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, WithJsonSchema
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.env import DATA_DIR, DATABASE_URL, SRC_LOG_LEVELS
 
@@ -32,6 +32,9 @@ log.setLevel(SRC_LOG_LEVELS["MAIN"])
 
 router = APIRouter()
 _FUNCTION_HISTORY_READS = os.environ.get("OPEN_WEBUI_IMPORTED_HISTORY_READS") == "1"
+JsonObject = Annotated[
+    dict[str, Any], WithJsonSchema({"type": "object", "additionalProperties": True})
+]
 
 
 class FunctionWithValvesModel(FunctionModel):
@@ -43,7 +46,7 @@ class SyncFunctionsForm(BaseModel):
     functions: list[FunctionWithValvesModel] = []
 
 
-@router.post("/load/url", response_model=Optional[dict[str, Any]])
+@router.post("/load/url", response_model=Optional[JsonObject])
 async def load_function_from_url(
     form_data: LoadUrlForm, user=Depends(get_admin_user)
 ):
