@@ -1046,12 +1046,17 @@ DEFAULT_USER_PERMISSIONS = {
         "models": USER_PERMISSIONS_WORKSPACE_MODELS_ACCESS,
         "knowledge": USER_PERMISSIONS_WORKSPACE_KNOWLEDGE_ACCESS,
         "prompts": USER_PERMISSIONS_WORKSPACE_PROMPTS_ACCESS,
+        "skills": False,
+        "skills_export": False,
+        "skills_import": False,
         "tools": USER_PERMISSIONS_WORKSPACE_TOOLS_ACCESS,
     },
     "sharing": {
         "public_models": USER_PERMISSIONS_WORKSPACE_MODELS_ALLOW_PUBLIC_SHARING,
         "public_knowledge": USER_PERMISSIONS_WORKSPACE_KNOWLEDGE_ALLOW_PUBLIC_SHARING,
         "public_prompts": USER_PERMISSIONS_WORKSPACE_PROMPTS_ALLOW_PUBLIC_SHARING,
+        "skills": False,
+        "public_skills": False,
         "public_tools": USER_PERMISSIONS_WORKSPACE_TOOLS_ALLOW_PUBLIC_SHARING,
     },
     "chat": {

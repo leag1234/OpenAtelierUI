@@ -139,6 +139,9 @@ class WorkspacePermissions(BaseModel):
     models: bool = False
     knowledge: bool = False
     prompts: bool = False
+    skills: bool = False
+    skills_export: bool = False
+    skills_import: bool = False
     tools: bool = False
 
 
@@ -146,6 +149,8 @@ class SharingPermissions(BaseModel):
     public_models: bool = True
     public_knowledge: bool = True
     public_prompts: bool = True
+    skills: bool = False
+    public_skills: bool = False
     public_tools: bool = True
 
 
