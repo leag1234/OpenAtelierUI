@@ -91,11 +91,18 @@ def terminal_compat_enabled(environ):
     )
 
 
+def calendar_compat_enabled(environ):
+    return environ.get("OPENATELIER_CALENDAR_COMPAT", "1") != "0"
+
+
 NOTES_COMPAT_ENABLED = notes_compat_enabled(os.environ)
 TERMINAL_COMPAT_ENABLED = terminal_compat_enabled(os.environ)
+CALENDAR_COMPAT_ENABLED = calendar_compat_enabled(os.environ)
 
 if NOTES_COMPAT_ENABLED:
     from open_webui.routers import notes
+if CALENDAR_COMPAT_ENABLED:
+    from open_webui.routers import calendars
 if TERMINAL_COMPAT_ENABLED:
     from open_webui.routers import terminals
 
@@ -1061,6 +1068,8 @@ app.include_router(
 app.include_router(utils.router, prefix="/api/v1/utils", tags=["utils"])
 if NOTES_COMPAT_ENABLED:
     app.include_router(notes.router, prefix="/api/v1/notes", tags=["notes"])
+if CALENDAR_COMPAT_ENABLED:
+    app.include_router(calendars.router, prefix="/api/v1/calendars", tags=["calendars"])
 
 
 try:
