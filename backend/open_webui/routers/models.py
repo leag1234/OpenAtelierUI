@@ -24,7 +24,7 @@ from open_webui.utils.imported_history import (
 )
 from open_webui.constants import ERROR_MESSAGES
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 
@@ -75,11 +75,18 @@ async def import_models(
 async def sync_models(
     form_data: SyncModelsForm, user=Depends(get_admin_user)
 ):
-    return [
-        model
-        for value in form_data.models
-        if (model := Models.get_model_by_id(value.id)) is not None
-    ]
+    responses = []
+    for value in form_data.models:
+        model = Models.get_model_by_id(value.id)
+        if model is None:
+            continue
+        response = model.model_dump(exclude={"access_control"})
+        response.update(_model_access_fields(model, user))
+        response["version_id"] = _current_version_id(model)
+        responses.append(response)
+    # A concrete response preserves the additive recent fields while the
+    # declared legacy response model remains stable for generated clients.
+    return JSONResponse(content=responses)
 
 
 def _model_access_fields(model, user):

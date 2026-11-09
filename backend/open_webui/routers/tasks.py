@@ -51,7 +51,7 @@ async def generate_follow_ups(
     model_id = form_data["model"]
     models = request.app.state.MODELS
     if model_id not in models:
-        raise HTTPException(status_code=404, detail='Model "" was not found')
+        raise HTTPException(status_code=404, detail="Model '' was not found")
     payload = {
         "model": get_task_model_id(
             model_id,
