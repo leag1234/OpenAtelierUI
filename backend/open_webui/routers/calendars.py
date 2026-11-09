@@ -378,7 +378,23 @@ def delete_event(event_id: str, request: Request, user=Depends(get_verified_user
     return {"status": calendar_store.delete_event(event_id)}
 
 
-@router.post("/events/{event_id}/rsvp")
+@router.post(
+    "/events/{event_id}/rsvp",
+    response_model=None,
+    responses={
+        200: {
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "additionalProperties": True,
+                        "title": "Response Rsvp Event Api V1 Calendars Events  Event Id  Rsvp Post",
+                        "type": "object",
+                    }
+                }
+            }
+        }
+    },
+)
 def rsvp_event(event_id: str, form: RSVPForm, request: Request, user=Depends(get_verified_user)) -> dict[str, Any]:
     """Update own RSVP status for an event."""
     _allow_calendar(request, user)
