@@ -8,7 +8,7 @@ from open_webui.env import SRC_LOG_LEVELS
 from open_webui.models.users import Users, UserResponse
 
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from sqlalchemy import or_, and_, func
 from sqlalchemy.dialects import postgresql, sqlite
@@ -36,7 +36,12 @@ class ModelParams(BaseModel):
 
 # ModelMeta is a model for the data stored in the meta field of the Model table
 class ModelMeta(BaseModel):
-    profile_image_url: Optional[str] = "/static/favicon.png"
+    profile_image_url: Optional[str] = None
+    background_image_url: Optional[str] = None
+    voice: Optional[dict] = None
+    voice_avatar: Optional[str] = None
+    i18n: Optional[dict] = None
+    knowledge: Optional[list] = None
 
     description: Optional[str] = None
     """
@@ -131,6 +136,57 @@ class ModelUserResponse(ModelModel):
 
 class ModelResponse(ModelModel):
     pass
+
+
+class ModelOwnerResponse(BaseModel):
+    id: str
+    name: str
+    role: str
+    email: str
+
+
+class ModelListMeta(BaseModel):
+    background_image_url: Optional[str] = None
+    capabilities: Optional[dict] = None
+    description: Optional[str] = None
+    i18n: Optional[dict] = None
+    knowledge: Optional[list] = None
+    tags: Optional[list] = None
+    voice: Optional[dict] = None
+    voice_avatar: Optional[str] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ModelReadResponse(BaseModel):
+    id: str
+    user_id: str
+    base_model_id: Optional[str] = None
+    name: str
+    params: ModelParams
+    meta: ModelMeta
+    is_active: bool
+    updated_at: int
+    created_at: int
+
+
+class ModelAccessResponse(ModelReadResponse):
+    meta: ModelListMeta
+    access_grants: list[dict] = Field(default_factory=list)
+    user: Optional[ModelOwnerResponse] = None
+    write_access: bool = False
+    version_id: Optional[str] = None
+
+
+class ModelAccessListResponse(BaseModel):
+    items: list[ModelAccessResponse]
+    total: int
+
+
+class ModelExportResponse(ModelReadResponse):
+    access_grants: list[dict] = Field(default_factory=list)
+    version_id: Optional[str] = None
+    background_image_data: Optional[str] = None
 
 
 class ModelForm(BaseModel):

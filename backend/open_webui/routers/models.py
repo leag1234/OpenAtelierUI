@@ -5,6 +5,9 @@ from typing import Optional
 from urllib.parse import unquote
 
 from open_webui.models.models import (
+    ModelAccessListResponse,
+    ModelAccessResponse,
+    ModelExportResponse,
     ModelForm,
     ModelModel,
     ModelResponse,
@@ -29,6 +32,12 @@ from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_access, has_permission
 from open_webui.utils.access_grants import access_control_for_grants, access_grants_for_acl
 from open_webui.utils.model_compat import resolve_model_update_id
+from open_webui.utils.model_read_compat import (
+    filter_models,
+    local_model_version_id,
+    model_tag_names,
+    paginate,
+)
 from open_webui.env import DATA_DIR, DATABASE_URL, STATIC_DIR
 
 
@@ -44,6 +53,52 @@ def _model_access_fields(model, user):
         "write_access": owner_or_admin
         or has_access(user.id, "write", model.access_control),
     }
+
+
+def _visible_models(user):
+    if user.role == "admin":
+        return Models.get_models()
+    return Models.get_models_by_user_id(user.id, permission="read")
+
+
+def _current_version_id(model):
+    try:
+        return get_imported_model_current_version_id(
+            DATA_DIR, DATABASE_URL, "model", model
+        )
+    except (HistoryNotFound, HistoryUnavailable):
+        return local_model_version_id(model)
+
+
+def _model_owner(model):
+    owner = Users.get_user_by_id(model.user_id)
+    if owner is None:
+        return None
+    return {
+        "id": owner.id,
+        "name": owner.name,
+        "role": owner.role,
+        "email": owner.email,
+    }
+
+
+def _model_list_response(model, user):
+    response = model.model_dump()
+    response["meta"].pop("profile_image_url", None)
+    response.update(_model_access_fields(model, user))
+    response["user"] = _model_owner(model)
+    response["version_id"] = _current_version_id(model)
+    if user.role != "admin" and model.user_id != user.id:
+        response["params"] = {}
+    return ModelAccessResponse.model_validate(response)
+
+
+def _model_export_response(model, user):
+    response = model.model_dump()
+    response.update(_model_access_fields(model, user))
+    response["version_id"] = _current_version_id(model)
+    response["background_image_data"] = None
+    return ModelExportResponse.model_validate(response)
 
 
 ###########################
@@ -74,6 +129,61 @@ async def get_models(id: Optional[str] = None, user=Depends(get_verified_user)):
 @router.get("/base", response_model=list[ModelResponse])
 async def get_base_models(user=Depends(get_admin_user)):
     return Models.get_base_models()
+
+
+@router.get("/base/tags", response_model=list[str])
+async def get_base_model_tags(user=Depends(get_admin_user)):
+    return sorted(
+        {tag for model in Models.get_base_models() for tag in model_tag_names(model)}
+    )
+
+
+@router.get("/export", response_model=list[ModelExportResponse])
+async def export_models(request: Request, user=Depends(get_verified_user)):
+    if user.role != "admin" and not has_permission(
+        user.id,
+        "workspace.models_export",
+        request.app.state.config.USER_PERMISSIONS,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ERROR_MESSAGES.UNAUTHORIZED,
+        )
+    return [_model_export_response(model, user) for model in _visible_models(user)]
+
+
+@router.get("/list", response_model=ModelAccessListResponse)
+async def list_models(
+    query: Optional[str] = None,
+    view_option: Optional[str] = None,
+    tag: Optional[str] = None,
+    order_by: Optional[str] = None,
+    direction: Optional[str] = None,
+    page: Optional[int] = 1,
+    user=Depends(get_verified_user),
+):
+    # The two pinned references currently accept view_option without changing
+    # this local projection. Keep the parameter for wire compatibility.
+    _ = view_option
+    values = filter_models(
+        _visible_models(user),
+        query=query,
+        tag=tag,
+        order_by=order_by,
+        direction=direction,
+    )
+    total = len(values)
+    return ModelAccessListResponse(
+        items=[_model_list_response(model, user) for model in paginate(values, page)],
+        total=total,
+    )
+
+
+@router.get("/tags", response_model=list[str])
+async def get_model_tags(user=Depends(get_verified_user)):
+    return sorted(
+        {tag for model in _visible_models(user) for tag in model_tag_names(model)}
+    )
 
 
 ############################
