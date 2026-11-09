@@ -46,6 +46,7 @@ from open_webui.utils.tools import (
     get_tool_specs,
     named_tool_server_catalog_ids,
     named_tool_server_read_allowed,
+    resolve_tool_server_reference,
 )
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_access, has_permission
@@ -482,6 +483,61 @@ async def get_tools_by_id(id: str, user=Depends(get_verified_user)):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
+
+
+@router.get(
+    "/id/{id}/specs",
+    operation_id="get_tool_specs_api_v1_tools_id__id__specs_get",
+    summary="Get Tool Specs",
+)
+async def get_tool_specs_by_id(
+    request: Request, id: str, user=Depends(get_verified_user)
+):
+    """Discover tools for an accessible connection. Currently supports MCP."""
+    connections = request.app.state.config.TOOL_SERVER_CONNECTIONS
+    if not request.app.state.TOOL_SERVERS:
+        request.app.state.TOOL_SERVERS = await get_tool_servers_data(connections)
+    else:
+        request.app.state.TOOL_SERVERS = await _refresh_named_tool_server_catalog(
+            connections,
+            request.app.state.TOOL_SERVERS,
+        )
+
+    resolved = resolve_tool_server_reference(
+        id, connections, request.app.state.TOOL_SERVERS, user
+    )
+    if resolved is None:
+        raise HTTPException(status_code=404, detail="Tool not found")
+    _connection, server = resolved
+    return {
+        "specs": [
+            {
+                "name": spec.get("name"),
+                "description": spec.get("description", ""),
+            }
+            for spec in server.get("specs", [])
+            if isinstance(spec, dict) and isinstance(spec.get("name"), str)
+        ]
+    }
+
+
+@router.post("/id/{id}/toggle", response_model=ToolResponse)
+async def toggle_tool_by_id(id: str, user=Depends(get_verified_user)):
+    tool = Tools.get_tool_by_id(id)
+    if tool is None:
+        raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+    if user.role != "admin" and tool.user_id != user.id:
+        raise HTTPException(status_code=403, detail=ERROR_MESSAGES.UNAUTHORIZED)
+
+    toggled = Tools.toggle_tool_by_id(id)
+    if toggled is None:
+        raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+    toggled.version_id = _tool_current_version(toggled)
+    response = toggled.model_dump(exclude={"content", "specs"})
+    response["access_grants"] = access_grants_for_acl(
+        toggled.access_control, "tool", toggled.id, toggled.created_at
+    )
+    return response
 
 
 @router.get("/id/{id}/history")

@@ -1,12 +1,12 @@
 import logging
 import time
-from typing import Optional
+from typing import Annotated, Any, Optional
 
 from open_webui.internal.db import Base, JSONField, get_db
 from open_webui.models.users import Users, UserResponse
 from open_webui.env import SRC_LOG_LEVELS
-from pydantic import BaseModel, ConfigDict, model_validator
-from sqlalchemy import BigInteger, Column, String, Text, JSON
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, model_validator
+from sqlalchemy import BigInteger, Boolean, Column, String, Text, JSON
 
 from open_webui.utils.access_control import has_access
 from open_webui.utils.access_grants import convert_explicit_access_grants
@@ -30,6 +30,7 @@ class Tool(Base):
     specs = Column(JSONField)
     meta = Column(JSONField)
     valves = Column(JSONField)
+    is_active = Column(Boolean, nullable=False, default=True, server_default="1")
 
     access_control = Column(JSON, nullable=True)  # Controls data access levels.
     # Defines access control rules for this entry.
@@ -52,9 +53,28 @@ class Tool(Base):
     created_at = Column(BigInteger)
 
 
+JsonObject = Annotated[
+    dict[str, Any], WithJsonSchema({"type": "object", "additionalProperties": True})
+]
+
+
 class ToolMeta(BaseModel):
     description: Optional[str] = None
-    manifest: Optional[dict] = {}
+    manifest: Optional[JsonObject] = {}
+    i18n: Optional[dict[str, dict[str, str]]] = None
+    has_user_valves: bool = False
+
+    model_config = ConfigDict(extra="allow")
+
+
+class AccessGrantModel(BaseModel):
+    id: str
+    resource_type: str
+    resource_id: str
+    principal_type: str
+    principal_id: str
+    permission: str
+    created_at: int
 
 
 class ToolModel(BaseModel):
@@ -65,6 +85,7 @@ class ToolModel(BaseModel):
     specs: list[dict]
     meta: ToolMeta
     access_control: Optional[dict] = None
+    is_active: bool = True
 
     updated_at: int  # timestamp in epoch
     created_at: int  # timestamp in epoch
@@ -84,16 +105,19 @@ class ToolUserModel(ToolModel):
 
 class ToolResponse(BaseModel):
     id: str
-    user_id: str
+    user_id: Optional[str] = None
     name: str
     meta: ToolMeta
-    access_control: Optional[dict] = None
+    access_grants: list[AccessGrantModel] = Field(default_factory=list)
+    is_active: bool = True
     updated_at: int  # timestamp in epoch
     created_at: int  # timestamp in epoch
+    version_id: Optional[str] = None
 
 
 class ToolUserResponse(ToolResponse):
     user: Optional[UserResponse] = None
+    access_control: Optional[dict] = None
 
 
 class ToolForm(BaseModel):
@@ -251,6 +275,20 @@ class ToolsTable:
                 db.commit()
 
                 tool = db.query(Tool).get(id)
+                db.refresh(tool)
+                return ToolModel.model_validate(tool)
+        except Exception:
+            return None
+
+    def toggle_tool_by_id(self, id: str) -> Optional[ToolModel]:
+        """Toggle only activation state, preserving revision timestamps."""
+        try:
+            with get_db() as db:
+                tool = db.get(Tool, id)
+                if tool is None:
+                    return None
+                tool.is_active = not bool(tool.is_active)
+                db.commit()
                 db.refresh(tool)
                 return ToolModel.model_validate(tool)
         except Exception:
