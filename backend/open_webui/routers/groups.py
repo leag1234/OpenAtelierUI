@@ -25,6 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.env import SRC_LOG_LEVELS
+from open_webui.routers.users import UserInfoResponse
 from open_webui.utils.group_compat import (
     project_group_export,
     project_group_info,
@@ -119,6 +120,7 @@ async def get_group_info_by_id(id: str, user=Depends(get_verified_user)):
 async def preview_group_access(
     request: Request, id: str, user=Depends(get_admin_user)
 ):
+    """Show what resources a group can access (preview audit)."""
     group = Groups.get_group_by_id(id)
     if group is None:
         raise HTTPException(
@@ -134,7 +136,11 @@ async def preview_group_access(
     )
 
 
-@router.post("/id/{id}/users")
+@router.post(
+    "/id/{id}/users",
+    response_model=list[UserInfoResponse],
+    response_model_exclude={"__all__": {"last_active_at"}},
+)
 async def get_users_in_group(id: str, user=Depends(get_admin_user)):
     group = Groups.get_group_by_id(id)
     if group is None:
