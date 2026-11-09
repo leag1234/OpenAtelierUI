@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import unquote
 
-from open_webui.models.auths import Auths
+from open_webui.models.auths import ApiKey, Auths
 from open_webui.models.groups import Groups
 from open_webui.models.chats import Chats
 from open_webui.models.users import (
@@ -27,6 +27,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from open_webui.utils.auth import (
+    create_api_key,
     get_admin_user,
     get_password_hash,
     get_verified_user,
@@ -597,6 +598,49 @@ async def get_user_profile_image_by_id(
     if image_url.startswith(("/", "https://", "http://")):
         return RedirectResponse(image_url)
     raise HTTPException(status_code=400, detail="Invalid user profile image.")
+
+
+############################
+# Administrator API Key Lifecycle
+############################
+
+
+@router.post("/{user_id}/api_key/rotate", response_model=ApiKey)
+async def rotate_user_api_key_by_id(
+    request: Request, user_id: str, user=Depends(get_admin_user)
+):
+    target = Users.get_user_by_id(user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+    if not request.app.state.config.ENABLE_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ERROR_MESSAGES.API_KEY_CREATION_NOT_ALLOWED,
+        )
+    permissions = get_permissions(
+        target.id, request.app.state.config.USER_PERMISSIONS
+    )
+    if target.role == "user" and not permissions.get("features", {}).get(
+        "api_keys", False
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ERROR_MESSAGES.API_KEY_CREATION_NOT_ALLOWED,
+        )
+    api_key = create_api_key()
+    if Users.update_user_api_key_by_id(target.id, api_key):
+        return {"api_key": api_key}
+    raise HTTPException(status_code=500, detail=ERROR_MESSAGES.CREATE_API_KEY_ERROR)
+
+
+@router.delete("/{user_id}/api_key", response_model=bool)
+async def delete_user_api_key_by_id(
+    user_id: str, user=Depends(get_admin_user)
+):
+    target = Users.get_user_by_id(user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+    return Users.update_user_api_key_by_id(target.id, None)
 
 
 ############################
