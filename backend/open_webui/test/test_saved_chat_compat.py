@@ -529,6 +529,17 @@ class SavedChatCompatibilityTests(unittest.TestCase):
         fallback = project(collision, self.actor, mark_continue=True)
         self.assertEqual(fallback["meta"], {"_mdk_private_saved_work": {"opaque": True}})
         self.assertNotIn("share_mode", fallback["chat"])
+        note = copy.deepcopy(model)
+        note.model_dump = lambda: {
+            **model.model_dump(),
+            "meta": {"internal": True, "type": "note", "note_id": "note-1"},
+        }
+        note_response = project(note, self.actor, mark_continue=True)
+        self.assertEqual(note_response["chat"]["share_mode"], "continue")
+        self.assertEqual(
+            note_response["meta"],
+            {"internal": True, "type": "note", "note_id": "note-1"},
+        )
 
     def test_read_projection_refreshes_current_names_and_deduplicates_other_authors(self):
         project = self.helpers["_project_private_chat_authors"]
@@ -650,7 +661,7 @@ class SavedChatCompatibilityTests(unittest.TestCase):
             "a": {"id": "a", "role": "user", "user_id": "member-1", "user": {"id": "member-1", "name": "Previous name"}}}},
             "messages": [{"id": "a", "role": "user", "user_id": "member-1", "user": {"id": "member-1", "name": "Previous name"}}]}
         model = SimpleNamespace(
-            chat=stored_chat,
+            chat=stored_chat, user_id="member-1",
             model_dump=lambda: {"id": "chat-1", "user_id": "member-1", "title": "Saved", "chat": stored_chat,
                                 "created_at": 1, "updated_at": 2, "meta": {"_mdk_private_saved_work": {"version": 1, "last_read_at": None}},
                                 "archived": False, "pinned": False, "folder_id": None},
@@ -659,14 +670,17 @@ class SavedChatCompatibilityTests(unittest.TestCase):
         ns = {
             "Chats": SimpleNamespace(get_chat_by_id_and_user_id=lambda chat_id, user_id: model,
                                       acknowledge_private_saved_chats=lambda *_: effects.append("unexpected acknowledgement")),
-            "_saved_chat_response": _response_helper(), "Users": SimpleNamespace(get_user_by_id=lambda _user_id: None),
+            "_private_chat_response": lambda chat, user, **kwargs: _response_helper()(chat, user, **{
+                key: value for key, value in kwargs.items() if key != "request"
+            }),
+            "Users": SimpleNamespace(get_user_by_id=lambda _user_id: None),
             "PrivateChatResponse": lambda **kwargs: kwargs,
             "HTTPException": RuntimeError, "status": SimpleNamespace(HTTP_401_UNAUTHORIZED=401),
             "ERROR_MESSAGES": SimpleNamespace(NOT_FOUND="not found"),
         }
         route = _function(ROUTE_PATH, "get_chat_by_id", ns)
         renamed_actor = SimpleNamespace(id="member-1", name="Current synthetic name", role="user")
-        response = asyncio.run(route("chat-1", renamed_actor))
+        response = asyncio.run(route(SimpleNamespace(), "chat-1", renamed_actor))
         self.assertEqual(effects, [])
         self.assertEqual(response["chat"]["share_mode"], "continue")
         self.assertEqual(response["chat"]["history"]["messages"]["a"]["user"]["name"], "Current synthetic name")
@@ -719,14 +733,15 @@ class SavedChatCompatibilityTests(unittest.TestCase):
         effects = []
         ns = {
             "Chats": SimpleNamespace(get_chat_by_id_and_user_id=lambda *_: None,
+                                      get_chat_by_id=lambda *_: None,
                                       acknowledge_private_saved_chats=lambda *_: effects.append("unexpected acknowledgement")),
-            "_saved_chat_response": lambda *_args, **_kwargs: effects.append("projection"),
+            "_private_chat_response": lambda *_args, **_kwargs: effects.append("projection"),
             "HTTPException": Denied, "status": SimpleNamespace(HTTP_401_UNAUTHORIZED=401),
             "ERROR_MESSAGES": SimpleNamespace(NOT_FOUND="not found"),
         }
         route = _function(ROUTE_PATH, "get_chat_by_id", ns)
         with self.assertRaises(Denied) as raised:
-            asyncio.run(route("private-chat", self.actor))
+            asyncio.run(route(SimpleNamespace(), "private-chat", self.actor))
         self.assertEqual(raised.exception.kwargs["status_code"], 401)
         self.assertEqual(effects, [])
 
@@ -763,10 +778,10 @@ class SavedChatCompatibilityTests(unittest.TestCase):
         def fields(class_name):
             return {node.target.id for node in classes[class_name].body
                     if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)}
-        self.assertFalse({"variables", "tasks", "summary", "current_message_id", "context_usage"} & fields("ChatResponse"))
+        self.assertTrue({"variables", "tasks", "summary", "current_message_id", "context_usage"} <= fields("ChatResponse"))
         self.assertTrue({"variables", "tasks", "summary", "current_message_id", "context_usage"} <= fields("PrivateChatResponse"))
-        self.assertFalse({"last_read_at", "active", "snippet"} & fields("ChatTitleIdResponse"))
-        self.assertTrue({"last_read_at", "active", "snippet"} <= fields("PrivateChatTitleIdResponse"))
+        self.assertTrue({"last_read_at", "active", "snippet"} <= fields("ChatTitleIdResponse"))
+        self.assertEqual(fields("PrivateChatTitleIdResponse"), {"archived"})
         self.assertFalse({"variables", "folder_id"} & fields("ChatForm"))
         self.assertTrue({"variables", "folder_id"} <= fields("PrivateChatForm"))
         route_tree = ast.parse(ROUTE_PATH.read_text(encoding="utf-8"))

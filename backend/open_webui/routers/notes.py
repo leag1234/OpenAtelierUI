@@ -527,7 +527,14 @@ def delete_note_by_id(request: Request, id: str, user=Depends(get_verified_user)
     if note is None:
         raise HTTPException(status_code=404, detail="We could not find what you're looking for :/")
     if user.role != "admin" and note["user_id"] != user.id:
-        raise _denied()
+        try:
+            can_delete = notes_store.has_grant(
+                id, user.id, "write", _group_ids(user.id)
+            )
+        except Exception as error:
+            raise _unavailable(error) from None
+        if not can_delete:
+            raise _denied()
     try:
         if not notes_store.delete(id, note["user_id"]):
             raise HTTPException(status_code=404, detail="We could not find what you're looking for :/")

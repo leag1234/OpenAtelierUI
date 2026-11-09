@@ -12,7 +12,6 @@ targets remain ineligible for cutover.
 from __future__ import annotations
 
 import argparse
-import ast
 from datetime import date
 import hashlib
 import importlib.util
@@ -199,11 +198,15 @@ MAX_NAMED_TOOL_NAME_CHARS = 256
 MAX_NAMED_TOOL_DESCRIPTION_CHARS = 1024
 NAMED_TOOL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 OLD_CONFIG_SOURCE_SHA256 = (
-    "447f1a08fa93d131776e30ca079ca3f151724d02389210646447849992768928"
+    "e5f0f271d4d643ea7f8455cb656a088bee2e0dbab90186ceb2cf08d6bfce069b"
 )
 OLD_CONFIG_DEFAULTS_SHA256 = "7870936571d911d4d4580b924d7b187ac9b5d01121299a1947f5d1ccfc832dd8"
 NAMED_TOOL_CONNECTION_KEY = "tool_server.connections"
-NAMED_TOOL_CONFIG_PATH = Path(__file__).resolve().parents[1] / "backend" / "open_webui" / "config.py"
+NAMED_TOOL_CONFIG_PATH = (
+    Path(__file__).resolve().parent
+    / "fixtures"
+    / "openatelier_v065_default_config.json"
+)
 MESSAGE_UNSUPPORTED = {
     "output", "model_id", "files", "sources", "embeds", "done", "status_history",
     "error", "usage", "created_at", "updated_at", "context_summary", "meta",
@@ -455,7 +458,7 @@ def _user_timezone_settings_overrides(
 
 
 def _load_pinned_old_defaults() -> tuple[dict, str, str]:
-    """Read only the pinned literal defaults; never import the runtime module."""
+    """Read only the pinned defaults snapshot; never import runtime configuration."""
     path = NAMED_TOOL_CONFIG_PATH
     try:
         if path.is_symlink() or not path.is_file() or path.stat().st_size > 2 * 1024 * 1024:
@@ -467,18 +470,10 @@ def _load_pinned_old_defaults() -> tuple[dict, str, str]:
     if source_hash != OLD_CONFIG_SOURCE_SHA256:
         raise MigrationError("named_tool_configuration_defaults_unavailable", "pinned old configuration source does not match")
     try:
-        module = ast.parse(source.decode("utf-8"), filename=str(path))
-        assignments = [
-            node for node in module.body
-            if isinstance(node, ast.Assign)
-            and any(isinstance(target, ast.Name) and target.id == "DEFAULT_CONFIG" for target in node.targets)
-        ]
-        if len(assignments) != 1:
-            raise ValueError("default assignment count")
-        defaults = ast.literal_eval(assignments[0].value)
+        defaults = json.loads(source.decode("utf-8"), object_pairs_hook=_reject_duplicate_json_keys)
         if not isinstance(defaults, dict) or type(defaults.get("version")) is not int:
             raise ValueError("default shape")
-    except (UnicodeError, SyntaxError, ValueError, TypeError, RecursionError) as error:
+    except (UnicodeError, ValueError, TypeError, RecursionError) as error:
         raise MigrationError("named_tool_configuration_defaults_unavailable", "pinned old configuration defaults could not be read") from error
     canonical = json.dumps(defaults, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     defaults_hash = hashlib.sha256(canonical).hexdigest()

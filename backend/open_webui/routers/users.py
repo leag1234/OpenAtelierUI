@@ -17,7 +17,7 @@ from open_webui.socket.main import disconnect_user_sockets, get_active_status_by
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.env import SRC_LOG_LEVELS
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from open_webui.utils.auth import (
     get_admin_user,
@@ -147,42 +147,87 @@ async def get_user_permissisions(request: Request, user=Depends(get_verified_use
 ############################
 class WorkspacePermissions(BaseModel):
     models: bool = False
+    models_export: bool = False
+    models_hidden: bool = False
+    models_import: bool = False
     knowledge: bool = False
     prompts: bool = False
+    prompts_export: bool = False
+    prompts_import: bool = False
     skills: bool = False
     skills_export: bool = False
     skills_import: bool = False
     tools: bool = False
+    tools_export: bool = False
+    tools_import: bool = False
 
 
 class SharingPermissions(BaseModel):
     folders: bool = False
+    knowledge: bool = False
+    models: bool = False
+    notes: bool = False
+    open_chats: bool = False
+    prompts: bool = False
+    public_calendars: bool = False
+    public_chats: bool = False
     public_models: bool = True
     public_knowledge: bool = True
+    public_notes: bool = False
     public_prompts: bool = True
     skills: bool = False
     public_skills: bool = False
+    tools: bool = False
     public_tools: bool = True
 
 
 class ChatPermissions(BaseModel):
+    continue_response: bool = True
     controls: bool = True
     file_upload: bool = True
     delete: bool = True
+    delete_message: bool = True
     edit: bool = True
+    export: bool = True
+    import_: bool = Field(default=True, alias="import")
+    params: bool = True
+    rate_response: bool = True
+    regenerate_response: bool = True
+    share: bool = True
     stt: bool = True
+    system_prompt: bool = True
     tts: bool = True
     call: bool = True
     multiple_models: bool = True
     temporary: bool = True
     temporary_enforced: bool = False
+    valves: bool = True
+    web_upload: bool = True
 
 
 class FeaturesPermissions(BaseModel):
+    api_keys: bool = False
+    automations: bool = False
+    calendar: bool = True
+    channels: bool = True
     direct_tool_servers: bool = False
+    encrypted_channels: bool = False
+    folders: bool = True
     web_search: bool = True
     image_generation: bool = True
     code_interpreter: bool = True
+    memories: bool = True
+    notes: bool = True
+    webhooks: bool = False
+
+
+class SettingsPermissions(BaseModel):
+    interface: bool = True
+
+
+class AccessGrantPermissions(BaseModel):
+    allow_groups: bool = True
+    allow_users: bool = True
 
 
 class UserPermissions(BaseModel):
@@ -190,6 +235,8 @@ class UserPermissions(BaseModel):
     sharing: SharingPermissions
     chat: ChatPermissions
     features: FeaturesPermissions
+    settings: SettingsPermissions = Field(default_factory=SettingsPermissions)
+    access_grants: AccessGrantPermissions = Field(default_factory=AccessGrantPermissions)
 
 
 @router.get("/default/permissions", response_model=UserPermissions)
@@ -207,6 +254,12 @@ async def get_default_user_permissions(request: Request, user=Depends(get_admin_
         "features": FeaturesPermissions(
             **request.app.state.config.USER_PERMISSIONS.get("features", {})
         ),
+        "settings": SettingsPermissions(
+            **request.app.state.config.USER_PERMISSIONS.get("settings", {})
+        ),
+        "access_grants": AccessGrantPermissions(
+            **request.app.state.config.USER_PERMISSIONS.get("access_grants", {})
+        ),
     }
 
 
@@ -214,7 +267,7 @@ async def get_default_user_permissions(request: Request, user=Depends(get_admin_
 async def update_default_user_permissions(
     request: Request, form_data: UserPermissions, user=Depends(get_admin_user)
 ):
-    request.app.state.config.USER_PERMISSIONS = form_data.model_dump()
+    request.app.state.config.USER_PERMISSIONS = form_data.model_dump(by_alias=True)
     return request.app.state.config.USER_PERMISSIONS
 
 

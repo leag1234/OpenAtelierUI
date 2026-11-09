@@ -338,6 +338,19 @@ class PrivateNotesStoreTests(unittest.TestCase):
                 owner,
             )
             self.assertEqual(len(granted["access_grants"]), 1)
+            ordered = router.update_note_access_by_id(
+                request,
+                created["id"],
+                router.NoteAccessGrantsForm(access_grants=[
+                    {"principal_type": "user", "principal_id": "reader", "permission": "read"},
+                    {"principal_type": "user", "principal_id": "writer", "permission": "write"},
+                ]),
+                owner,
+            )
+            self.assertEqual(
+                [grant["permission"] for grant in ordered["access_grants"]],
+                ["read", "write"],
+            )
             reader = SimpleNamespace(id="reader", role="user")
             self.assertEqual(router.get_note(request, created["id"], reader)["id"], created["id"])
             with self.assertRaises(router.HTTPException) as read_only:
@@ -448,6 +461,22 @@ class PrivateNotesStoreTests(unittest.TestCase):
             with self.assertRaises(router.HTTPException) as repeated_delete:
                 router.delete_note_by_id(request, deletion["id"], owner)
             self.assertEqual(repeated_delete.exception.status_code, 404)
+            delegated_deletion = router.create_new_note(
+                request, router.NoteForm(title="Delegated delete"), owner
+            )
+            writer = SimpleNamespace(id="writer", role="user")
+            router.update_note_access_by_id(
+                request,
+                delegated_deletion["id"],
+                router.NoteAccessGrantsForm(access_grants=[{
+                    "principal_type": "user", "principal_id": "writer",
+                    "permission": "write",
+                }]),
+                owner,
+            )
+            self.assertTrue(
+                router.delete_note_by_id(request, delegated_deletion["id"], writer)
+            )
             bad = router.NoteForm(title="Private", data={"x": float("nan")})
             with self.assertRaises(router.HTTPException) as nonfinite:
                 router._form_values(bad)

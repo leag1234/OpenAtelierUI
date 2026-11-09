@@ -50,11 +50,18 @@ router = APIRouter()
 def _saved_chat_response(chat, user, mark_continue=False, user_lookup=None):
     values = chat.model_dump()
     chat_payload = copy.deepcopy(values.get("chat") or {})
-    marked = _saved_work_marker(values.get("meta")) is not None
+    meta = values.get("meta")
+    marked = _saved_work_marker(meta) is not None
+    note_attached = (
+        isinstance(meta, dict)
+        and meta.get("internal") is True
+        and meta.get("type") == "note"
+        and isinstance(meta.get("note_id"), str)
+    )
     if marked:
         chat_payload = _project_private_chat_authors(chat_payload, user, user_lookup)
-        if mark_continue:
-            chat_payload["share_mode"] = "continue"
+    if mark_continue and (marked or note_attached):
+        chat_payload["share_mode"] = "continue"
     values["chat"] = chat_payload
     values["meta"] = _public_chat_meta(values.get("meta"))
     values["variables"] = {}

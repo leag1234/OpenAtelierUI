@@ -2150,7 +2150,7 @@ class NamedToolConfigurationImportTests(unittest.TestCase):
                 self.assertFalse(target.exists())
         self.assertEqual((digest(self.source), digest(self.template)), (source_hash, template_hash))
 
-    def test_default_loader_is_pure_and_does_not_import_runtime_config(self):
+    def test_default_loader_is_pure_and_independent_from_runtime_config(self):
         import builtins
 
         original_import = builtins.__import__
@@ -2170,6 +2170,13 @@ class NamedToolConfigurationImportTests(unittest.TestCase):
                 include_named_tool_configuration=True,
             )
         self.assertTrue(report["named_tool_configuration"]["old_defaults_verified"])
+
+        runtime_config = Path(__file__).resolve().parents[1] / "backend" / "open_webui" / "config.py"
+        self.assertNotEqual(importer.NAMED_TOOL_CONFIG_PATH, runtime_config)
+        self.assertEqual(
+            importer.NAMED_TOOL_CONFIG_PATH.name,
+            "openatelier_v065_default_config.json",
+        )
 
 
 class UserProfileFieldImportTests(unittest.TestCase):

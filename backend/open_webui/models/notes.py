@@ -212,7 +212,7 @@ class PrivateNotes:
             rows = db.execute(
                 "SELECT id,note_id,principal_type,principal_id,permission,created_at "
                 "FROM openatelier_private_note_grant WHERE note_id=? "
-                "ORDER BY created_at,id",
+                "ORDER BY rowid",
                 (note_id,),
             ).fetchall()
         return [
