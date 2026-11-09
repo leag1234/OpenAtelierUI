@@ -46,12 +46,12 @@ async def get_groups(user=Depends(get_verified_user)):
 ############################
 
 
-@router.post("/create", response_model=Optional[GroupResponse])
+@router.post("/create", response_model=Optional[CurrentGroupResponse])
 async def create_new_group(form_data: GroupForm, user=Depends(get_admin_user)):
     try:
         group = Groups.insert_new_group(user.id, form_data)
         if group:
-            return group
+            return project_group_response(group)
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -136,7 +136,7 @@ async def remove_group_users(
 ############################
 
 
-@router.post("/id/{id}/update", response_model=Optional[GroupResponse])
+@router.post("/id/{id}/update", response_model=Optional[CurrentGroupResponse])
 async def update_group_by_id(
     id: str, form_data: GroupUpdateForm, user=Depends(get_admin_user)
 ):
@@ -146,7 +146,7 @@ async def update_group_by_id(
 
         group = Groups.update_group_by_id(id, form_data)
         if group:
-            return group
+            return project_group_response(group)
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

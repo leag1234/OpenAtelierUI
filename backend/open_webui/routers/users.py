@@ -1,5 +1,10 @@
+import base64
+import binascii
 import logging
+import time
+from pathlib import Path
 from typing import Optional
+from urllib.parse import unquote
 
 from open_webui.models.auths import Auths
 from open_webui.models.groups import Groups
@@ -14,9 +19,11 @@ from open_webui.models.users import (
 
 
 from open_webui.socket.main import disconnect_user_sockets, get_active_status_by_user_id
+from open_webui.config import DEFAULT_USER_PERMISSIONS
 from open_webui.constants import ERROR_MESSAGES
-from open_webui.env import SRC_LOG_LEVELS
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from open_webui.env import FRONTEND_BUILD_DIR, SRC_LOG_LEVELS, STATIC_DIR
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from open_webui.utils.auth import (
@@ -26,6 +33,20 @@ from open_webui.utils.auth import (
     revoke_user_session_epoch,
 )
 from open_webui.utils.access_control import get_permissions
+from open_webui.utils.user_profile_compat import (
+    UserStatus,
+    UserUsageResponse,
+    UserVariablesForm,
+    UserVariablesResponse,
+    build_usage,
+    merge_public_info,
+    public_info,
+    read_variables,
+    status_projection,
+    update_status_info,
+    update_variables_info,
+    validate_variables,
+)
 
 
 log = logging.getLogger(__name__)
@@ -45,6 +66,8 @@ class UserInfoResponse(BaseModel):
     status_emoji: Optional[str] = None
     status_message: Optional[str] = None
     status_expires_at: Optional[int] = None
+    timezone: Optional[str] = None
+    last_active_at: Optional[int] = None
 
 
 class UserInfoListResponse(BaseModel):
@@ -66,6 +89,40 @@ def _user_info_projection(user):
         "status_emoji": info.get("status_emoji"),
         "status_message": info.get("status_message"),
         "status_expires_at": info.get("status_expires_at"),
+        "timezone": (
+            getattr(user, "settings", None).model_dump().get("timezone")
+            if hasattr(getattr(user, "settings", None), "model_dump")
+            else (getattr(user, "settings", None) or {}).get("timezone")
+            if isinstance(getattr(user, "settings", None), dict)
+            else None
+        ),
+        "last_active_at": getattr(user, "last_active_at", None),
+    }
+
+
+def _user_active(user_id: str) -> bool:
+    if get_active_status_by_user_id(user_id):
+        return True
+    current = Users.get_user_by_id(user_id)
+    return bool(
+        current
+        and isinstance(current.last_active_at, int)
+        and current.last_active_at >= int(time.time()) - 300
+    )
+
+
+def _user_group_projection(group):
+    return {
+        "id": group.id,
+        "user_id": group.user_id,
+        "name": group.name,
+        "description": group.description,
+        "data": group.data,
+        "meta": group.meta,
+        "permissions": group.permissions,
+        "parent_group_id": None,
+        "created_at": group.created_at,
+        "updated_at": group.updated_at,
     }
 
 
@@ -104,7 +161,7 @@ async def search_users(
     items = []
     for item in users:
         projected = _user_info_projection(item)
-        projected["is_active"] = get_active_status_by_user_id(item.id)
+        projected["is_active"] = _user_active(item.id)
         items.append(projected)
     return {"users": items, "total": count}
 
@@ -263,6 +320,11 @@ async def get_default_user_permissions(request: Request, user=Depends(get_admin_
     }
 
 
+@router.get("/default/permissions/defaults", response_model=UserPermissions)
+async def get_default_user_permissions_defaults(user=Depends(get_admin_user)):
+    return DEFAULT_USER_PERMISSIONS
+
+
 @router.post("/default/permissions")
 async def update_default_user_permissions(
     request: Request, form_data: UserPermissions, user=Depends(get_admin_user)
@@ -336,7 +398,7 @@ async def update_user_settings_by_session_user(
 async def get_user_info_by_session_user(user=Depends(get_verified_user)):
     user = Users.get_user_by_id(user.id)
     if user:
-        return user.info
+        return public_info(user)
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -355,12 +417,13 @@ async def update_user_info_by_session_user(
 ):
     user = Users.get_user_by_id(user.id)
     if user:
-        if user.info is None:
-            user.info = {}
-
-        user = Users.update_user_by_id(user.id, {"info": {**user.info, **form_data}})
+        try:
+            updated_info = merge_public_info(user.info, form_data)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        user = Users.update_user_by_id(user.id, {"info": updated_info})
         if user:
-            return user.info
+            return public_info(user)
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -371,6 +434,169 @@ async def update_user_info_by_session_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=ERROR_MESSAGES.USER_NOT_FOUND,
         )
+
+
+############################
+# Current user profile compatibility
+############################
+
+
+@router.get("/usage", response_model=UserUsageResponse)
+async def get_user_usage_by_session_user(
+    days: int = Query(30, ge=7, le=732),
+    start_date: Optional[int] = None,
+    end_date: Optional[int] = None,
+    user=Depends(get_verified_user),
+):
+    # The public contract permits explicit bounds. Preserve the requested day
+    # span while keeping the calculation local to this user's stored chats.
+    if start_date is not None and end_date is not None:
+        if start_date > end_date:
+            raise HTTPException(status_code=422, detail="start_date must not exceed end_date")
+        days = max(7, min(732, ((end_date - start_date) // 86400) or 1))
+    return build_usage(Chats.get_chats_by_user_id(user.id), days, end_date)
+
+
+@router.get("/user/status")
+async def get_user_status_by_session_user(user=Depends(get_verified_user)):
+    current = Users.get_user_by_id(user.id)
+    if current:
+        return status_projection(current)
+    raise HTTPException(status_code=400, detail=ERROR_MESSAGES.USER_NOT_FOUND)
+
+
+@router.post("/user/status/update")
+async def update_user_status_by_session_user(
+    form_data: UserStatus, user=Depends(get_verified_user)
+):
+    current = Users.get_user_by_id(user.id)
+    if current:
+        updated = Users.update_user_by_id(
+            user.id, {"info": update_status_info(current.info, form_data)}
+        )
+        if updated:
+            return status_projection(updated)
+    raise HTTPException(status_code=400, detail=ERROR_MESSAGES.USER_NOT_FOUND)
+
+
+@router.get("/user/variables", response_model=UserVariablesResponse)
+async def get_user_variables_by_session_user(user=Depends(get_verified_user)):
+    current = Users.get_user_by_id(user.id)
+    if current:
+        return {"variables": read_variables(current)}
+    raise HTTPException(status_code=400, detail=ERROR_MESSAGES.USER_NOT_FOUND)
+
+
+@router.post("/user/variables/update", response_model=UserVariablesResponse)
+async def update_user_variables_by_session_user(
+    form_data: UserVariablesForm, user=Depends(get_verified_user)
+):
+    current = Users.get_user_by_id(user.id)
+    if not current:
+        raise HTTPException(status_code=400, detail=ERROR_MESSAGES.USER_NOT_FOUND)
+    existing = read_variables(current)
+    try:
+        variables = validate_variables(form_data.variables, existing)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    updated = Users.update_user_by_id(
+        user.id, {"info": update_variables_info(current.info, variables)}
+    )
+    if updated:
+        return {"variables": read_variables(updated)}
+    raise HTTPException(status_code=400, detail=ERROR_MESSAGES.USER_NOT_FOUND)
+
+
+############################
+# User profile lookup compatibility
+############################
+
+
+@router.get("/{user_id}/active")
+async def get_user_active_status_by_id(
+    user_id: str, user=Depends(get_verified_user)
+):
+    return {"active": _user_active(user_id)}
+
+
+@router.get("/{user_id}/groups")
+async def get_user_groups_by_id(user_id: str, user=Depends(get_admin_user)):
+    return [_user_group_projection(group) for group in Groups.get_groups_by_member_id(user_id)]
+
+
+@router.get("/{user_id}/info", response_model=UserInfoResponse)
+async def get_user_info_by_id(user_id: str, user=Depends(get_verified_user)):
+    current = Users.get_user_by_id(user_id)
+    if current:
+        projected = _user_info_projection(current)
+        projected["is_active"] = _user_active(user_id)
+        return projected
+    raise HTTPException(status_code=400, detail=ERROR_MESSAGES.USER_NOT_FOUND)
+
+
+@router.get("/{user_id}/oauth/sessions")
+async def get_user_oauth_sessions_by_id(user_id: str, user=Depends(get_admin_user)):
+    current = Users.get_user_by_id(user_id)
+    if not current or not current.oauth_sub:
+        raise HTTPException(status_code=400, detail=ERROR_MESSAGES.NOT_FOUND)
+    # The BSD base has no external OAuth-session store. An OAuth-linked user
+    # without provider session metadata is represented as an empty local list.
+    return []
+
+
+@router.get("/{user_id}/preview")
+async def get_user_preview(user_id: str, user=Depends(get_admin_user)):
+    current = Users.get_user_by_id(user_id)
+    if not current:
+        raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+    groups = Groups.get_groups_by_member_id(user_id)
+    return {
+        "user": {"id": current.id, "name": current.name},
+        "groups": [{"id": group.id, "name": group.name} for group in groups],
+        "models": {"items": [], "total": 0},
+        "knowledge": {"items": [], "total": 0},
+        "tools": {"items": [], "total": 0},
+    }
+
+
+@router.get("/{user_id}/profile/image")
+async def get_user_profile_image_by_id(
+    user_id: str, user=Depends(get_verified_user)
+):
+    current = Users.get_user_by_id(user_id)
+    if not current:
+        raise HTTPException(status_code=400, detail=ERROR_MESSAGES.USER_NOT_FOUND)
+    image_url = current.profile_image_url or "/user.png"
+    if image_url.startswith("data:image/"):
+        try:
+            header, encoded = image_url.split(",", 1)
+            if not header.endswith(";base64"):
+                raise ValueError("unsupported image encoding")
+            content = base64.b64decode(encoded, validate=True)
+            if len(content) > 2 * 1024 * 1024:
+                raise ValueError("image is too large")
+            return Response(content=content, media_type=header[5:-7])
+        except (ValueError, binascii.Error):
+            raise HTTPException(status_code=400, detail="Invalid user profile image.")
+    roots = []
+    relative = None
+    if image_url == "/user.png":
+        roots, relative = [Path(FRONTEND_BUILD_DIR).resolve()], "user.png"
+    elif image_url.startswith("/static/"):
+        roots, relative = [Path(STATIC_DIR).resolve()], unquote(image_url[len("/static/") :])
+    if relative is not None:
+        for root in roots:
+            image_path = (root / relative).resolve()
+            try:
+                image_path.relative_to(root)
+            except ValueError:
+                continue
+            if image_path.is_file():
+                return FileResponse(image_path)
+        raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+    if image_url.startswith(("/", "https://", "http://")):
+        return RedirectResponse(image_url)
+    raise HTTPException(status_code=400, detail="Invalid user profile image.")
 
 
 ############################

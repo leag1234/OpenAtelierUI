@@ -199,6 +199,7 @@ class GroupTable:
             group = GroupModel(
                 **{
                     **form_data.model_dump(exclude_none=True),
+                    "data": {"config": {"share": "members"}},
                     "id": str(uuid.uuid4()),
                     "user_id": user_id,
                     "created_at": int(time.time()),
@@ -259,7 +260,10 @@ class GroupTable:
             with get_db() as db:
                 db.query(Group).filter_by(id=id).update(
                     {
-                        **form_data.model_dump(exclude_none=True),
+                        # Both measured references accept the legacy field but
+                        # leave membership unchanged. Membership changes use
+                        # the explicit /users/add and /users/remove routes.
+                        **form_data.model_dump(exclude_none=True, exclude={"user_ids"}),
                         "updated_at": int(time.time()),
                     }
                 )
