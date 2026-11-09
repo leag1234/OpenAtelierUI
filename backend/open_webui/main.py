@@ -89,9 +89,7 @@ def notes_compat_enabled(environ):
 
 
 def terminal_compat_enabled(environ):
-    return environ.get("OPENATELIER_TERMINAL_DOWNLOAD_COMPAT") == "1" or bool(
-        environ.get("TERMINAL_SERVER_CONNECTIONS")
-    )
+    return environ.get("OPENATELIER_TERMINAL_DOWNLOAD_COMPAT", "1") != "0"
 
 
 def calendar_compat_enabled(environ):

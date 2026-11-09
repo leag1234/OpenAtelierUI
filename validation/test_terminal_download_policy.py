@@ -90,34 +90,32 @@ class TerminalDownloadPolicyTests(unittest.TestCase):
         self.assertEqual(public_terminal_connections(config, types.SimpleNamespace(id="other", role="user")), [])
         self.assertEqual(public_terminal_connections(raw([connection(enabled=False)]), self.user), [])
 
-    def test_connection_grant_is_not_file_ownership_and_admin_is_not_implicit(self):
+    def test_connection_grant_is_not_file_ownership_and_admin_is_implicit(self):
         wildcard = raw([connection(grants=[{"principal_type": "user", "principal_id": "*",
                                             "permission": "read"}])])
         admin = types.SimpleNamespace(id="admin-1", role="admin")
         request = build_download_request(wildcard, "synthetic_terminal", self.path, admin)
         self.assertEqual(request.headers["X-User-Id"], "admin-1")
-        self.assert_refused(raw([connection()]), user=admin)
+        implicit = build_download_request(raw([connection()]), "synthetic_terminal", self.path, admin)
+        self.assertEqual(implicit.headers["X-User-Id"], "admin-1")
         self.assert_refused(raw([connection()]), user=types.SimpleNamespace(id="member-1", role="pending"))
         self.assert_refused(raw([connection(grants=[])]))
         # The request spec forwards verified identity but never asserts file ownership.
         self.assertIn("terminal must", build_download_request.__doc__)
 
-    def test_legacy_connection_without_grants_is_available_to_verified_users(self):
+    def test_legacy_connection_without_grants_is_administrator_only(self):
         legacy = connection()
         legacy["config"] = {"chat_uploads": "filesystem"}
         config = raw([legacy])
-        public = public_terminal_connections(config, self.user)
+        self.assertEqual(public_terminal_connections(config, self.user), [])
+        admin = types.SimpleNamespace(id="admin-1", role="admin")
+        public = public_terminal_connections(config, admin)
         self.assertEqual(public[0]["id"], "synthetic_terminal")
         self.assertEqual(public[0]["config"], {"chat_uploads": "filesystem"})
-        request = build_download_request(config, "synthetic_terminal", self.path, self.user)
-        self.assertEqual(request.headers["X-User-Id"], "member-1")
-        self.assertEqual(
-            build_download_request(
-                config, "synthetic_terminal", self.path,
-                types.SimpleNamespace(id="other", role="user"),
-            ).headers["X-User-Id"],
-            "other",
-        )
+        request = build_download_request(config, "synthetic_terminal", self.path, admin)
+        self.assertEqual(request.headers["X-User-Id"], "admin-1")
+        self.assert_refused(config, user=self.user)
+        self.assert_refused(config, user=types.SimpleNamespace(id="other", role="user"))
 
     def test_exact_user_grants_deny_other_identity_and_disabled_connection(self):
         self.assert_refused(raw([connection()]), user=types.SimpleNamespace(id="other", role="user"))

@@ -14,7 +14,7 @@ import unittest
 from contextlib import asynccontextmanager
 
 from fastapi import HTTPException, Request
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -45,6 +45,9 @@ class MultiHeaders:
 
     def getall(self, name, default=None):
         return self.values.get(name, default or [])
+
+    def items(self):
+        return ((key, values[0]) for key, values in self.values.items())
 
 
 class FakeContent:
@@ -145,7 +148,7 @@ class TerminalHTTPTests(unittest.TestCase):
             "Request": Request,
             "HTTPException": HTTPException,
             "Response": Response,
-            "JSONResponse": object,
+            "JSONResponse": JSONResponse,
             "aiohttp": FakeAiohttp(self),
             "asyncio": asyncio,
             "asynccontextmanager": asynccontextmanager,
@@ -166,13 +169,14 @@ class TerminalHTTPTests(unittest.TestCase):
             node.decorator_list = []
         exec(compile(ast.Module(body=selected, type_ignores=[]), str(ROUTER_PATH), "exec"), namespace)
         namespace["MAX_DOWNLOAD_BYTES"] = 16 * 1024 * 1024
+        namespace["MAX_PROXY_BYTES"] = 64 * 1024 * 1024
         namespace["DOWNLOAD_CHUNK_BYTES"] = 64 * 1024
         namespace["_FETCH_LIMIT"] = threading.BoundedSemaphore(4)
         namespace["_fetch_slot"] = asynccontextmanager(namespace["_fetch_slot"])
         self.ns = namespace
         self.user = types.SimpleNamespace(id="owner-1", role="user")
         self.config = [{
-            "id": "atlas-files",
+            "id": "synthetic-terminal",
             "url": BASE_URL,
             "key": SYNTHETIC_KEY,
             "auth_type": "bearer",
@@ -194,13 +198,13 @@ class TerminalHTTPTests(unittest.TestCase):
         return types.SimpleNamespace(
             method=method,
             url=types.SimpleNamespace(query=query),
-            scope={"raw_path": raw_path or ("/api/v1/terminals/atlas-files/files/serve/home/user/requests/" + FILE_PATH).encode()},
+            scope={"raw_path": raw_path or ("/api/v1/terminals/synthetic-terminal/files/serve/home/user/requests/" + FILE_PATH).encode()},
             headers=headers or {"Authorization": "caller-secret", "X-User-Id": "forged-user"},
         )
 
     def invoke_download(self, method="GET", path=FILE_PATH, request=None, user=None):
         return asyncio.run(self.ns["download_terminal_file"](
-            "atlas-files", path, request or self.request(method), user or self.user
+            "synthetic-terminal", path, request or self.request(method), user or self.user
         ))
 
     def test_exact_bytes_safe_headers_and_no_caller_header_forwarding(self):
@@ -235,7 +239,7 @@ class TerminalHTTPTests(unittest.TestCase):
 
     def test_fetch_concurrency_is_bounded(self):
         spec = POLICY.build_download_request(
-            __import__("json").dumps(self.config), "atlas-files",
+            __import__("json").dumps(self.config), "synthetic-terminal",
             "files/serve/home/user/requests/" + FILE_PATH, self.user
         )
         async def fetch_many():
@@ -251,21 +255,19 @@ class TerminalHTTPTests(unittest.TestCase):
     def test_main_registration_follows_existing_config_and_precedes_spa_fallback(self):
         main = (ROOT / "backend/open_webui/main.py").read_text(encoding="utf-8")
         compact_main = "".join(main.split())
-        self.assertIn(
-            'orbool(environ.get("TERMINAL_SERVER_CONNECTIONS"))', compact_main
-        )
+        self.assertIn('environ.get("OPENATELIER_TERMINAL_DOWNLOAD_COMPAT","1")!="0"', compact_main)
         self.assertIn("if TERMINAL_COMPAT_ENABLED:", main)
         self.assertLess(main.index("app.include_router(terminals.router"), main.index('app.mount(\n        "/"'))
 
     def test_list_route_returns_only_authorized_public_projection(self):
-        result = asyncio.run(self.ns["list_terminal_connections"](self.user))
+        result = asyncio.run(self.ns["list_terminal_servers"](self.user))
         self.assertEqual(result, [{
-            "id": "atlas-files", "name": "", "url": BASE_URL, "contexts": {},
+            "id": "synthetic-terminal", "name": "", "url": BASE_URL, "contexts": {},
             "config": {"chat_uploads": "default"},
         }])
         self.assertNotIn(SYNTHETIC_KEY, repr(result))
         self.assertNotIn("owner-1", repr(result))
-        denied = asyncio.run(self.ns["list_terminal_connections"](
+        denied = asyncio.run(self.ns["list_terminal_servers"](
             types.SimpleNamespace(id="other", role="user")
         ))
         self.assertEqual(denied, [])
@@ -290,30 +292,44 @@ class TerminalHTTPTests(unittest.TestCase):
         self.assertEqual(self.response.content.read_calls, 0)
 
     def test_invalid_raw_path_query_or_user_never_calls_upstream(self):
-        for request, path, user in (
-            (self.request(raw_path=b"/api/v1/terminals/id/%2fforged"), FILE_PATH, self.user),
-            (self.request(query="download=1"), FILE_PATH, self.user),
-            (self.request(), FILE_PATH, types.SimpleNamespace(id="other", role="user")),
+        for request, path, user, response_expected in (
+            (self.request(raw_path=b"/api/v1/terminals/id/%2fforged"), FILE_PATH, self.user, False),
+            (self.request(query="download=1"), FILE_PATH, self.user, False),
+            (self.request(), FILE_PATH, types.SimpleNamespace(id="other", role="user"), True),
         ):
             with self.subTest(request=request):
-                with self.assertRaises(HTTPException) as caught:
-                    self.invoke_download(path=path, request=request, user=user)
-                self.assertIn(caught.exception.status_code, (403,))
+                if response_expected:
+                    result = self.invoke_download(path=path, request=request, user=user)
+                    self.assertEqual(result.status_code, 403)
+                    self.assertEqual(result.body, b'{"error":"Access denied"}')
+                else:
+                    with self.assertRaises(HTTPException) as caught:
+                        self.invoke_download(path=path, request=request, user=user)
+                    self.assertEqual(caught.exception.status_code, 403)
         self.assertEqual(self.calls, [])
 
-    def test_unsupported_paths_methods_and_malformed_config_are_explicit(self):
-        with self.assertRaises(HTTPException) as get_error:
-            asyncio.run(self.ns["refuse_terminal_operation"]("other", self.request(), self.user))
-        self.assertEqual(get_error.exception.status_code, 403)
-        with self.assertRaises(HTTPException) as post_error:
-            asyncio.run(self.ns["refuse_terminal_operation"](
-                "file", self.request("POST"), self.user
-            ))
-        self.assertEqual(post_error.exception.status_code, 405)
+    def test_missing_file_server_matches_the_public_not_found_contract(self):
+        result = asyncio.run(self.ns["download_terminal_file"](
+            "missing-terminal", FILE_PATH, self.request(), self.user
+        ))
+        self.assertEqual(result.status_code, 404)
+        self.assertIn("missing-terminal", result.body.decode())
+        self.assertEqual(self.calls, [])
+
+    def test_generic_proxy_is_admin_only_and_unknown_servers_are_explicit(self):
+        denied = asyncio.run(self.ns["proxy_terminal"](
+            "synthetic-terminal", "api/config", self.request(), self.user
+        ))
+        self.assertEqual(denied.status_code, 403)
+        missing = asyncio.run(self.ns["proxy_terminal"](
+            "missing-terminal", "api/config", self.request(), self.user
+        ))
+        self.assertEqual(missing.status_code, 404)
         os.environ["TERMINAL_SERVER_CONNECTIONS"] = "not-json"
-        with self.assertRaises(HTTPException) as config_error:
-            self.invoke_download()
-        self.assertEqual(config_error.exception.status_code, 503)
+        config_error = asyncio.run(self.ns["proxy_terminal"](
+            "synthetic-terminal", "api/config", self.request(), self.user
+        ))
+        self.assertEqual(config_error.status_code, 503)
         self.assertEqual(self.calls, [])
 
     def test_upstream_statuses_redirects_and_transport_errors_are_sanitized(self):

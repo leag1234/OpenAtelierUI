@@ -90,11 +90,11 @@ def _grants(connection):
     if (set(config) not in ({"chat_uploads"}, {"chat_uploads", "access_grants"})
             or config.get("chat_uploads") not in ("default", "filesystem")):
         _reject()
-    # Open WebUI's established terminal configuration predates connection
-    # grants. Preserve that verified-user contract as a wildcard connection;
-    # the terminal still receives X-User-Id and must enforce file ownership.
+    # The established configuration is administrator-only unless an explicit
+    # read grant is present.  This avoids turning a newly configured terminal
+    # into a wildcard connection for every verified account.
     if "access_grants" not in config:
-        return ["*"]
+        return []
     grants = config.get("access_grants")
     if type(grants) is not list or len(grants) > 32:
         _reject()
@@ -123,7 +123,10 @@ def parse_terminal_connections(raw):
         _reject()
     seen = set()
     validated = []
-    fields = {"id", "url", "key", "auth_type", "enabled", "name", "config"}
+    fields = {
+        "id", "url", "key", "auth_type", "enabled", "name", "server_type",
+        "config",
+    }
     for connection in connections:
         if (type(connection) is not dict or not {"id", "url", "key", "auth_type", "enabled", "config"} <= set(connection)
                 or set(connection) - fields): _reject()
@@ -140,6 +143,9 @@ def parse_terminal_connections(raw):
                 or not _valid_url(connection["url"]) or type(config) is not dict):
             _reject()
         if "name" in connection and not _text_ok(connection["name"], 256, controls=True): _reject()
+        if ("server_type" in connection
+                and connection["server_type"] not in ("open-terminal", "terminal", "orchestrator")):
+            _reject()
         grants = _grants(connection)
         copied = dict(connection)
         copied["config"] = dict(config)
@@ -154,7 +160,8 @@ def _connection_allowed(connection, verified_user):
     role = getattr(verified_user, "role", None)
     return (connection["enabled"] is True and role in ("user", "admin")
             and _text_ok(user_id, 256, nonempty=True, controls=True) and bool(user_id.strip())
-            and ("*" in connection["_read_user_ids"] or user_id in connection["_read_user_ids"]))
+            and (role == "admin" or "*" in connection["_read_user_ids"]
+                 or user_id in connection["_read_user_ids"]))
 
 
 def public_terminal_connections(raw, verified_user):
