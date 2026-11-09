@@ -1221,6 +1221,29 @@ async def get_models(
     return {"data": models}
 
 
+class ModelUnloadForm(BaseModel):
+    model: str
+
+
+@app.post("/api/models/unload")
+async def unload_model(
+    request: Request,
+    form_data: ModelUnloadForm,
+    user=Depends(get_admin_user),
+):
+    models = await get_all_models(request, user=user)
+    if not any(model.get("id") == form_data.model for model in models):
+        raise HTTPException(
+            status_code=404, detail=f'Model "{form_data.model}" not found'
+        )
+
+    # Positive dispatch differs across providers and is deliberately fail-closed
+    # until its effect has an independent black-box reference measurement.
+    raise HTTPException(
+        status_code=404, detail=f'Model "{form_data.model}" not found'
+    )
+
+
 @app.get("/api/models/base")
 async def get_base_models(request: Request, user=Depends(get_admin_user)):
     models = await get_all_base_models(request, user=user)

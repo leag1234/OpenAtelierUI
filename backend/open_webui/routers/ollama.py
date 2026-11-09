@@ -633,6 +633,44 @@ class CreateModelForm(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class UnloadModelForm(BaseModel):
+    model: Optional[str] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+@router.post("/api/unload")
+async def unload_model(
+    request: Request,
+    form_data: UnloadModelForm,
+    user=Depends(get_admin_user),
+):
+    if not form_data.model:
+        raise HTTPException(
+            status_code=400, detail="Missing name of the model to unload."
+        )
+
+    request_tasks = []
+    for idx, url in enumerate(request.app.state.config.OLLAMA_BASE_URLS):
+        request_tasks.append(
+            send_post_request(
+                url=f"{url}/api/generate",
+                payload=json.dumps(
+                    {"keep_alive": 0, "model": form_data.model, "prompt": ""}
+                ).encode(),
+                stream=False,
+                key=get_api_key(
+                    idx, url, request.app.state.config.OLLAMA_API_CONFIGS
+                ),
+                user=user,
+            )
+        )
+
+    if request_tasks:
+        await asyncio.gather(*request_tasks)
+    return {"status": True}
+
+
 @router.post("/api/create")
 @router.post("/api/create/{url_idx}")
 async def create_model(

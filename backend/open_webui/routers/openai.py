@@ -155,6 +155,187 @@ def openai_o1_o3_handler(payload):
 router = APIRouter()
 
 
+class ProviderModelOperationForm(BaseModel):
+    model: str
+
+    model_config = ConfigDict(extra="allow")
+
+
+def _provider_model_connection(request: Request, url_idx: int):
+    urls = request.app.state.config.OPENAI_API_BASE_URLS
+    keys = request.app.state.config.OPENAI_API_KEYS
+    if url_idx < 0 or url_idx >= len(urls):
+        raise HTTPException(status_code=404, detail="Connection not found")
+
+    url = urls[url_idx]
+    key = keys[url_idx]
+    configs = request.app.state.config.OPENAI_API_CONFIGS
+    selected = configs.get(str(url_idx), configs.get(url, {}))
+    if not isinstance(selected, dict):
+        selected = {}
+    return url, key, selected.get("provider", "default")
+
+
+def _provider_model_root(url: str) -> str:
+    normalized = url.rstrip("/")
+    return normalized[:-3] if normalized.endswith("/v1") else normalized
+
+
+async def _provider_model_json(
+    request: Request,
+    url_idx: int,
+    method: str,
+    endpoint: str,
+    user: UserModel,
+    payload: Optional[dict] = None,
+):
+    url, key, provider = _provider_model_connection(request, url_idx)
+    if provider != "lmstudio":
+        raise HTTPException(
+            status_code=400,
+            detail=f'Provider "{provider}" does not support model management',
+        )
+
+    headers = merge_static_headers(
+        {
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            **(
+                {
+                    "X-OpenWebUI-User-Name": user.name,
+                    "X-OpenWebUI-User-Id": user.id,
+                    "X-OpenWebUI-User-Email": user.email,
+                    "X-OpenWebUI-User-Role": user.role,
+                }
+                if ENABLE_FORWARD_USER_INFO_HEADERS
+                else {}
+            ),
+        },
+        configured_static_headers(
+            request.app.state.config.OPENAI_API_CONFIGS, url_idx, url
+        ),
+    )
+    timeout = aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
+    async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+        try:
+            async with session.request(
+                method,
+                f"{_provider_model_root(url)}{endpoint}",
+                json=payload,
+                headers=headers,
+            ) as response:
+                body = await response.json()
+                if response.status >= 400:
+                    detail = body.get("detail", body.get("error", body))
+                    raise HTTPException(status_code=response.status, detail=detail)
+                return body
+        except HTTPException:
+            raise
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
+            log.warning("Provider model operation failed: %s", exc)
+            raise HTTPException(
+                status_code=500, detail="OpenAtelierUI: Server Connection Error"
+            ) from None
+
+
+@router.delete("/models/{url_idx}")
+async def delete_provider_model(
+    request: Request,
+    url_idx: int,
+    model: str,
+    user=Depends(get_admin_user),
+):
+    _, _, provider = _provider_model_connection(request, url_idx)
+    raise HTTPException(
+        status_code=400,
+        detail=f'Provider "{provider}" does not support delete',
+    )
+
+
+@router.get("/models/{url_idx}/catalog")
+async def get_provider_model_catalog(
+    request: Request, url_idx: int, user=Depends(get_admin_user)
+):
+    return await _provider_model_json(
+        request, url_idx, "GET", "/api/v1/models", user
+    )
+
+
+@router.get("/models/{url_idx}/download/status/{job_id}")
+async def get_provider_model_download_status(
+    request: Request, url_idx: int, job_id: str, user=Depends(get_admin_user)
+):
+    return await _provider_model_json(
+        request,
+        url_idx,
+        "GET",
+        f"/api/v1/models/download/status/{job_id}",
+        user,
+    )
+
+
+@router.get("/models/{url_idx}/sse")
+async def get_provider_model_events(
+    request: Request, url_idx: int, user=Depends(get_admin_user)
+):
+    _, _, provider = _provider_model_connection(request, url_idx)
+    raise HTTPException(
+        status_code=400,
+        detail=f'Provider "{provider}" does not support sse',
+    )
+
+
+@router.post("/models/{url_idx}/download")
+async def download_provider_model(
+    request: Request,
+    url_idx: int,
+    form_data: ProviderModelOperationForm,
+    user=Depends(get_admin_user),
+):
+    return await _provider_model_json(
+        request,
+        url_idx,
+        "POST",
+        "/api/v1/models/download",
+        user,
+        form_data.model_dump(exclude_none=True),
+    )
+
+
+@router.post("/models/{url_idx}/load")
+async def load_provider_model(
+    request: Request,
+    url_idx: int,
+    form_data: ProviderModelOperationForm,
+    user=Depends(get_admin_user),
+):
+    return await _provider_model_json(
+        request,
+        url_idx,
+        "POST",
+        "/api/v1/models/load",
+        user,
+        form_data.model_dump(exclude_none=True),
+    )
+
+
+@router.post("/models/{url_idx}/unload")
+async def unload_provider_model(
+    request: Request,
+    url_idx: int,
+    form_data: ProviderModelOperationForm,
+    user=Depends(get_admin_user),
+):
+    return await _provider_model_json(
+        request,
+        url_idx,
+        "POST",
+        "/api/v1/models/unload",
+        user,
+        {"instance_id": form_data.model},
+    )
+
+
 @router.get("/config")
 async def get_config(request: Request, user=Depends(get_admin_user)):
     return {
