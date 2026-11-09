@@ -75,9 +75,20 @@ class AutomationStoreTests(unittest.TestCase):
         toggled = self.store.toggle(created["id"], "owner", 4)
         self.assertFalse(toggled["is_active"])
         self.assertIsNone(toggled["next_run_at"])
-        self.assertEqual(self.store.runs(created["id"]), [])
+        started = self.store.mark_started(created["id"], "owner")
+        self.assertIsInstance(started["last_run_at"], int)
+        self.assertIsNone(self.store.mark_started(created["id"], "foreign"))
+        success = self.store.record_run(created["id"], "success", chat_id="synthetic-chat")
+        self.assertEqual(success["status"], "success")
+        self.assertEqual(success["chat_id"], "synthetic-chat")
+        failed = self.store.record_run(created["id"], "failed", error="synthetic failure")
+        self.assertEqual(failed["error"], "synthetic failure")
+        self.assertEqual([item["status"] for item in self.store.runs(created["id"])], ["failed", "success"])
+        with self.assertRaises(ValueError):
+            self.store.record_run(created["id"], "running")
         self.assertTrue(self.store.delete(created["id"], "owner"))
         self.assertIsNone(self.store.get(created["id"]))
+        self.assertEqual(self.store.runs(created["id"]), [])
 
     def test_foreign_mutation_does_not_change_owner_row(self):
         created = self.store.create("owner", "Original", None, self.data, None, False, 1)

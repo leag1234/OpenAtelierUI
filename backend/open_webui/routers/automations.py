@@ -2,22 +2,28 @@
 # Copyright (c) 2026 Gaël Duval
 """Measured automation metadata/control compatibility routes."""
 
+import asyncio
 import json
 import os
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
 from dateutil.rrule import rrulestr
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.env import DATABASE_URL
 from open_webui.models.automations import Automations, AutomationsUnavailable
+from open_webui.models.chats import ChatForm, Chats
 from open_webui.utils.auth import get_verified_user
+from open_webui.utils.chat import generate_chat_completion
+from open_webui.utils.models import get_all_models
 
 
 router = APIRouter()
+automation_tasks = set()
 
 
 def _load_store(database_url):
@@ -208,13 +214,115 @@ def get_automation_runs(
     return automation_store.runs(id, skip, limit)
 
 
-@router.post("/{id}/run")
-def run_automation(id: str, user=Depends(get_automation_admin)):
-    _owned(id, user)
-    raise HTTPException(
-        status_code=503,
-        detail="Automation execution is unavailable in this compatibility slice",
-    )
+def _completion_text(value):
+    if not isinstance(value, dict):
+        raise RuntimeError("Automation provider returned an unsupported response")
+    choices = value.get("choices")
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        raise RuntimeError("Automation provider returned no answer")
+    message = choices[0].get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, str) or not content:
+        raise RuntimeError("Automation provider returned no answer")
+    usage = value.get("usage") if isinstance(value.get("usage"), dict) else {}
+    return content, usage
+
+
+def _chat_payload(automation, answer, usage):
+    user_message_id, assistant_message_id = str(uuid.uuid4()), str(uuid.uuid4())
+    prompt = automation["data"]["prompt"]
+    model_id = automation["data"]["model_id"]
+    timestamp = int(datetime.now(timezone.utc).timestamp())
+    normalized_usage = {
+        "prompt_tokens": usage.get("prompt_tokens", usage.get("input_tokens", 0)),
+        "completion_tokens": usage.get("completion_tokens", usage.get("output_tokens", 0)),
+        "total_tokens": usage.get("total_tokens", 0),
+    }
+    normalized_usage["input_tokens"] = normalized_usage["prompt_tokens"]
+    normalized_usage["output_tokens"] = normalized_usage["completion_tokens"]
+    user_message = {
+        "id": user_message_id,
+        "parentId": None,
+        "childrenIds": [assistant_message_id],
+        "role": "user",
+        "content": prompt,
+        "models": [model_id],
+        "timestamp": timestamp,
+    }
+    assistant_message = {
+        "id": assistant_message_id,
+        "parentId": user_message_id,
+        "childrenIds": [],
+        "role": "assistant",
+        "content": answer,
+        "model": model_id,
+        "done": True,
+        "timestamp": timestamp,
+        "usage": normalized_usage,
+        "output": [
+            {
+                "id": "msg_" + uuid.uuid4().hex[:24],
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": answer}],
+            }
+        ],
+    }
+    return {
+        "title": automation["name"],
+        "models": [model_id],
+        "history": {
+            "messages": {
+                user_message_id: user_message,
+                assistant_message_id: assistant_message,
+            },
+            "currentId": assistant_message_id,
+        },
+        "messages": [{"role": "user", "content": prompt}],
+        "meta": {},
+    }
+
+
+async def _execute_automation(request, automation, user):
+    try:
+        model_id = automation["data"]["model_id"]
+        if model_id not in request.app.state.MODELS:
+            models = await get_all_models(request, user=user)
+            request.app.state.MODELS = {
+                model["id"]: model for model in models if isinstance(model, dict) and model.get("id")
+            }
+        completion = await generate_chat_completion(
+            request,
+            {
+                "model": model_id,
+                "messages": [{"role": "user", "content": automation["data"]["prompt"]}],
+                "stream": True,
+            },
+            user,
+        )
+        answer, usage = _completion_text(completion)
+        chat = Chats.insert_new_chat(
+            user.id, ChatForm(chat=_chat_payload(automation, answer, usage))
+        )
+        if chat is None:
+            raise RuntimeError("Automation chat could not be saved")
+        automation_store.record_run(automation["id"], "success", chat_id=chat.id)
+    except Exception as error:
+        message = str(error).strip() or error.__class__.__name__
+        automation_store.record_run(automation["id"], "failed", error=message[:1000])
+
+
+@router.post("/{id}/run", response_model=AutomationResponse)
+async def run_automation(request: Request, id: str, user=Depends(get_automation_admin)):
+    current = _owned(id, user)
+    updated = automation_store.mark_started(id, user.id)
+    if updated is None:
+        raise _not_found()
+    task = asyncio.create_task(_execute_automation(request, current, user))
+    automation_tasks.add(task)
+    task.add_done_callback(automation_tasks.discard)
+    return _response(updated)
 
 
 @router.post("/{id}/toggle", response_model=AutomationResponse)

@@ -205,6 +205,39 @@ class Automations:
             for row in rows
         ]
 
+    def mark_started(self, automation_id, user_id):
+        now = time.time_ns()
+        with self._connection() as db:
+            cursor = db.execute(
+                "UPDATE openatelier_automation SET last_run_at=? WHERE id=? AND user_id=?",
+                (now, automation_id, user_id),
+            )
+        return self.get(automation_id) if cursor.rowcount else None
+
+    def record_run(self, automation_id, status, chat_id=None, error=None):
+        if status not in ("success", "failed"):
+            raise ValueError("unsupported automation run status")
+        run_id, now = str(uuid.uuid4()), time.time_ns()
+        with self._connection() as db:
+            exists = db.execute(
+                "SELECT 1 FROM openatelier_automation WHERE id=?", (automation_id,)
+            ).fetchone()
+            if exists is None:
+                return None
+            db.execute(
+                "INSERT INTO openatelier_automation_run "
+                "(id,automation_id,status,chat_id,error,created_at) VALUES(?,?,?,?,?,?)",
+                (run_id, automation_id, status, chat_id, error, now),
+            )
+        return {
+            "id": run_id,
+            "automation_id": automation_id,
+            "status": status,
+            "chat_id": chat_id,
+            "error": error,
+            "created_at": now,
+        }
+
     def delete(self, automation_id, user_id):
         with self._connection() as db:
             cursor = db.execute(
