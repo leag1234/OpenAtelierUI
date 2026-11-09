@@ -68,6 +68,7 @@ def _user_info_projection(user):
         "status_expires_at": info.get("status_expires_at"),
     }
 
+
 ############################
 # GetUsers
 ############################
@@ -87,7 +88,13 @@ async def get_users(
 
 
 @router.get("/search", response_model=UserInfoListResponse)
-async def search_users(query: str = "", order_by: str = "created_at", direction: str = "asc", page: int = 1, user=Depends(get_verified_user)):
+async def search_users(
+    query: str = "",
+    order_by: str = "created_at",
+    direction: str = "asc",
+    page: int = 1,
+    user=Depends(get_verified_user),
+):
     if len(query) > 512:
         raise HTTPException(status_code=422, detail="Search query is too long")
     try:
@@ -105,7 +112,10 @@ async def search_users(query: str = "", order_by: str = "created_at", direction:
 @router.get("/all", response_model=UserInfoListResponse)
 async def get_users_all(user=Depends(get_admin_user)):
     users = Users.get_users()
-    return {"users": [_user_info_projection(item) for item in users], "total": len(users)}
+    return {
+        "users": [_user_info_projection(item) for item in users],
+        "total": len(users),
+    }
 
 
 ############################
@@ -146,6 +156,7 @@ class WorkspacePermissions(BaseModel):
 
 
 class SharingPermissions(BaseModel):
+    folders: bool = False
     public_models: bool = True
     public_knowledge: bool = True
     public_prompts: bool = True
