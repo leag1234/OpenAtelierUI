@@ -1,7 +1,7 @@
 import json
 import logging
 import time
-from typing import Optional
+from typing import Annotated, Any, Optional
 import uuid
 
 from open_webui.internal.db import Base, get_db
@@ -12,7 +12,14 @@ from open_webui.models.skills import AccessGrantModel
 from open_webui.models.users import Users, UserResponse
 
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    WithJsonSchema,
+    computed_field,
+    model_validator,
+)
 from sqlalchemy import BigInteger, Column, String, Text, JSON
 
 from open_webui.utils.access_control import has_access
@@ -23,6 +30,11 @@ from open_webui.utils.access_grants import (
 
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MODELS"])
+
+OpenMapping = Annotated[
+    dict[str, Any],
+    WithJsonSchema({"type": "object", "additionalProperties": True}),
+]
 
 ####################
 # Knowledge DB Schema
@@ -72,7 +84,7 @@ class KnowledgeModel(BaseModel):
     description: str
 
     data: Optional[dict] = None
-    meta: Optional[dict] = None
+    meta: Optional[OpenMapping] = None
 
     access_control: Optional[dict] = None
 
@@ -89,15 +101,37 @@ class KnowledgeUserModel(KnowledgeModel):
     user: Optional[UserResponse] = None
 
 
-class KnowledgeResponse(KnowledgeModel):
-    files: Optional[list[FileMetadataResponse | dict]] = None
+class KnowledgeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
 
-    @computed_field
-    @property
-    def access_grants(self) -> list[dict]:
-        return knowledge_access_grants_for_acl(
-            self.access_control, "knowledge", self.id, self.created_at
-        )
+    id: str
+    user_id: str
+    name: str
+    description: str
+    meta: Optional[OpenMapping] = None
+    created_at: int
+    updated_at: int
+    files: Optional[list[FileMetadataResponse | OpenMapping]] = None
+    access_grants: list[AccessGrantModel] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def project_public_fields(cls, data):
+        if hasattr(data, "model_dump"):
+            data = data.model_dump()
+        if not isinstance(data, dict):
+            return data
+        value = dict(data)
+        if "access_grants" not in value:
+            value["access_grants"] = knowledge_access_grants_for_acl(
+                value.get("access_control"),
+                "knowledge",
+                value.get("id", ""),
+                value.get("created_at", 0),
+            )
+        value.pop("access_control", None)
+        value.pop("data", None)
+        return value
 
 
 class KnowledgeUserResponse(KnowledgeUserModel):
@@ -300,6 +334,22 @@ class KnowledgeTable:
                 )
                 db.commit()
                 return self.get_knowledge_by_id(id=id)
+        except Exception as e:
+            log.exception(e)
+            return None
+
+    def update_knowledge_meta_by_id(
+        self, id: str, meta: dict
+    ) -> Optional[KnowledgeModel]:
+        try:
+            with get_db() as db:
+                updated = (
+                    db.query(Knowledge)
+                    .filter_by(id=id)
+                    .update({"meta": meta, "updated_at": int(time.time())})
+                )
+                db.commit()
+                return self.get_knowledge_by_id(id=id) if updated else None
         except Exception as e:
             log.exception(e)
             return None

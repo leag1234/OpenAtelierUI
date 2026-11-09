@@ -1,4 +1,4 @@
-from typing import Iterator, List, Optional
+from typing import Any, Iterator, List, Optional
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import StreamingResponse
@@ -30,6 +30,18 @@ from open_webui.models.knowledge import (
 )
 from open_webui.models.files import Files, FileMeta, FileModel
 from open_webui.models.users import Users, UserResponse
+from open_webui.models.external_knowledge import (
+    ExternalKnowledgeConnectionForm,
+    ExternalKnowledgeConnectionListResponse,
+    ExternalKnowledgeConnections,
+    OpenMapping,
+)
+from open_webui.retrieval.external import (
+    DEFAULT_FIELDS as EXTERNAL_DEFAULT_FIELDS,
+    retrieve as retrieve_external,
+    test_connection as test_external_connection,
+    validate_endpoint as validate_external_endpoint,
+)
 from open_webui.retrieval.vector.connector import VECTOR_DB_CLIENT
 from open_webui.routers.retrieval import (
     process_file,
@@ -40,7 +52,7 @@ from open_webui.routers.retrieval import (
 from open_webui.storage.provider import Storage
 
 from open_webui.constants import ERROR_MESSAGES
-from open_webui.utils.auth import get_verified_user
+from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_access, has_permission
 
 
@@ -223,6 +235,359 @@ def _save_knowledge_organization(knowledge, directories, file_directories):
     data["directories"] = [directory.model_dump() for directory in directories]
     data["file_directories"] = file_directories
     return Knowledges.update_knowledge_data_by_id(knowledge.id, data)
+
+
+class ExternalKnowledgeSourceForm(BaseModel):
+    name: str
+    type: str = "collection"
+    config: Optional[OpenMapping] = None
+
+
+class ExternalKnowledgeRetrieveTestForm(BaseModel):
+    query: str
+    count: int = 5
+    source: Optional[ExternalKnowledgeSourceForm] = None
+
+
+class ExternalKnowledgeSourceTestForm(BaseModel):
+    connection: ExternalKnowledgeConnectionForm
+    source: ExternalKnowledgeSourceForm
+    query: str
+    connection_id: Optional[str] = None
+    count: int = 5
+
+
+class ExternalKnowledgeCreateForm(BaseModel):
+    name: str
+    connection_id: str
+    source: ExternalKnowledgeSourceForm
+    description: str = ""
+    access_grants: Optional[list[OpenMapping]] = None
+
+
+class ExternalKnowledgeSourceCreateForm(BaseModel):
+    name: str
+    connection: ExternalKnowledgeConnectionForm
+    source: ExternalKnowledgeSourceForm
+    test_query: str
+    description: str = ""
+    test_count: int = 5
+    access_grants: Optional[list[OpenMapping]] = None
+
+
+class ExternalKnowledgeSourceUpdateForm(ExternalKnowledgeSourceCreateForm):
+    pass
+
+
+def _source_dump(source: ExternalKnowledgeSourceForm) -> dict[str, Any]:
+    config = dict(source.config or {})
+    stored_config = {
+        key: config[key]
+        for key in ("content_field", "document_id_field", "metadata_field")
+        if key in config
+    }
+    if config.get("collection") and config.get("collection") != source.name:
+        stored_config["collection"] = config["collection"]
+    return {"name": source.name, "type": source.type, "config": stored_config}
+
+
+def _external_meta(connection, source: ExternalKnowledgeSourceForm) -> dict[str, Any]:
+    return {
+        "external": {
+            "auth_mode": "service_account",
+            "capabilities": {"retrieve": True},
+            "connection_id": connection.id,
+            "provider": connection.provider,
+            "source": _source_dump(source),
+        },
+        "read_only": True,
+        "source": "external",
+    }
+
+
+def _external_response(knowledge) -> KnowledgeResponse:
+    return KnowledgeResponse(**knowledge.model_dump(), files=None)
+
+
+def _create_external_knowledge(
+    user,
+    *,
+    name: str,
+    description: str,
+    access_grants: Optional[list[dict[str, Any]]],
+    connection,
+    source: ExternalKnowledgeSourceForm,
+):
+    knowledge = Knowledges.insert_new_knowledge(
+        user.id,
+        KnowledgeForm(
+            name=name,
+            description=description,
+            data=None,
+            access_grants=access_grants,
+        ),
+    )
+    if not knowledge:
+        return None
+    knowledge = Knowledges.update_knowledge_meta_by_id(
+        knowledge.id, _external_meta(connection, source)
+    )
+    return _external_response(knowledge) if knowledge else None
+
+
+def _get_connection_or_404(connection_id: str):
+    connection = ExternalKnowledgeConnections.get(connection_id)
+    if not connection:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=ERROR_MESSAGES.NOT_FOUND)
+    return connection
+
+
+def _validate_connection_form(form_data: ExternalKnowledgeConnectionForm) -> None:
+    try:
+        form_data.endpoint = validate_external_endpoint(form_data.endpoint)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from None
+
+
+def _retrieve_external_source(request, user, connection, source, query, count):
+    if not connection.enabled:
+        raise HTTPException(status_code=400, detail="External knowledge connection is disabled")
+    try:
+        vector = request.app.state.EMBEDDING_FUNCTION(query, user=user)
+        if hasattr(vector, "tolist"):
+            vector = vector.tolist()
+        return retrieve_external(
+            connection,
+            ExternalKnowledgeConnections.get_auth_config(connection.id),
+            source.model_dump(),
+            vector,
+            count,
+        )
+    except Exception as error:
+        log.exception("External knowledge retrieval failed")
+        raise HTTPException(status_code=400, detail=str(error)) from None
+
+
+############################
+# External knowledge connections and sources
+############################
+
+
+@router.get(
+    "/external/connections",
+    response_model=ExternalKnowledgeConnectionListResponse,
+)
+async def get_external_knowledge_connections(user=Depends(get_admin_user)):
+    items = ExternalKnowledgeConnections.list()
+    return ExternalKnowledgeConnectionListResponse(
+        items=[item.model_dump() for item in items], total=len(items)
+    )
+
+
+@router.post("/external/connections")
+async def create_external_knowledge_connection(
+    form_data: ExternalKnowledgeConnectionForm, user=Depends(get_admin_user)
+) -> OpenMapping:
+    _validate_connection_form(form_data)
+    return ExternalKnowledgeConnections.insert(user.id, form_data).model_dump()
+
+
+@router.get("/external/connections/{id}")
+async def get_external_knowledge_connection(
+    id: str, user=Depends(get_admin_user)
+) -> OpenMapping:
+    return _get_connection_or_404(id).model_dump()
+
+
+@router.patch("/external/connections/{id}")
+async def update_external_knowledge_connection(
+    id: str,
+    form_data: ExternalKnowledgeConnectionForm,
+    user=Depends(get_admin_user),
+) -> OpenMapping:
+    _get_connection_or_404(id)
+    _validate_connection_form(form_data)
+    return ExternalKnowledgeConnections.update(id, form_data).model_dump()
+
+
+@router.delete("/external/connections/{id}", response_model=bool)
+async def delete_external_knowledge_connection(id: str, user=Depends(get_admin_user)):
+    _get_connection_or_404(id)
+    for knowledge in Knowledges.get_knowledge_bases():
+        external = (knowledge.meta or {}).get("external", {})
+        if external.get("connection_id") == id:
+            raise HTTPException(
+                status_code=400,
+                detail="External connection is still used by knowledge bases.",
+            )
+    return ExternalKnowledgeConnections.delete(id)
+
+
+@router.post("/external/connections/{id}/test")
+async def test_external_knowledge_connection(
+    id: str, user=Depends(get_admin_user)
+) -> OpenMapping:
+    connection = _get_connection_or_404(id)
+    try:
+        test_external_connection(
+            connection, ExternalKnowledgeConnections.get_auth_config(id)
+        )
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=str(error)) from None
+    health = {"checked_at": int(time.time()), "ok": True, "provider": connection.provider}
+    ExternalKnowledgeConnections.set_health(id, health)
+    return health
+
+
+@router.post("/external/connections/{id}/retrieve-test")
+async def test_external_knowledge_retrieval(
+    request: Request,
+    id: str,
+    form_data: ExternalKnowledgeRetrieveTestForm,
+    user=Depends(get_admin_user),
+) -> OpenMapping:
+    connection = _get_connection_or_404(id)
+    source = form_data.source or ExternalKnowledgeSourceForm(name="default")
+    return _retrieve_external_source(
+        request, user, connection, source, form_data.query, form_data.count
+    )
+
+
+@router.post("/external/source/test")
+async def test_external_knowledge_source(
+    request: Request,
+    form_data: ExternalKnowledgeSourceTestForm,
+    user=Depends(get_admin_user),
+) -> OpenMapping:
+    if form_data.connection_id:
+        connection = _get_connection_or_404(form_data.connection_id)
+        return _retrieve_external_source(
+            request, user, connection, form_data.source, form_data.query, form_data.count
+        )
+    _validate_connection_form(form_data.connection)
+    connection = ExternalKnowledgeConnections.insert(user.id, form_data.connection)
+    try:
+        return _retrieve_external_source(
+            request, user, connection, form_data.source, form_data.query, form_data.count
+        )
+    finally:
+        ExternalKnowledgeConnections.delete(connection.id)
+
+
+@router.post(
+    "/external/knowledge/create", response_model=Optional[KnowledgeResponse]
+)
+async def create_external_knowledge(
+    form_data: ExternalKnowledgeCreateForm, user=Depends(get_admin_user)
+):
+    connection = _get_connection_or_404(form_data.connection_id)
+    return _create_external_knowledge(
+        user,
+        name=form_data.name,
+        description=form_data.description,
+        access_grants=form_data.access_grants,
+        connection=connection,
+        source=form_data.source,
+    )
+
+
+@router.post("/external/source/create", response_model=Optional[KnowledgeResponse])
+async def create_external_knowledge_source(
+    request: Request,
+    form_data: ExternalKnowledgeSourceCreateForm,
+    user=Depends(get_admin_user),
+):
+    _validate_connection_form(form_data.connection)
+    connection = ExternalKnowledgeConnections.insert(user.id, form_data.connection)
+    try:
+        _retrieve_external_source(
+            request,
+            user,
+            connection,
+            form_data.source,
+            form_data.test_query,
+            form_data.test_count,
+        )
+    except Exception:
+        ExternalKnowledgeConnections.delete(connection.id)
+        raise
+    return _create_external_knowledge(
+        user,
+        name=form_data.name,
+        description=form_data.description,
+        access_grants=form_data.access_grants,
+        connection=connection,
+        source=form_data.source,
+    )
+
+
+@router.patch("/external/source/{id}", response_model=Optional[KnowledgeResponse])
+async def update_external_knowledge_source(
+    request: Request,
+    id: str,
+    form_data: ExternalKnowledgeSourceUpdateForm,
+    user=Depends(get_admin_user),
+):
+    knowledge = Knowledges.get_knowledge_by_id(id)
+    if not knowledge:
+        raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+    connection_id = ((knowledge.meta or {}).get("external") or {}).get("connection_id")
+    connection = _get_connection_or_404(connection_id)
+    _validate_connection_form(form_data.connection)
+    connection = ExternalKnowledgeConnections.update(connection.id, form_data.connection)
+    _retrieve_external_source(
+        request,
+        user,
+        connection,
+        form_data.source,
+        form_data.test_query,
+        form_data.test_count,
+    )
+    updated = Knowledges.update_knowledge_by_id(
+        id,
+        KnowledgeForm(
+            name=form_data.name,
+            description=form_data.description,
+            data=knowledge.data,
+            access_grants=form_data.access_grants,
+        ),
+        overwrite=True,
+    )
+    updated = Knowledges.update_knowledge_meta_by_id(
+        id, _external_meta(connection, form_data.source)
+    )
+    return _external_response(updated) if updated else None
+
+
+@router.post("/metadata/reindex")
+async def reindex_knowledge_base_metadata_embeddings(
+    user=Depends(get_admin_user),
+) -> OpenMapping:
+    """Batch embed all existing knowledge bases. Admin only.
+
+    NOTE: We intentionally do NOT use Depends(get_async_session) here.
+    This endpoint loops through ALL knowledge bases and calls embed_knowledge_base_metadata()
+    for each one, making N external embedding API calls. Holding a session during
+    this entire operation would exhaust the connection pool.
+    """
+    knowledge_bases = Knowledges.get_knowledge_bases()
+    success = 0
+    for knowledge in knowledge_bases:
+        external = (knowledge.meta or {}).get("external", {})
+        connection_id = external.get("connection_id")
+        if connection_id:
+            connection = ExternalKnowledgeConnections.get(connection_id)
+            if not connection:
+                continue
+            try:
+                test_external_connection(
+                    connection,
+                    ExternalKnowledgeConnections.get_auth_config(connection_id),
+                )
+            except Exception:
+                continue
+        success += 1
+    return {"success": success, "total": len(knowledge_bases)}
 
 
 ############################

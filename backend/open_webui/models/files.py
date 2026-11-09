@@ -1,14 +1,19 @@
 import logging
 import time
-from typing import Optional
+from typing import Annotated, Any, Optional
 
 from open_webui.internal.db import Base, JSONField, get_db
 from open_webui.env import SRC_LOG_LEVELS
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, WithJsonSchema
 from sqlalchemy import BigInteger, Column, String, Text, JSON
 
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MODELS"])
+
+OpenMapping = Annotated[
+    dict[str, Any],
+    WithJsonSchema({"type": "object", "additionalProperties": True}),
+]
 
 ####################
 # Files DB Schema
@@ -101,7 +106,8 @@ class FilePublicMetadataResponse(BaseModel):
 
 class FileMetadataResponse(BaseModel):
     id: str
-    meta: dict
+    hash: Optional[str] = None
+    meta: Optional[OpenMapping] = None
     created_at: int  # timestamp in epoch
     updated_at: int  # timestamp in epoch
 
