@@ -26,6 +26,7 @@
 	import UserMenu from '$lib/components/layout/Sidebar/UserMenu.svelte';
 	import MenuLines from '../icons/MenuLines.svelte';
 	import AdjustmentsHorizontal from '../icons/AdjustmentsHorizontal.svelte';
+	import EyeSlash from '../icons/EyeSlash.svelte';
 
 	import PencilSquare from '../icons/PencilSquare.svelte';
 	import Banner from '../common/Banner.svelte';
@@ -73,7 +74,7 @@
 				</div>
 
 				<div
-					class="flex-1 overflow-hidden max-w-full py-0.5
+					class="min-w-0 flex-1 overflow-hidden max-w-full py-0.5
 			{$showSidebar ? 'ml-1' : ''}
 			"
 				>
@@ -92,7 +93,7 @@
 				<div class="self-start flex flex-none items-center text-gray-600 dark:text-gray-400">
                     {#if !$user?.permissions?.chat?.temporary_enforced && ($user?.role === 'admin' || ($user?.permissions?.chat?.temporary ?? true))}
                         <button id="temporary-chat-button" type="button" aria-label={$i18n.t('Temporary Chat')} aria-pressed={$temporaryChatEnabled}
-                            class="rounded-xl px-2 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-850"
+                            class="flex flex-none items-center rounded-xl px-2 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-850"
                             on:click={async () => {
                                 temporaryChatEnabled.set(!$temporaryChatEnabled);
                                 await initNewChat();
@@ -100,7 +101,7 @@
                                 if ($temporaryChatEnabled) url.searchParams.set('temporary-chat', 'true');
                                 else url.searchParams.delete('temporary-chat');
                                 window.history.replaceState(window.history.state, '', url);
-                            }}>{$i18n.t('Temporary Chat')}</button>
+                            }}><EyeSlash className="size-5 md:hidden" /><span class="hidden whitespace-nowrap md:inline">{$i18n.t('Temporary Chat')}</span></button>
                     {/if}
 
 					<!-- <div class="md:hidden flex self-center w-[1px] h-5 mx-2 bg-gray-300 dark:bg-stone-700" /> -->
