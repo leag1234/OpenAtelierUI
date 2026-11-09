@@ -46,7 +46,7 @@ class ConfigurationCompatibilityTests(unittest.TestCase):
     def test_reference_defaults_and_persistent_paths_are_explicit(self):
         source = CONFIG.read_text()
         for fragment in (
-            '"direct.base_models_cache"', '"direct.integrations.enable"',
+            '"models.base_models_cache"', '"direct.integrations.enable"',
             '"subagents.enable"', '"subagents.background_enabled"',
             '"subagents.max_concurrent"', '"subagents.max_async"',
             '"subagents.max_iterations"', '"subagents.max_output"',
