@@ -237,6 +237,27 @@ def _form_values(form):
     return data, meta
 
 
+def _legacy_update_data(title, incoming, existing):
+    data = _page_data(title, existing)
+    pages = json.loads(json.dumps(data["pages"]))
+    content = incoming.get("content") if isinstance(incoming, dict) else None
+    content = content if isinstance(content, dict) else {}
+    normalized = {
+        "md": content.get("md") if isinstance(content.get("md"), str) else "",
+        "html": content.get("html") if isinstance(content.get("html"), str) else "",
+        "json": content.get("json"),
+    }
+    main = pages[0]
+    main["title"] = title
+    main["content"] = normalized
+    main["revision"] = (main.get("revision") if type(main.get("revision")) is int else 0) + 1
+    main["generation"] = (main.get("generation") if type(main.get("generation")) is int else 0) + 1
+    data["content"] = normalized
+    data["pages"] = pages
+    data["search_text"] = _search_text(title, pages)
+    return data
+
+
 def _unavailable(error):
     if isinstance(error, PrivateNotesUnavailable):
         return HTTPException(status_code=503, detail="Private notes unavailable")
@@ -273,15 +294,27 @@ def _with_grants(note):
     return result
 
 
+def _with_actor_pin(note, user_id):
+    result = dict(note)
+    try:
+        pinned = notes_store.actor_pinned(note["id"], user_id)
+    except Exception as error:
+        raise _unavailable(error) from None
+    if pinned is None:
+        raise HTTPException(status_code=404, detail="We could not find what you're looking for :/")
+    result["is_pinned"] = pinned
+    return result
+
+
 def _get_note_for(user, note_id, permission="read"):
     try:
         note = notes_store.get(note_id)
         if note is None:
             raise HTTPException(status_code=404, detail="We could not find what you're looking for :/")
         if user.role == "admin" or note["user_id"] == user.id:
-            return _with_grants(note)
+            return _with_grants(_with_actor_pin(note, user.id))
         if notes_store.has_grant(note_id, user.id, permission, _group_ids(user.id)):
-            return _with_grants(note)
+            return _with_grants(_with_actor_pin(note, user.id))
     except HTTPException:
         raise
     except Exception as error:
@@ -372,12 +405,13 @@ def _item_response(note):
     data = _page_data(note["title"], note.get("data"))
     pages = data.get("pages") or []
     main = pages[0] if pages and isinstance(pages[0], dict) else {}
+    main_content = main.get("content") if isinstance(main.get("content"), dict) else {}
     result = {
         key: note[key]
         for key in ("id", "title", "updated_at", "created_at", "is_pinned")
     }
     result["data"] = {
-        "content": main.get("content") if isinstance(main.get("content"), dict) else {},
+        "content": {"md": main_content["md"]} if isinstance(main_content.get("md"), str) else {},
         "page_count": len(pages),
         "page_id": main.get("id"),
         "page_title": main.get("title"),
@@ -487,7 +521,12 @@ def get_note(request: Request, id: str, user=Depends(get_verified_user)):
 def update_note(request: Request, id: str, form_data: NoteForm, user=Depends(get_verified_user)):
     _allow_notes(request, user)
     existing = _get_note_for(user, id, "write")
-    data, meta = _form_values(form_data)
+    normalized = form_data
+    if isinstance(form_data.data, dict) and "content" in form_data.data:
+        normalized = form_data.model_copy(
+            update={"data": _legacy_update_data(form_data.title, form_data.data, existing.get("data"))}
+        )
+    data, meta = _form_values(normalized)
     try:
         note = notes_store.update_owned(id, existing["user_id"], form_data.title, data, meta, time.time_ns(),
                                         update_data=bool(form_data.data), update_meta=bool(form_data.meta))
@@ -497,7 +536,7 @@ def update_note(request: Request, id: str, form_data: NoteForm, user=Depends(get
         raise _unavailable(error) from None
     if note is None:
         raise _denied()
-    return _with_grants(note)
+    return _with_grants(_with_actor_pin(note, user.id))
 
 
 @router.post("/{id}/pin", response_model=NoteModel)
@@ -716,4 +755,4 @@ def update_note_pages(
         raise HTTPException(status_code=409, detail="Pages changed. Refresh and try again")
     if updated is None:
         raise HTTPException(status_code=404, detail="We could not find what you're looking for :/")
-    return _with_grants(updated)
+    return _with_grants(_with_actor_pin(updated, user.id))

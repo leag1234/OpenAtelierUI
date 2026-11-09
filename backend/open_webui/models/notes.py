@@ -532,3 +532,18 @@ class PrivateNotes:
             result = self._row(row)
             result["is_pinned"] = pinned
             return result
+
+    def actor_pinned(self, note_id, user_id):
+        with self._connection() as db:
+            row = db.execute(
+                "SELECT user_id,is_pinned FROM openatelier_private_note WHERE id=?",
+                (note_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            if row[0] == user_id:
+                return bool(row[1])
+            return db.execute(
+                "SELECT 1 FROM openatelier_private_note_pin WHERE note_id=? AND user_id=?",
+                (note_id, user_id),
+            ).fetchone() is not None

@@ -79,6 +79,8 @@ class PrivateNotesStoreTests(unittest.TestCase):
         self.assertTrue(self.store.has_grant(note["id"], "member", "write", ["editors"]))
         self.assertFalse(self.store.has_grant(note["id"], "reader", "write"))
         self.assertTrue(self.store.toggle_actor_pin(note["id"], "reader", created_at=102)["is_pinned"])
+        self.assertTrue(self.store.actor_pinned(note["id"], "reader"))
+        self.assertFalse(self.store.actor_pinned(note["id"], "member"))
         self.assertEqual(
             [row["id"] for row in self.store.list_accessible(
                 "reader", (), 32, 0, permissions=("read",), pinned=True
@@ -414,6 +416,23 @@ class PrivateNotesStoreTests(unittest.TestCase):
                 [row["id"] for row in router.list_pinned_notes(request, reader)],
                 [created["id"]],
             )
+            self.assertTrue(router.get_note(request, created["id"], reader)["is_pinned"])
+            owner_after_reader_pin = router.get_note(request, created["id"], owner)
+            self.assertTrue(owner_after_reader_pin["is_pinned"])
+            updated_by_reader_view = router.update_note(
+                request,
+                created["id"],
+                router.NoteForm(
+                    title="Private metadata revised",
+                    data={"content": {"md": "Revised text"}},
+                ),
+                owner,
+            )
+            self.assertEqual(updated_by_reader_view["data"]["content"], {
+                "md": "Revised text", "html": "", "json": None,
+            })
+            self.assertEqual(updated_by_reader_view["data"]["pages"][0]["revision"], 1)
+            self.assertEqual(updated_by_reader_view["data"]["pages"][0]["generation"], 1)
             with self.assertRaises(router.HTTPException) as read_only:
                 router.update_note(
                     request,
@@ -438,11 +457,14 @@ class PrivateNotesStoreTests(unittest.TestCase):
             })
             self.assertEqual(
                 page_result["data"]["content"],
-                {"md": "## Private metadata\n\n\n\n## Second page\n\n", "html": "", "json": None},
+                {
+                    "md": "## Private metadata revised\n\nRevised text\n\n## Second page\n\n",
+                    "html": "", "json": None,
+                },
             )
             self.assertEqual(
                 page_result["data"]["search_text"],
-                "Private metadata\n\n\nSecond page\n",
+                "Private metadata revised\nRevised text\n\nSecond page\n",
             )
             with self.assertRaises(router.HTTPException) as stale_page:
                 router.update_note_pages(
