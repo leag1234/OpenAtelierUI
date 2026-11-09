@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2026 Gaël Duval
-"""Owner-only notes API compatibility implementation."""
+"""Private Notes API compatibility implementation."""
 
 import json
 import os
@@ -15,6 +15,7 @@ from open_webui.env import DATABASE_URL
 from open_webui.models.chats import ChatResponse
 from open_webui.models.groups import Groups
 from open_webui.models.notes import PrivateNotes, PrivateNotesUnavailable
+from open_webui.models.users import Users
 from open_webui.utils.auth import get_verified_user
 
 
@@ -360,13 +361,48 @@ def _note_chats(note_id, user):
     return result
 
 
+def _owner_profile(user_id):
+    owner = Users.get_user_by_id(user_id)
+    if owner is None:
+        return None
+    return {key: getattr(owner, key) for key in ("id", "name", "role", "email")}
+
+
+def _item_response(note):
+    data = _page_data(note["title"], note.get("data"))
+    pages = data.get("pages") or []
+    main = pages[0] if pages and isinstance(pages[0], dict) else {}
+    result = {
+        key: note[key]
+        for key in ("id", "title", "updated_at", "created_at", "is_pinned")
+    }
+    result["data"] = {
+        "content": main.get("content") if isinstance(main.get("content"), dict) else {},
+        "page_count": len(pages),
+        "page_id": main.get("id"),
+        "page_title": main.get("title"),
+    }
+    result["user"] = _owner_profile(note["user_id"])
+    return result
+
+
+def _search_response(note):
+    result = _with_grants(note)
+    result["data"] = _item_response(note)["data"]
+    result["user"] = _owner_profile(note["user_id"])
+    return result
+
+
 @router.get("/", response_model=list[NoteItemResponse])
 def list_notes(request: Request, page: Optional[int] = Query(default=1), user=Depends(get_verified_user)):
     _allow_notes(request, user)
     page = _page(page)
     try:
-        rows, _ = notes_store.list_owned(user.id, 32, (page - 1) * 32)
-        return rows
+        rows, _ = notes_store.list_accessible(
+            user.id, _group_ids(user.id), 32, (page - 1) * 32,
+            permissions=("read",),
+        )
+        return [_item_response(row) for row in rows]
     except Exception as error:
         raise _unavailable(error) from None
 
@@ -375,8 +411,11 @@ def list_notes(request: Request, page: Optional[int] = Query(default=1), user=De
 def list_pinned_notes(request: Request, user=Depends(get_verified_user)):
     _allow_notes(request, user)
     try:
-        rows, _ = notes_store.list_owned(user.id, 32, 0, pinned=True)
-        return rows
+        rows, _ = notes_store.list_accessible(
+            user.id, _group_ids(user.id), 32, 0,
+            permissions=("read",), pinned=True,
+        )
+        return [_item_response(row) for row in rows]
     except Exception as error:
         raise _unavailable(error) from None
 
@@ -397,19 +436,24 @@ def query_private_notes(
     user=Depends(get_verified_user),
 ):
     _allow_notes(request, user)
-    if any(value not in (None, "") for value in (view_option, permission, order_by, direction)):
-        raise HTTPException(status_code=422, detail="Unsupported private notes search option")
     page = _page(page)
     try:
-        if query is not None and len(query.encode("utf-8")) > 256:
-            raise HTTPException(status_code=422, detail="Search query is too long")
-    except UnicodeError:
-        raise HTTPException(status_code=422, detail="Unsupported search query") from None
-    try:
-        rows, total = notes_store.list_owned(user.id, 32, (page - 1) * 32, query=query or None)
-        profile = {key: getattr(user, key) for key in ("id", "name", "role", "email")}
-        rows = [{**row, "user": profile} for row in rows]
-        return {"items": rows, "total": total}
+        selected_permission = permission if permission in {"read", "write"} else (
+            "write" if permission in (None, "") else None
+        )
+        rows, total = notes_store.list_accessible(
+            user.id,
+            _group_ids(user.id),
+            32,
+            (page - 1) * 32,
+            permissions=(() if selected_permission is None else (selected_permission,)),
+            include_owned=view_option != "shared",
+            admin=user.role == "admin",
+            query=query or None,
+            order_by=order_by if order_by in {"created_at", "updated_at"} else "updated_at",
+            direction=direction if order_by in {"created_at", "updated_at"} and direction in {"asc", "desc"} else "desc",
+        )
+        return {"items": [_search_response(row) for row in rows], "total": total}
     except Exception as error:
         raise _unavailable(error) from None
 
@@ -460,12 +504,18 @@ def update_note(request: Request, id: str, form_data: NoteForm, user=Depends(get
 def pin_note(request: Request, id: str, user=Depends(get_verified_user)):
     _allow_notes(request, user)
     try:
-        note = notes_store.toggle_pin(id, user.id)
+        note = notes_store.toggle_actor_pin(
+            id,
+            user.id,
+            _group_ids(user.id),
+            admin=user.role == "admin",
+            created_at=int(time.time()),
+        )
     except Exception as error:
         raise _unavailable(error) from None
     if note is None:
         raise _denied()
-    return note
+    return _with_grants(note)
 
 
 @router.get("/{id}/chat", response_model=ChatResponse)

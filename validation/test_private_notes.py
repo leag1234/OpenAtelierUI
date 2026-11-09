@@ -53,6 +53,7 @@ class PrivateNotesStoreTests(unittest.TestCase):
         self.assertEqual(tables, {
             "existing_fixture", "openatelier_private_note",
             "openatelier_private_note_grant", "openatelier_private_note_chat",
+            "openatelier_private_note_pin",
         })
         with sqlite3.connect(self.path) as db:
             self.assertEqual(db.execute("SELECT * FROM existing_fixture").fetchall(), [("keep", "unchanged")])
@@ -77,6 +78,29 @@ class PrivateNotesStoreTests(unittest.TestCase):
         self.assertTrue(self.store.has_grant(note["id"], "reader", "read"))
         self.assertTrue(self.store.has_grant(note["id"], "member", "write", ["editors"]))
         self.assertFalse(self.store.has_grant(note["id"], "reader", "write"))
+        self.assertTrue(self.store.toggle_actor_pin(note["id"], "reader", created_at=102)["is_pinned"])
+        self.assertEqual(
+            [row["id"] for row in self.store.list_accessible(
+                "reader", (), 32, 0, permissions=("read",), pinned=True
+            )[0]],
+            [note["id"]],
+        )
+        second = self.store.create({
+            "id": "note-2", "user_id": "reader", "title": "Later",
+            "data": None, "meta": None, "created_at": 103, "updated_at": 103,
+        })
+        self.assertEqual(
+            [row["id"] for row in self.store.list_accessible(
+                "reader", (), 32, 0, order_by="created_at", direction="asc"
+            )[0]],
+            [note["id"], second["id"]],
+        )
+        self.assertEqual(
+            [row["id"] for row in self.store.list_accessible(
+                "reader", (), 32, 0, order_by="created_at", direction="desc"
+            )[0]],
+            [second["id"], note["id"]],
+        )
         self.assertTrue(self.store.add_chat(note["id"], "chat-a", "owner", 200))
         self.assertTrue(self.store.add_chat(note["id"], "chat-b", "owner", 201))
         self.assertEqual(self.store.chat_ids(note["id"], "owner"), ["chat-b", "chat-a"])
@@ -92,6 +116,12 @@ class PrivateNotesStoreTests(unittest.TestCase):
         reopened = self.store_module.PrivateNotes("sqlite:///" + str(self.path))
         self.assertEqual(len(reopened.grants(note["id"])), 2)
         self.assertEqual(reopened.chat_ids(note["id"], "owner"), ["chat-b", "chat-a"])
+        self.assertEqual(
+            [row["id"] for row in reopened.list_accessible(
+                "reader", (), 32, 0, permissions=("read",), pinned=True
+            )[0]],
+            [note["id"]],
+        )
         self.assertTrue(reopened.delete(note["id"], "owner"))
         self.assertFalse(reopened.delete(note["id"], "owner"))
         self.assertIsNone(reopened.get(note["id"]))
@@ -217,15 +247,29 @@ class PrivateNotesStoreTests(unittest.TestCase):
             def get_groups_by_member_id(cls, _user_id):
                 return [SimpleNamespace(permissions={"workspace": {"notes": False}})] if cls.denied else []
         group_module.Groups = GroupsStub
+        user_module = types.ModuleType("open_webui.models.users")
+        class UsersStub:
+            rows = {
+                "owner": SimpleNamespace(
+                    id="owner", name="Workshop member", role="user",
+                    email="member@example.invalid",
+                )
+            }
+
+            @classmethod
+            def get_user_by_id(cls, user_id):
+                return cls.rows.get(user_id)
+        user_module.Users = UsersStub
         for name in ("open_webui", "open_webui.models", "open_webui.utils"):
             sys.modules.setdefault(name, types.ModuleType(name))
         old = {key: sys.modules.get(key) for key in (
             "open_webui.env", "open_webui.models.notes", "open_webui.models.groups",
-            "open_webui.models.chats", "open_webui.utils.auth")}
+            "open_webui.models.chats", "open_webui.models.users", "open_webui.utils.auth")}
         sys.modules["open_webui.env"] = env
         sys.modules["open_webui.models.notes"] = model_module
         sys.modules["open_webui.models.groups"] = group_module
         sys.modules["open_webui.models.chats"] = chat_model_module
+        sys.modules["open_webui.models.users"] = user_module
         sys.modules["open_webui.utils.auth"] = auth
         old_flag = os.environ.get("OPENATELIER_PRIVATE_NOTES_COMPAT")
         os.environ["OPENATELIER_PRIVATE_NOTES_COMPAT"] = "1"
@@ -352,7 +396,24 @@ class PrivateNotesStoreTests(unittest.TestCase):
                 ["read", "write"],
             )
             reader = SimpleNamespace(id="reader", role="user")
+            UsersStub.rows["reader"] = SimpleNamespace(
+                id="reader", name="Reader", role="user", email="reader@example.invalid"
+            )
             self.assertEqual(router.get_note(request, created["id"], reader)["id"], created["id"])
+            self.assertEqual(
+                [row["id"] for row in router.list_notes(request, 1, reader)],
+                [created["id"]],
+            )
+            pinned = router.pin_note(request, created["id"], reader)
+            self.assertTrue(pinned["is_pinned"])
+            self.assertEqual(
+                [grant["permission"] for grant in pinned["access_grants"]],
+                ["read", "write"],
+            )
+            self.assertEqual(
+                [row["id"] for row in router.list_pinned_notes(request, reader)],
+                [created["id"]],
+            )
             with self.assertRaises(router.HTTPException) as read_only:
                 router.update_note(
                     request,

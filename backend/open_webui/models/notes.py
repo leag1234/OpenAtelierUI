@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2026 Gaël Duval
-"""Small SQLite-only private-note store for the notes compatibility slice."""
+"""SQLite-only private-note store for the Notes compatibility slice."""
 
 import json
 import sqlite3
@@ -32,6 +32,11 @@ _GRANT_COLUMNS = (
 _CHAT_COLUMNS = (
     ("note_id", "TEXT"),
     ("chat_id", "TEXT"),
+    ("user_id", "TEXT"),
+    ("created_at", "INTEGER"),
+)
+_PIN_COLUMNS = (
+    ("note_id", "TEXT"),
     ("user_id", "TEXT"),
     ("created_at", "INTEGER"),
 )
@@ -135,8 +140,14 @@ class PrivateNotes:
                     "CREATE INDEX IF NOT EXISTS openatelier_private_note_chat_lookup "
                     "ON openatelier_private_note_chat(note_id,user_id,created_at DESC,chat_id DESC)"
                 )
+                db.execute(
+                    "CREATE TABLE IF NOT EXISTS openatelier_private_note_pin ("
+                    "note_id TEXT NOT NULL, user_id TEXT NOT NULL, created_at INTEGER NOT NULL, "
+                    "PRIMARY KEY(note_id,user_id))"
+                )
                 grant_details = list(db.execute("PRAGMA table_info(openatelier_private_note_grant)"))
                 chat_details = list(db.execute("PRAGMA table_info(openatelier_private_note_chat)"))
+                pin_details = list(db.execute("PRAGMA table_info(openatelier_private_note_pin)"))
                 if (
                     tuple((row[1], row[2].upper()) for row in grant_details) != _GRANT_COLUMNS
                     or grant_details[0][5] != 1
@@ -146,6 +157,9 @@ class PrivateNotes:
                     or chat_details[1][5] != 1
                     or any(row[5] for index, row in enumerate(chat_details) if index != 1)
                     or tuple(row[3] for row in chat_details) != (1, 0, 1, 1)
+                    or tuple((row[1], row[2].upper()) for row in pin_details) != _PIN_COLUMNS
+                    or tuple(row[5] for row in pin_details) != (1, 2, 0)
+                    or tuple(row[3] for row in pin_details) != (1, 1, 1)
                 ):
                     raise PrivateNotesUnavailable("Private notes relationship schema is unsupported")
                 grant_index = tuple(row[2] for row in db.execute(
@@ -193,6 +207,90 @@ class PrivateNotes:
         with self._connection() as db:
             rows = db.execute(select + " ORDER BY updated_at DESC,id DESC LIMIT ? OFFSET ?", (*params, limit, offset)).fetchall()
             total = db.execute("SELECT count(*) FROM openatelier_private_note WHERE " + where, params).fetchone()[0]
+        return [self._row(row) for row in rows], total
+
+    @staticmethod
+    def _grant_filter(user_id, group_ids, permissions):
+        principals = [("user", user_id)] + [("group", value) for value in group_ids]
+        if not permissions or not principals:
+            return "0", []
+        permission_slots = ",".join("?" for _ in permissions)
+        principal_sql = " OR ".join(
+            "(g.principal_type=? AND g.principal_id=?)" for _ in principals
+        )
+        parameters = list(permissions)
+        for principal_type, principal_id in principals:
+            parameters.extend((principal_type, principal_id))
+        return (
+            "EXISTS(SELECT 1 FROM openatelier_private_note_grant g "
+            "WHERE g.note_id=n.id AND g.permission IN ("
+            + permission_slots
+            + ") AND ("
+            + principal_sql
+            + "))",
+            parameters,
+        )
+
+    def list_accessible(
+        self,
+        user_id,
+        group_ids,
+        limit,
+        offset,
+        *,
+        permissions=("read",),
+        include_owned=True,
+        admin=False,
+        pinned=None,
+        query=None,
+        order_by="updated_at",
+        direction="desc",
+    ):
+        grant_sql, grant_parameters = self._grant_filter(
+            user_id, group_ids, tuple(permissions)
+        )
+        access_parts, access_parameters = [], []
+        if admin:
+            access_parts.append("1")
+        else:
+            if include_owned:
+                access_parts.append("n.user_id=?")
+                access_parameters.append(user_id)
+            if grant_sql != "0":
+                access_parts.append(grant_sql)
+                access_parameters.extend(grant_parameters)
+        access_sql = "(" + " OR ".join(access_parts or ["0"]) + ")"
+        where_parameters = list(access_parameters)
+        if query:
+            escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            access_sql += " AND (n.title LIKE ? ESCAPE '\\' OR n.data LIKE ? ESCAPE '\\')"
+            pattern = "%" + escaped + "%"
+            where_parameters.extend((pattern, pattern))
+        pin_sql = (
+            "CASE WHEN n.user_id=? THEN n.is_pinned "
+            "WHEN EXISTS(SELECT 1 FROM openatelier_private_note_pin p "
+            "WHERE p.note_id=n.id AND p.user_id=?) THEN 1 ELSE 0 END"
+        )
+        inner = (
+            "SELECT n.id,n.user_id,n.title,n.data,n.meta,n.created_at,n.updated_at,"
+            + pin_sql
+            + " AS actor_pinned FROM openatelier_private_note n WHERE "
+            + access_sql
+        )
+        outer_where = " WHERE actor_pinned=1" if pinned is True else ""
+        parameters = [user_id, user_id, *where_parameters]
+        order_column = "created_at" if order_by == "created_at" else "updated_at"
+        order_direction = "ASC" if direction == "asc" else "DESC"
+        with self._connection() as db:
+            rows = db.execute(
+                "SELECT * FROM (" + inner + ")" + outer_where
+                + f" ORDER BY {order_column} {order_direction},id {order_direction} LIMIT ? OFFSET ?",
+                (*parameters, limit, offset),
+            ).fetchall()
+            total = db.execute(
+                "SELECT count(*) FROM (" + inner + ")" + outer_where,
+                parameters,
+            ).fetchone()[0]
         return [self._row(row) for row in rows], total
 
     def get_owned(self, note_id, user_id):
@@ -317,6 +415,7 @@ class PrivateNotes:
                 return False
             db.execute("DELETE FROM openatelier_private_note_grant WHERE note_id=?", (note_id,))
             db.execute("DELETE FROM openatelier_private_note_chat WHERE note_id=?", (note_id,))
+            db.execute("DELETE FROM openatelier_private_note_pin WHERE note_id=?", (note_id,))
             return True
 
     def create(self, note):
@@ -379,3 +478,57 @@ class PrivateNotes:
                 (0 if row[0] else 1, note_id, user_id),
             )
             return self._one(db, note_id, user_id)
+
+    def toggle_actor_pin(self, note_id, user_id, group_ids=(), admin=False, created_at=0):
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT id,user_id,title,data,meta,created_at,updated_at,is_pinned "
+                "FROM openatelier_private_note WHERE id=?",
+                (note_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            if row[1] == user_id:
+                db.execute(
+                    "UPDATE openatelier_private_note SET is_pinned=? WHERE id=? AND user_id=?",
+                    (0 if row[7] else 1, note_id, user_id),
+                )
+                return self._one(db, note_id, user_id)
+            principals = [("user", user_id)] + [("group", value) for value in group_ids]
+            allowed = admin
+            if not allowed and principals:
+                clauses = " OR ".join(
+                    "(principal_type=? AND principal_id=?)" for _ in principals
+                )
+                parameters = [note_id]
+                for principal_type, principal_id in principals:
+                    parameters.extend((principal_type, principal_id))
+                allowed = db.execute(
+                    "SELECT 1 FROM openatelier_private_note_grant "
+                    "WHERE note_id=? AND permission='read' AND ("
+                    + clauses
+                    + ") LIMIT 1",
+                    parameters,
+                ).fetchone() is not None
+            if not allowed:
+                return None
+            existing = db.execute(
+                "SELECT 1 FROM openatelier_private_note_pin WHERE note_id=? AND user_id=?",
+                (note_id, user_id),
+            ).fetchone()
+            if existing:
+                db.execute(
+                    "DELETE FROM openatelier_private_note_pin WHERE note_id=? AND user_id=?",
+                    (note_id, user_id),
+                )
+                pinned = False
+            else:
+                db.execute(
+                    "INSERT INTO openatelier_private_note_pin(note_id,user_id,created_at) VALUES(?,?,?)",
+                    (note_id, user_id, created_at),
+                )
+                pinned = True
+            result = self._row(row)
+            result["is_pinned"] = pinned
+            return result
