@@ -293,6 +293,51 @@ async def count_files(user=Depends(get_verified_user)):
 
 
 ############################
+# Count User Files
+############################
+
+
+@router.get("/user/count", response_model=int)
+async def count_user_files(user=Depends(get_verified_user)):
+    return Files.count_files(user.id)
+
+
+############################
+# Search User Files
+############################
+
+
+@router.get("/user/search", response_model=list[FileModelResponse])
+async def search_user_files(
+    filename: str = Query("*"),
+    content: bool = Query(False),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=1000),
+    user=Depends(get_verified_user),
+):
+    matching_files = [
+        file
+        for file in Files.get_files_by_user_id(user.id)
+        if fnmatch(file.filename.lower(), filename.lower())
+    ][skip : skip + limit]
+
+    items = []
+    for file in matching_files:
+        values = file.model_dump()
+        data = values.get("data")
+        if not content and isinstance(data, dict):
+            values["data"] = dict(data)
+            values["data"].pop("content", None)
+        public_values = {
+            key: value
+            for key, value in values.items()
+            if key in FileModelResponse.model_fields
+        }
+        items.append(FileModelResponse.model_validate(public_values))
+    return items
+
+
+############################
 # Delete All Files
 ############################
 
