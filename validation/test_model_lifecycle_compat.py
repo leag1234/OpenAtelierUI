@@ -64,7 +64,7 @@ class ModelLifecycleCompatibilityTests(unittest.TestCase):
                     "delete_provider_model",
                     "get_provider_model_catalog",
                     "get_provider_model_download_status",
-                    "get_provider_model_events",
+                    "stream_provider_model_events",
                     "download_provider_model",
                     "load_provider_model",
                     "unload_provider_model",

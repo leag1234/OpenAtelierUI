@@ -1231,6 +1231,11 @@ async def unload_model(
     form_data: ModelUnloadForm,
     user=Depends(get_admin_user),
 ):
+    """Unified model unload endpoint.
+    Resolves the provider that owns the model and calls its native unload mechanism.
+    Supports: Ollama (keep_alive=0) and llama.cpp (/models/unload).
+    """
+
     models = await get_all_models(request, user=user)
     if not any(model.get("id") == form_data.model for model in models):
         raise HTTPException(

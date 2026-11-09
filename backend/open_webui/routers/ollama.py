@@ -634,6 +634,8 @@ class CreateModelForm(BaseModel):
 
 
 class UnloadModelForm(BaseModel):
+    """Generic form carrying an optional model identifier."""
+
     model: Optional[str] = None
 
     model_config = ConfigDict(extra="allow")

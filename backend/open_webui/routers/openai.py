@@ -275,7 +275,7 @@ async def get_provider_model_download_status(
 
 
 @router.get("/models/{url_idx}/sse")
-async def get_provider_model_events(
+async def stream_provider_model_events(
     request: Request, url_idx: int, user=Depends(get_admin_user)
 ):
     _, _, provider = _provider_model_connection(request, url_idx)
