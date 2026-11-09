@@ -255,7 +255,7 @@ async def get_session_user(
     if is_validated_api_key_request(request, user.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=ERROR_MESSAGES.API_KEY_NOT_ALLOWED,
+            detail="A human session is required.",
         )
     validated_session_context = get_validated_session_context(request, user.id)
     if validated_session_context is not None:

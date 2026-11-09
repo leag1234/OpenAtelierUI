@@ -248,6 +248,7 @@ class ApiKeySessionBoundaryTests(unittest.TestCase):
                         import asyncio
                         asyncio.run(route(request, response, user))
                     self.assertEqual(caught.exception.status_code, 403)
+                    self.assertEqual(caught.exception.detail, "A human session is required.")
                     self.assertEqual(effects, {"create": 0, "permissions": 0})
                     self.assertNotIn(b"set-cookie", dict(response.raw_headers))
 
