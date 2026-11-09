@@ -99,6 +99,31 @@ class AutomationStoreTests(unittest.TestCase):
         self.assertFalse(self.store.delete(created["id"], "foreign"))
         self.assertEqual(self.store.get(created["id"])["name"], "Original")
 
+    def test_due_claim_is_atomic_and_preserves_a_newer_user_schedule(self):
+        due = self.store.create("owner", "Due", None, self.data, None, True, 10)
+        future = self.store.create("owner", "Future", None, self.data, None, True, 30)
+        inactive = self.store.create("owner", "Inactive", None, self.data, None, False, 5)
+        claimed = self.store.claim_due(20)
+        self.assertEqual([item["id"] for item in claimed], [due["id"]])
+        self.assertEqual(claimed[0]["last_run_at"], 20)
+        self.assertIsNone(claimed[0]["next_run_at"])
+        self.assertEqual(self.store.claim_due(20), [])
+        self.assertEqual(self.store.next_due(), 30)
+        self.assertTrue(self.store.schedule_after_claim(due["id"], 20, 40))
+        self.assertEqual(self.store.next_due(), 30)
+        self.store.update(due["id"], "owner", "Rescheduled", None, self.data, None, True, 50)
+        self.assertFalse(self.store.schedule_after_claim(due["id"], 20, 60))
+        self.assertEqual(self.store.get(due["id"])["next_run_at"], 50)
+        self.assertEqual(self.store.get(future["id"])["next_run_at"], 30)
+        self.assertEqual(self.store.get(inactive["id"])["next_run_at"], 5)
+
+    def test_scheduler_source_keeps_restart_and_chat_identity_contract(self):
+        router = (ROOT / "backend/open_webui/routers/automations.py").read_text()
+        main = (ROOT / "backend/open_webui/main.py").read_text()
+        self.assertIn('"meta": {"automation_id": automation["id"]}', router)
+        self.assertIn("automation_store.claim_due(time.time_ns())", router)
+        self.assertIn("asyncio.create_task(automations.scheduler_loop(app))", main)
+
     def test_unsupported_database_and_schema_collision_refuse(self):
         with self.assertRaises(self.module.AutomationsUnavailable):
             self.module.Automations("postgresql://example/db")

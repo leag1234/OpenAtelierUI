@@ -214,6 +214,47 @@ class Automations:
             )
         return self.get(automation_id) if cursor.rowcount else None
 
+    def next_due(self):
+        with self._connection() as db:
+            row = db.execute(
+                "SELECT min(next_run_at) FROM openatelier_automation "
+                "WHERE is_active=1 AND next_run_at IS NOT NULL"
+            ).fetchone()
+        return row[0] if row and row[0] is not None else None
+
+    def claim_due(self, now_ns, limit=8):
+        if not isinstance(now_ns, int) or not 1 <= limit <= 64:
+            raise ValueError("unsupported due-automation claim")
+        claimed = []
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            rows = db.execute(
+                self._select()
+                + " WHERE is_active=1 AND next_run_at IS NOT NULL AND next_run_at<=? "
+                "ORDER BY next_run_at,id LIMIT ?",
+                (now_ns, limit),
+            ).fetchall()
+            for row in rows:
+                cursor = db.execute(
+                    "UPDATE openatelier_automation SET last_run_at=?,next_run_at=NULL "
+                    "WHERE id=? AND is_active=1 AND next_run_at=?",
+                    (now_ns, row[0], row[10]),
+                )
+                if cursor.rowcount:
+                    updated = list(row)
+                    updated[9], updated[10] = now_ns, None
+                    claimed.append(self._automation(updated))
+        return claimed
+
+    def schedule_after_claim(self, automation_id, claimed_at, next_run_at):
+        with self._connection() as db:
+            cursor = db.execute(
+                "UPDATE openatelier_automation SET next_run_at=? "
+                "WHERE id=? AND is_active=1 AND last_run_at=? AND next_run_at IS NULL",
+                (next_run_at, automation_id, claimed_at),
+            )
+        return bool(cursor.rowcount)
+
     def record_run(self, automation_id, status, chat_id=None, error=None):
         if status not in ("success", "failed"):
             raise ValueError("unsupported automation run status")

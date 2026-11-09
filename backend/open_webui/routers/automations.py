@@ -5,6 +5,7 @@
 import asyncio
 import json
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional
@@ -17,6 +18,7 @@ from open_webui.constants import ERROR_MESSAGES
 from open_webui.env import DATABASE_URL
 from open_webui.models.automations import Automations, AutomationsUnavailable
 from open_webui.models.chats import ChatForm, Chats
+from open_webui.models.users import Users
 from open_webui.utils.auth import get_verified_user
 from open_webui.utils.chat import generate_chat_completion
 from open_webui.utils.models import get_all_models
@@ -280,7 +282,7 @@ def _chat_payload(automation, answer, usage):
             "currentId": assistant_message_id,
         },
         "messages": [{"role": "user", "content": prompt}],
-        "meta": {},
+        "meta": {"automation_id": automation["id"]},
     }
 
 
@@ -311,6 +313,59 @@ async def _execute_automation(request, automation, user):
     except Exception as error:
         message = str(error).strip() or error.__class__.__name__
         automation_store.record_run(automation["id"], "failed", error=message[:1000])
+
+
+def _scheduler_request(app):
+    return Request(
+        {
+            "type": "http",
+            "app": app,
+            "method": "POST",
+            "path": "/api/v1/automations/scheduler",
+            "raw_path": b"/api/v1/automations/scheduler",
+            "query_string": b"",
+            "headers": [],
+            "scheme": "http",
+            "server": ("scheduler", 0),
+            "client": None,
+            "root_path": "",
+        }
+    )
+
+
+async def scheduler_loop(app, poll_ceiling=30.0):
+    """Claim due rows atomically and recover missed work after restart."""
+    if automation_store is None:
+        return
+    request = _scheduler_request(app)
+    while True:
+        claimed = automation_store.claim_due(time.time_ns())
+        for automation in claimed:
+            claimed_at = automation["last_run_at"]
+            try:
+                next_runs = _occurrences(automation["data"]["rrule"])
+                automation_store.schedule_after_claim(
+                    automation["id"], claimed_at, next_runs[0] if next_runs else None
+                )
+                user = Users.get_user_by_id(automation["user_id"])
+                if user is None:
+                    raise RuntimeError("Automation owner is unavailable")
+                await _execute_automation(request, automation, user)
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                message = str(error).strip() or error.__class__.__name__
+                automation_store.record_run(
+                    automation["id"], "failed", error=message[:1000]
+                )
+        if claimed:
+            continue
+        next_due = automation_store.next_due()
+        if next_due is None:
+            delay = poll_ceiling
+        else:
+            delay = min(poll_ceiling, max(0.25, (next_due - time.time_ns()) / 1_000_000_000))
+        await asyncio.sleep(delay)
 
 
 @router.post("/{id}/run", response_model=AutomationResponse)

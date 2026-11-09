@@ -10,7 +10,7 @@ import sys
 import time
 import random
 
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from urllib.parse import urlencode, parse_qs, urlparse
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -495,7 +495,18 @@ async def lifespan(app: FastAPI):
         reset_config()
 
     asyncio.create_task(periodic_usage_pool_cleanup())
-    yield
+    automation_scheduler = (
+        asyncio.create_task(automations.scheduler_loop(app))
+        if AUTOMATION_COMPAT_ENABLED
+        else None
+    )
+    try:
+        yield
+    finally:
+        if automation_scheduler is not None:
+            automation_scheduler.cancel()
+            with suppress(asyncio.CancelledError):
+                await automation_scheduler
 
 
 DEFAULT_WEBUI_NAME = "OpenAtelierUI"
