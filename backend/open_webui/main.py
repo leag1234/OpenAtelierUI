@@ -15,7 +15,7 @@ from urllib.parse import urlencode, parse_qs, urlparse
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from typing import Optional
+from typing import Any, Optional
 from aiocache import cached
 import aiohttp
 import requests
@@ -1305,6 +1305,74 @@ def _authorize_direct_model(request, item, form_data, user):
         descriptors.append(descriptor)
     meta["knowledge"] = retrieval.authorize_chat_files(descriptors, user)
     return item
+
+
+@app.post("/api/v1/embeddings")
+@app.post("/api/embeddings")
+async def embeddings(
+    request: Request,
+    form_data: dict[str, Any],
+    user=Depends(get_verified_user),
+):
+    model_id = form_data["model"]
+    if user.role != "admin" and Models.get_model_by_id(model_id) is None:
+        raise RuntimeError("Model not found")
+    return await openai.proxy_openai_json(
+        request, dict(form_data), "embeddings", user
+    )
+
+
+@app.post("/api/v1/messages")
+@app.post("/api/message")
+async def generate_messages(
+    request: Request,
+    form_data: dict[str, Any],
+    user=Depends(get_verified_user),
+):
+    if not form_data.get("model"):
+        raise HTTPException(status_code=400, detail="Model not found")
+    try:
+        result = await openai.proxy_openai_json(
+            request, dict(form_data), "chat/completions", user
+        )
+    except HTTPException as exc:
+        if exc.status_code == 403:
+            raise HTTPException(status_code=400, detail="Model not found")
+        raise
+    choice = (result.get("choices") or [{}])[0]
+    message = choice.get("message") or {}
+    usage = result.get("usage") or {}
+    return {
+        "id": result.get("id"),
+        "type": "message",
+        "role": "assistant",
+        "model": result.get("model", form_data["model"]),
+        "content": [{"type": "text", "text": message.get("content", "")}],
+        "stop_reason": (
+            "end_turn"
+            if choice.get("finish_reason") == "stop"
+            else choice.get("finish_reason")
+        ),
+        "stop_sequence": None,
+        "usage": {
+            "input_tokens": usage.get("prompt_tokens", 0),
+            "output_tokens": usage.get("completion_tokens", 0),
+        },
+    }
+
+
+@app.post("/api/v1/messages/count_tokens")
+@app.post("/api/message/count_tokens")
+async def count_message_tokens(
+    request: Request,
+    form_data: dict[str, Any],
+    user=Depends(get_verified_user),
+):
+    if not form_data.get("model"):
+        raise HTTPException(status_code=400, detail="model is required")
+    return await openai.proxy_openai_json(
+        request, dict(form_data), "messages/count_tokens", user
+    )
 
 
 @app.post("/api/v1/chat/completions")

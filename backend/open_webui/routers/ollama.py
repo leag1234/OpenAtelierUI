@@ -9,7 +9,7 @@ import os
 import random
 import re
 import time
-from typing import Optional, Union
+from typing import Any, Optional, Union
 from urllib.parse import urlparse
 import aiohttp
 from aiocache import cached
@@ -1218,6 +1218,126 @@ class OpenAICompletionForm(BaseModel):
     prompt: str
 
     model_config = ConfigDict(extra="allow")
+
+
+class OpenAIEmbeddingsForm(BaseModel):
+    model: str
+    input: list[str] | str
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ResponsesForm(BaseModel):
+    model: str
+
+    model_config = ConfigDict(extra="allow")
+
+
+def authorize_openai_compatible_model(model_id: str, user: UserModel):
+    lookup_id = model_id if ":" in model_id else f"{model_id}:latest"
+    model_info = Models.get_model_by_id(lookup_id)
+    if model_info:
+        if user.role == "user" and not (
+            user.id == model_info.user_id
+            or has_access(
+                user.id, type="read", access_control=model_info.access_control
+            )
+        ):
+            raise HTTPException(status_code=403, detail="Model not found")
+    elif user.role != "admin":
+        raise HTTPException(status_code=403, detail="Model not found")
+
+
+async def proxy_openai_compatible_json(
+    request: Request,
+    payload: dict,
+    endpoint: str,
+    url_idx: Optional[int],
+    user: UserModel,
+):
+    authorize_openai_compatible_model(payload["model"], user)
+    if url_idx is None:
+        await get_all_models(request, user=user)
+        model_id = payload["model"]
+        if ":" not in model_id:
+            model_id = f"{model_id}:latest"
+            payload = {**payload, "model": model_id}
+        url, url_idx = await get_ollama_url(request, model_id)
+    else:
+        url = request.app.state.config.OLLAMA_BASE_URLS[url_idx]
+    api_config = request.app.state.config.OLLAMA_API_CONFIGS.get(
+        str(url_idx),
+        request.app.state.config.OLLAMA_API_CONFIGS.get(url, {}),
+    )
+    prefix_id = api_config.get("prefix_id")
+    if prefix_id:
+        payload = {
+            **payload,
+            "model": payload["model"].replace(f"{prefix_id}.", ""),
+        }
+    return await send_post_request(
+        url=f"{url}/v1/{endpoint}",
+        payload=json.dumps(payload),
+        stream=bool(payload.get("stream", False)),
+        key=get_api_key(url_idx, url, request.app.state.config.OLLAMA_API_CONFIGS),
+        user=user,
+    )
+
+
+@router.post("/v1/embeddings")
+@router.post("/v1/embeddings/{url_idx}")
+async def generate_openai_embeddings(
+    request: Request,
+    form_data: dict[str, Any],
+    url_idx: Optional[int] = None,
+    user=Depends(get_verified_user),
+):
+    try:
+        parsed = OpenAIEmbeddingsForm(**form_data)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return await proxy_openai_compatible_json(
+        request,
+        parsed.model_dump(exclude_none=True),
+        "embeddings",
+        url_idx,
+        user,
+    )
+
+
+@router.post("/v1/messages")
+@router.post("/v1/messages/{url_idx}")
+async def generate_anthropic_messages(
+    request: Request,
+    form_data: dict[str, Any],
+    url_idx: Optional[int] = None,
+    user=Depends(get_verified_user),
+):
+    parsed = OpenAIChatCompletionForm(**form_data)
+    return await proxy_openai_compatible_json(
+        request,
+        parsed.model_dump(exclude_none=True),
+        "messages",
+        url_idx,
+        user,
+    )
+
+
+@router.post("/v1/responses")
+@router.post("/v1/responses/{url_idx}")
+async def generate_responses(
+    request: Request,
+    form_data: ResponsesForm,
+    url_idx: Optional[int] = None,
+    user=Depends(get_verified_user),
+):
+    return await proxy_openai_compatible_json(
+        request,
+        form_data.model_dump(exclude_none=True),
+        "responses",
+        url_idx,
+        user,
+    )
 
 
 @router.post("/v1/completions")

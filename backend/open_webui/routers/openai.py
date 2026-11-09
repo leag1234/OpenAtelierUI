@@ -4,7 +4,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Literal, Optional, overload
+from typing import Any, Literal, Optional, overload
 
 import aiohttp
 from aiocache import cached
@@ -14,7 +14,7 @@ import requests
 from fastapi import Depends, FastAPI, HTTPException, Request, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from starlette.background import BackgroundTask
 
 from open_webui.models.models import Models
@@ -56,6 +56,26 @@ from open_webui.utils.openai_static_headers import (
 
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["OPENAI"])
+
+
+class ResponsesForm(BaseModel):
+    model: str
+    input: Optional[list | str] = None
+    instructions: Optional[str] = None
+    max_output_tokens: Optional[int] = None
+    metadata: Optional[dict[str, Any]] = None
+    previous_response_id: Optional[str] = None
+    reasoning: Optional[dict[str, Any]] = None
+    store: Optional[bool] = None
+    stream: Optional[bool] = None
+    temperature: Optional[float] = None
+    text: Optional[dict[str, Any]] = None
+    tool_choice: Optional[str | dict[str, Any]] = None
+    tools: Optional[list] = None
+    top_p: Optional[float] = None
+    truncation: Optional[str] = None
+
+    model_config = ConfigDict(extra="allow")
 
 
 ##########################################
@@ -603,6 +623,99 @@ async def verify_connection(
             log.exception(f"Unexpected error: {e}")
             error_detail = f"Unexpected error: {str(e)}"
             raise HTTPException(status_code=500, detail=error_detail)
+
+
+async def proxy_openai_json(
+    request: Request,
+    payload: dict,
+    endpoint: str,
+    user: UserModel,
+):
+    """Forward one measured OpenAI-compatible JSON operation."""
+
+    model_id = payload["model"]
+    model_info = Models.get_model_by_id(model_id)
+    if model_info:
+        if model_info.base_model_id:
+            payload = {**payload, "model": model_info.base_model_id}
+            model_id = model_info.base_model_id
+        if not BYPASS_MODEL_ACCESS_CONTROL and user.role == "user":
+            if not (
+                user.id == model_info.user_id
+                or has_access(
+                    user.id, type="read", access_control=model_info.access_control
+                )
+            ):
+                raise HTTPException(status_code=403, detail="Model not found")
+    elif not BYPASS_MODEL_ACCESS_CONTROL and user.role != "admin":
+        raise HTTPException(status_code=403, detail="Model not found")
+
+    await get_all_models(request, user=user)
+    model = request.app.state.OPENAI_MODELS.get(model_id)
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    idx = model["urlIdx"]
+    api_config = request.app.state.config.OPENAI_API_CONFIGS.get(
+        str(idx),
+        request.app.state.config.OPENAI_API_CONFIGS.get(
+            request.app.state.config.OPENAI_API_BASE_URLS[idx], {}
+        ),
+    )
+    prefix_id = api_config.get("prefix_id")
+    if prefix_id:
+        payload = {
+            **payload,
+            "model": payload["model"].replace(f"{prefix_id}.", ""),
+        }
+    headers = merge_static_headers(
+        {
+            "Authorization": f"Bearer {request.app.state.config.OPENAI_API_KEYS[idx]}",
+            "Content-Type": "application/json",
+            **(
+                {
+                    "X-OpenWebUI-User-Name": user.name,
+                    "X-OpenWebUI-User-Id": user.id,
+                    "X-OpenWebUI-User-Email": user.email,
+                    "X-OpenWebUI-User-Role": user.role,
+                }
+                if ENABLE_FORWARD_USER_INFO_HEADERS
+                else {}
+            ),
+        },
+        api_config.get("headers"),
+    )
+    try:
+        timeout = aiohttp.ClientTimeout(total=AIOHTTP_CLIENT_TIMEOUT)
+        async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+            async with session.post(
+                f"{request.app.state.config.OPENAI_API_BASE_URLS[idx]}/{endpoint}",
+                json=payload,
+                headers=headers,
+            ) as response:
+                data = await response.json()
+                if response.status >= 400:
+                    detail = data.get("error", data) if isinstance(data, dict) else data
+                    raise HTTPException(status_code=response.status, detail=detail)
+                return data
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.exception(exc)
+        raise HTTPException(status_code=500, detail="OpenAtelierUI: Server Connection Error")
+
+
+@router.post("/responses")
+async def responses(
+    request: Request,
+    form_data: ResponsesForm,
+    user=Depends(get_verified_user),
+):
+    return await proxy_openai_json(
+        request,
+        form_data.model_dump(exclude_none=True),
+        "responses",
+        user,
+    )
 
 
 @router.post("/chat/completions")
