@@ -78,6 +78,7 @@ from open_webui.routers import (
     tools,
     users,
     utils,
+    analytics,
 )
 
 
@@ -1044,6 +1045,7 @@ app.include_router(configs.router, prefix="/api/v1/configs", tags=["configs"])
 
 app.include_router(auths.router, prefix="/api/v1/auths", tags=["auths"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
+app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["analytics"])
 
 
 app.include_router(channels.router, prefix="/api/v1/channels", tags=["channels"])
