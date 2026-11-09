@@ -7,9 +7,9 @@ import copy
 import importlib.util
 import pathlib
 import unittest
-from typing import Optional
+from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 
 OPEN_WEBUI = pathlib.Path(__file__).resolve().parents[1]
@@ -36,7 +36,10 @@ def load_form_classes(path, requested, extra_namespace=None):
     module = ast.Module(body=classes, type_ignores=[])
     namespace = {
         "BaseModel": BaseModel,
+        "AliasChoices": AliasChoices,
+        "Any": Any,
         "ConfigDict": ConfigDict,
+        "Field": Field,
         "Optional": Optional,
         "model_validator": model_validator,
         "convert_explicit_access_grants": convert_explicit_access_grants,
@@ -84,10 +87,6 @@ class ExplicitAccessGrantFormTests(unittest.TestCase):
                 knowledge_types["KnowledgeForm"],
                 {"name": "Workshop knowledge", "description": "Synthetic corpus"},
             ),
-            (
-                prompt_types["PromptForm"],
-                {"command": "workshop", "title": "Workshop prompt", "content": "Synthetic prompt"},
-            ),
         )
         targeted = {"read": {"user_ids": ["legacy-member"]}}
         for form_class, base in resources:
@@ -103,7 +102,7 @@ class ExplicitAccessGrantFormTests(unittest.TestCase):
                 )
                 self.assertEqual(legacy.access_control, targeted)
 
-    def test_current_prompt_name_alias_and_private_default(self):
+    def test_current_prompt_name_and_legacy_title_alias(self):
         payload = {
             "command": "workshop",
             "name": "Workshop prompt",
@@ -111,9 +110,13 @@ class ExplicitAccessGrantFormTests(unittest.TestCase):
             "access_grants": [],
         }
         form = prompt_types["PromptForm"].model_validate(payload)
-        self.assertEqual(form.title, "Workshop prompt")
-        self.assertEqual(form.access_control, {})
-        self.assertNotIn("name", form.model_dump())
+        self.assertEqual(form.name, "Workshop prompt")
+        self.assertEqual(form.access_grants, [])
+        self.assertEqual(form.model_dump()["name"], "Workshop prompt")
+        legacy = prompt_types["PromptForm"].model_validate(
+            {"command": "workshop", "title": "Legacy title", "content": "Synthetic prompt"}
+        )
+        self.assertEqual(legacy.name, "Legacy title")
 
     def test_current_private_channel_is_not_made_public(self):
         payload = {

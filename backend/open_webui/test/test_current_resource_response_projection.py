@@ -6,7 +6,7 @@ import ast
 import importlib.util
 import pathlib
 import unittest
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
@@ -39,6 +39,7 @@ def load_classes(path, names):
         raise AssertionError(f"missing response classes from {path}")
     namespace = {
         "BaseModel": BaseModel,
+        "Any": Any,
         "ConfigDict": ConfigDict,
         "Field": Field,
         "FileMetadataResponse": FileMetadataResponse,
@@ -65,7 +66,7 @@ knowledge = load_classes(
 )
 prompts = load_classes(
     OPEN_WEBUI / "models" / "prompts.py",
-    {"PromptModel", "PromptResponse", "PromptUserResponse"},
+    {"AccessGrantModel", "PromptModel", "PromptResponse", "PromptUserResponse"},
 )
 
 
@@ -109,6 +110,9 @@ class CurrentResourceResponseProjectionTests(unittest.TestCase):
             content="Synthetic prompt",
             timestamp=123,
             access_control={},
+            name="Community workshop",
+            created_at=123,
+            updated_at=123,
         ).model_dump()
         self.assertEqual(response["title"], "Community workshop")
         self.assertEqual(response["name"], "Community workshop")
