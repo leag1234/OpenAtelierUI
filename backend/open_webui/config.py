@@ -1207,6 +1207,12 @@ ENABLE_CHANNELS = PersistentConfig(
     os.environ.get("ENABLE_CHANNELS", "False").lower() == "true",
 )
 
+ENABLE_APPS = PersistentConfig(
+    "ENABLE_APPS",
+    "apps.enable",
+    os.environ.get("ENABLE_APPS", "False").lower() == "true",
+)
+
 ENABLE_COMMENTS = PersistentConfig(
     "ENABLE_COMMENTS",
     "comments.enable",

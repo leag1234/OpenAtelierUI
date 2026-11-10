@@ -20,7 +20,7 @@ from open_webui.models.messages import (
 )
 
 
-from open_webui.config import ENABLE_ADMIN_CHAT_ACCESS, ENABLE_ADMIN_EXPORT
+from open_webui.config import ENABLE_ADMIN_CHAT_ACCESS, ENABLE_ADMIN_EXPORT, ENABLE_APPS
 from open_webui.constants import ERROR_MESSAGES
 from open_webui.env import SRC_LOG_LEVELS
 
@@ -29,6 +29,7 @@ from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_access, get_users_with_access
 from open_webui.utils.access_grants import access_grants_for_acl
 from open_webui.utils.webhook import post_webhook
+from open_webui.models.apps import AppInvitation, Apps
 
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MODELS"])
@@ -300,6 +301,64 @@ async def create_new_channel(form_data: CreateChannelForm, user=Depends(get_admi
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.DEFAULT()
         )
+
+
+def _require_apps_enabled():
+    if not bool(ENABLE_APPS.value):
+        raise HTTPException(status_code=404, detail="Apps are disabled")
+
+
+def _require_channel_app_read(channel_id: str, user):
+    channel = _require_channel(channel_id)
+    if not _can_read_channel(user, channel):
+        raise HTTPException(status_code=403, detail="Channel access denied")
+    return channel
+
+
+def _require_channel_app_admin(channel_id: str, user):
+    channel = _require_channel(channel_id)
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Channel access denied")
+    return channel
+
+
+@router.get("/{channel_id}/apps")
+async def get_channel_apps(channel_id: str, user=Depends(get_verified_user)):
+    _require_apps_enabled()
+    _require_channel_app_read(channel_id, user)
+    return [
+        app.model_dump(exclude={"connection_status"})
+        for app in Apps.channel_apps(channel_id)
+    ]
+
+
+@router.post("/{channel_id}/apps")
+async def invite_app(
+    channel_id: str,
+    form_data: AppInvitation,
+    user=Depends(get_verified_user),
+):
+    _require_apps_enabled()
+    _require_channel_app_admin(channel_id, user)
+    app = Apps.get(form_data.app_id)
+    if app is None:
+        raise HTTPException(status_code=404, detail="App not found")
+    if not app.is_active:
+        raise HTTPException(status_code=403, detail="App is inactive")
+    Apps.add_to_channel(channel_id, app.id)
+    return app.model_dump(exclude={"connection_status"})
+
+
+@router.delete("/{channel_id}/apps/{app_id}")
+async def remove_app(
+    channel_id: str,
+    app_id: str,
+    user=Depends(get_verified_user),
+):
+    _require_apps_enabled()
+    _require_channel_app_admin(channel_id, user)
+    Apps.remove_from_channel(channel_id, app_id)
+    return {"removed": True}
 
 
 @router.get("/list", response_model=list[ChannelFullResponse])

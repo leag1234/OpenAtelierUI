@@ -85,6 +85,7 @@ from open_webui.routers import (
     notifications,
     events,
     comments,
+    apps,
 )
 
 
@@ -134,6 +135,7 @@ from open_webui.utils.imported_profile import (
     validate_prepared_user_profile_schema,
 )
 from open_webui.utils.mfa import validate_mfa_storage
+from open_webui.utils.apps_runtime import AppConnections
 
 from open_webui.models.functions import Functions
 from open_webui.models.models import Models
@@ -322,6 +324,7 @@ from open_webui.config import (
     ENABLE_API_KEY_ENDPOINT_RESTRICTIONS,
     API_KEY_ALLOWED_ENDPOINTS,
     ENABLE_CHANNELS,
+    ENABLE_APPS,
     ENABLE_COMMENTS,
     ENABLE_COMMUNITY_SHARING,
     ENABLE_MESSAGE_RATING,
@@ -526,9 +529,19 @@ async def lifespan(app: FastAPI):
         if AUTOMATION_COMPAT_ENABLED
         else None
     )
+    apps_restore = (
+        asyncio.create_task(AppConnections.restore_active())
+        if app.state.config.ENABLE_APPS
+        else None
+    )
     try:
         yield
     finally:
+        if apps_restore is not None and not apps_restore.done():
+            apps_restore.cancel()
+            with suppress(asyncio.CancelledError):
+                await apps_restore
+        await AppConnections.close()
         if automation_scheduler is not None:
             automation_scheduler.cancel()
             with suppress(asyncio.CancelledError):
@@ -672,6 +685,7 @@ app.state.config.MODEL_ORDER_LIST = MODEL_ORDER_LIST
 
 
 app.state.config.ENABLE_CHANNELS = ENABLE_CHANNELS
+app.state.config.ENABLE_APPS = ENABLE_APPS
 app.state.config.ENABLE_COMMENTS = ENABLE_COMMENTS
 app.state.config.ENABLE_COMMUNITY_SHARING = ENABLE_COMMUNITY_SHARING
 app.state.config.ENABLE_MESSAGE_RATING = ENABLE_MESSAGE_RATING
@@ -1110,6 +1124,7 @@ app.include_router(events.router, prefix="/api/events")
 
 
 app.include_router(channels.router, prefix="/api/v1/channels", tags=["channels"])
+app.include_router(apps.router, prefix="/api/v1/apps", tags=["apps"])
 app.include_router(chats.router, prefix="/api/v1/chats", tags=["chats"])
 app.include_router(comments.router, prefix="/api/v1/comments", tags=["comments"])
 app.include_router(search.router, prefix="/api/v1/search", tags=["search"])
@@ -1763,6 +1778,7 @@ async def get_app_config(request: Request):
                 {
                     "enable_direct_connections": app.state.config.ENABLE_DIRECT_CONNECTIONS,
                     "enable_channels": app.state.config.ENABLE_CHANNELS,
+                    "enable_apps": app.state.config.ENABLE_APPS,
                     "enable_web_search": app.state.config.ENABLE_WEB_SEARCH,
                     "enable_code_execution": app.state.config.ENABLE_CODE_EXECUTION,
                     "enable_code_interpreter": app.state.config.ENABLE_CODE_INTERPRETER,
