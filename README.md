@@ -18,3 +18,7 @@ Development is in progress. This repository is not a declaration of production r
 - [Validation tools and evidence](validation/)
 
 Third-party code and dependencies retain their own licenses. The BSD designation for this project does not relicense third-party components or establish license clearance for every complete container image.
+
+Container builds include a deterministic frontend dependency inventory and
+the license/notice texts shipped by those packages at
+`/opt/openatelierui/THIRD_PARTY_NOTICES.frontend.txt`.

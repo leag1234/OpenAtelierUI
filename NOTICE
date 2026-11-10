@@ -14,3 +14,7 @@ validation/fixtures/third-party/LICENSE.input_inspector.
 Dependencies and container-image components retain their own licenses. Their
 presence does not make them BSD-3-Clause or imply legal clearance of a complete
 binary or container distribution.
+
+The container build writes the deterministic frontend package inventory and
+bundled license/notice texts to
+`/opt/openatelierui/THIRD_PARTY_NOTICES.frontend.txt`.
