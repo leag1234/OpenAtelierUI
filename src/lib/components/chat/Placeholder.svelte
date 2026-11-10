@@ -117,6 +117,7 @@
 								placement="top"
 							>
 								<button
+									aria-label={`${$i18n.t('Select a model')}: ${model?.name ?? $i18n.t('Model')}`}
 									on:click={() => {
 										selectedModelIdx = modelIdx;
 									}}
@@ -128,7 +129,8 @@
 												? `/doge.png`
 												: `${WEBUI_BASE_URL}/static/favicon.png`)}
 										class=" size-9 @sm:size-10 rounded-full border-[1px] border-gray-100 dark:border-none"
-										alt="logo"
+										alt=""
+										aria-hidden="true"
 										draggable="false"
 									/>
 								</button>

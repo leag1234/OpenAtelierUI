@@ -21,6 +21,7 @@
 
 	let fuse;
 	let filteredPrompts = [];
+	const localized = (value) => ($i18n.exists(value) ? $i18n.t(value) : value);
 
 	// Initialize Fuse
 	$: fuse = new Fuse(sortedPrompts, fuseOptions);
@@ -87,23 +88,23 @@
 				       px-3 py-2 rounded-xl bg-transparent hover:bg-black/5
 				       dark:hover:bg-white/5 transition group"
 				style="animation-delay: {idx * 60}ms"
-				on:click={() => dispatch('select', prompt.content)}
+				on:click={() => dispatch('select', localized(prompt.content))}
 			>
 				<div class="flex flex-col text-left">
 					{#if prompt.title && prompt.title[0] !== ''}
 						<div
 							class="font-medium dark:text-gray-300 dark:group-hover:text-gray-200 transition line-clamp-1"
 						>
-							{prompt.title[0]}
+							{localized(prompt.title[0])}
 						</div>
 						<div class="text-xs text-gray-500 font-normal line-clamp-1">
-							{prompt.title[1]}
+							{localized(prompt.title[1])}
 						</div>
 					{:else}
 						<div
 							class="font-medium dark:text-gray-300 dark:group-hover:text-gray-200 transition line-clamp-1"
 						>
-							{prompt.content}
+							{localized(prompt.content)}
 						</div>
 						<div class="text-xs text-gray-500 font-normal line-clamp-1">{$i18n.t('Prompt')}</div>
 					{/if}
