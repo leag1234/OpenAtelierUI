@@ -1,11 +1,11 @@
 import json
 import logging
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
 
 
 from open_webui.socket.main import sio, get_user_ids_from_room
@@ -27,12 +27,17 @@ from open_webui.env import SRC_LOG_LEVELS
 
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.access_control import has_access, get_users_with_access
+from open_webui.utils.access_grants import access_grants_for_acl
 from open_webui.utils.webhook import post_webhook
 
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MODELS"])
 
 router = APIRouter()
+
+OpenMapping = Annotated[
+    dict[str, Any], WithJsonSchema({"type": "object", "additionalProperties": True})
+]
 
 
 class CreateChannelForm(BaseModel):
@@ -64,19 +69,23 @@ class ChannelFullResponse(BaseModel):
     updated_by: Optional[str] = None
     created_at: int
     updated_at: int
+    is_manager: bool = False
+    write_access: bool = False
+    user_count: Optional[int] = None
+    is_channel_muted: bool = False
+    user_ids: Optional[list[str]] = None
+    users: Optional[list["UserIdNameStatusResponse"]] = None
+    last_read_at: Optional[int] = None
+    unread_count: int = 0
 
 
 class UserIdNameStatusResponse(BaseModel):
     id: str
     name: str
-    email: str
-    role: str
-    profile_image_url: str
-    is_active: bool = True
+    is_active: Optional[bool] = None
     status_message: Optional[str] = None
     status_emoji: Optional[str] = None
     status_expires_at: Optional[int] = None
-    presence_state: Optional[str] = None
 
 
 class ChannelMemberListResponse(BaseModel):
@@ -95,6 +104,14 @@ class RemoveMembersForm(BaseModel):
 
 class UpdateActiveMemberForm(BaseModel):
     is_active: bool
+
+
+class ChannelAccessGrantsForm(BaseModel):
+    access_grants: list[OpenMapping]
+
+
+class UpdateMutedMemberForm(BaseModel):
+    is_channel_muted: bool
 
 
 class PinMessageForm(BaseModel):
@@ -122,12 +139,24 @@ class WebhookMessageForm(BaseModel):
     content: str
 
 
-def _channel_payload(channel):
+def _channel_payload(channel, user=None):
     payload = channel.model_dump()
     payload.pop("access_control", None)
+    member_ids = ChannelCompat.member_ids(channel.id)
+    member_records = ChannelCompat.member_records(channel.id, member_ids)
+    last_read_at = next(
+        (
+            record["created_at"]
+            for record in member_records
+            if user and record["user_id"] == user.id
+        ),
+        None,
+    )
     payload.update(
         {
-            "access_grants": [],
+            "access_grants": access_grants_for_acl(
+                channel.access_control, "channel", channel.id, channel.created_at
+            ),
             "is_private": ChannelCompat.get_privacy(channel.id),
             "archived_at": None,
             "archived_by": None,
@@ -136,6 +165,23 @@ def _channel_payload(channel):
             "updated_by": None,
         }
     )
+    if user is not None:
+        payload.update(
+            {
+                "is_manager": channel.user_id == user.id,
+                "write_access": ChannelCompat.is_member(channel.id, user.id),
+                "user_count": len(member_ids),
+                "is_channel_muted": ChannelCompat.is_muted(channel.id, user.id),
+                "user_ids": member_ids,
+                "users": [
+                    member
+                    for member_id in member_ids
+                    if (member := _user_status(member_id)) is not None
+                ],
+                "last_read_at": last_read_at,
+                "unread_count": 0,
+            }
+        )
     return payload
 
 
@@ -228,7 +274,11 @@ async def get_channels(user=Depends(get_verified_user)):
 ############################
 
 
-@router.post("/create", response_model=Optional[ChannelFullResponse])
+@router.post(
+    "/create",
+    response_model=Optional[ChannelFullResponse],
+    response_model_exclude_unset=True,
+)
 async def create_new_channel(form_data: CreateChannelForm, user=Depends(get_admin_user)):
     try:
         channel = Channels.insert_new_channel(
@@ -243,7 +293,7 @@ async def create_new_channel(form_data: CreateChannelForm, user=Depends(get_admi
             user.id,
         )
         ChannelCompat.set_privacy(channel.id, form_data.is_private)
-        ChannelCompat.add_members(channel.id, [user.id, *(form_data.user_ids or [])])
+        ChannelCompat.add_members(channel.id, [*(form_data.user_ids or []), user.id])
         return _channel_payload(channel)
     except Exception as e:
         log.exception(e)
@@ -273,7 +323,7 @@ async def get_all_channels(user=Depends(get_verified_user)):
             for identifier in identifiers
             if (channel := Channels.get_channel_by_id(identifier)) is not None
         ]
-    return [_channel_payload(channel) for channel in channels]
+    return [_channel_payload(channel, user) for channel in channels]
 
 
 @router.get("/users/{user_id}", response_model=Optional[ChannelFullResponse])
@@ -288,7 +338,7 @@ async def get_dm_channel_by_user_id(user_id: str, user=Depends(get_verified_user
         )
         ChannelCompat.set_privacy(channel.id, None)
         ChannelCompat.add_members(channel.id, [user.id, user_id])
-    return _channel_payload(channel)
+    return _channel_payload(channel, user)
 
 
 @router.get("/webhooks/{webhook_id}/profile/image")
@@ -330,7 +380,7 @@ async def post_channel_webhook_message(
 ############################
 
 
-@router.get("/{id}", response_model=Optional[ChannelModel])
+@router.get("/{id}", response_model=Optional[ChannelFullResponse])
 async def get_channel_by_id(id: str, user=Depends(get_verified_user)):
     channel = Channels.get_channel_by_id(id)
     if not channel:
@@ -343,7 +393,20 @@ async def get_channel_by_id(id: str, user=Depends(get_verified_user)):
             status_code=status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.DEFAULT()
         )
 
-    return ChannelModel(**channel.model_dump())
+    return _channel_payload(channel, user)
+
+
+@router.post("/{id}/access/update", response_model=ChannelModel)
+async def update_channel_access_by_id(
+    id: str,
+    form_data: ChannelAccessGrantsForm,
+    user=Depends(get_verified_user),
+):
+    _require_channel(id)
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="You do not have permission to access this resource. Please contact your administrator for assistance.",
+    )
 
 
 ############################
@@ -436,6 +499,24 @@ async def update_is_active_member_by_id_and_user_id(
             status_code=status.HTTP_404_NOT_FOUND, detail=ERROR_MESSAGES.NOT_FOUND
         )
     return True
+
+
+@router.post("/{id}/members/mute", response_model=UpdateMutedMemberForm)
+async def update_member_mute_status(
+    id: str,
+    form_data: UpdateMutedMemberForm,
+    user=Depends(get_verified_user),
+):
+    _require_channel(id)
+    if not ChannelCompat.is_member(id, user.id, active_only=True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.DEFAULT()
+        )
+    return {
+        "is_channel_muted": ChannelCompat.set_mute(
+            id, user.id, form_data.is_channel_muted
+        )
+    }
 
 
 @router.post("/{id}/update/members/add")

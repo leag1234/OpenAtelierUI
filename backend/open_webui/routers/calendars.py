@@ -5,10 +5,10 @@
 import json
 import os
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
 
 from open_webui.env import DATABASE_URL
 from open_webui.models.calendars import Calendars, CalendarsUnavailable
@@ -18,6 +18,10 @@ from open_webui.utils.auth import get_verified_user
 
 
 router = APIRouter()
+
+OpenMapping = Annotated[
+    dict[str, Any], WithJsonSchema({"type": "object", "additionalProperties": True})
+]
 
 
 def _load_store(database_url):
@@ -58,6 +62,10 @@ class CalendarUpdateForm(BaseModel):
     data: Optional[dict] = None
     meta: Optional[dict] = None
     access_grants: Optional[list[dict]] = None
+
+
+class CalendarAccessGrantsForm(BaseModel):
+    access_grants: list[OpenMapping]
 
 
 class CalendarModel(BaseModel):
@@ -455,3 +463,19 @@ def update_calendar(calendar_id: str, form: CalendarUpdateForm, request: Request
             values[name] = _json_text(getattr(form, name)) if name in ("data", "meta") else getattr(form, name)
     grants = _grants(form.access_grants) if "access_grants" in fields else None
     return calendar_store.update(calendar_id, values, grants)
+
+
+@router.post("/{calendar_id}/access/update", response_model=CalendarModel)
+def update_calendar_access_by_id(
+    calendar_id: str,
+    form: CalendarAccessGrantsForm,
+    request: Request,
+    user=Depends(get_verified_user),
+):
+    _allow_calendar(request, user)
+    calendar = calendar_store.get(calendar_id)
+    if calendar is None:
+        raise HTTPException(status_code=404, detail="Calendar not found")
+    if user.role != "admin" and calendar["user_id"] != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    return calendar_store.update(calendar_id, {}, _grants(form.access_grants))

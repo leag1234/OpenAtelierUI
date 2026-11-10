@@ -199,6 +199,15 @@ class OpenAtelierChannelPrivacy(Base):
     is_private = Column(Boolean, nullable=True)
 
 
+class OpenAtelierChannelMute(Base):
+    __tablename__ = "openatelier_channel_mute"
+
+    channel_id = Column(Text, primary_key=True)
+    user_id = Column(Text, primary_key=True)
+    is_channel_muted = Column(Boolean, nullable=False, default=False)
+    updated_at = Column(BigInteger, nullable=False)
+
+
 class ChannelCompatTable:
     """Additive persistence for measured post-0.6 Channel behavior."""
 
@@ -208,6 +217,7 @@ class ChannelCompatTable:
             OpenAtelierChannelWebhook.__table__,
             OpenAtelierChannelMessageState.__table__,
             OpenAtelierChannelPrivacy.__table__,
+            OpenAtelierChannelMute.__table__,
         ):
             table.create(bind=engine, checkfirst=True)
 
@@ -335,6 +345,28 @@ class ChannelCompatTable:
             row = db.get(OpenAtelierChannelPrivacy, channel_id)
             return row.is_private if row else None
 
+    def set_mute(self, channel_id: str, user_id: str, value: bool) -> bool:
+        with get_db() as db:
+            row = db.get(OpenAtelierChannelMute, (channel_id, user_id))
+            if row is None:
+                row = OpenAtelierChannelMute(
+                    channel_id=channel_id,
+                    user_id=user_id,
+                    is_channel_muted=value,
+                    updated_at=int(time.time_ns()),
+                )
+                db.add(row)
+            else:
+                row.is_channel_muted = value
+                row.updated_at = int(time.time_ns())
+            db.commit()
+            return row.is_channel_muted
+
+    def is_muted(self, channel_id: str, user_id: str) -> bool:
+        with get_db() as db:
+            row = db.get(OpenAtelierChannelMute, (channel_id, user_id))
+            return bool(row and row.is_channel_muted)
+
     def set_pin(self, message_id: str, is_pinned: bool, user_id: str):
         with get_db() as db:
             row = db.get(OpenAtelierChannelMessageState, message_id)
@@ -442,6 +474,7 @@ class ChannelCompatTable:
             db.query(OpenAtelierChannelMember).filter_by(channel_id=channel_id).delete()
             db.query(OpenAtelierChannelWebhook).filter_by(channel_id=channel_id).delete()
             db.query(OpenAtelierChannelPrivacy).filter_by(channel_id=channel_id).delete()
+            db.query(OpenAtelierChannelMute).filter_by(channel_id=channel_id).delete()
             db.commit()
 
 
