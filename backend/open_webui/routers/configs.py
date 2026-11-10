@@ -1,7 +1,7 @@
 import aiohttp
 
 from fastapi import APIRouter, Depends, Request, HTTPException
-from pydantic import BaseModel, ConfigDict, WithJsonSchema
+from pydantic import BaseModel, ConfigDict, StrictBool, WithJsonSchema
 
 from typing import Annotated, Any, Optional
 from urllib.parse import quote
@@ -14,6 +14,17 @@ from open_webui.utils.tools import get_tool_server_data, get_tool_servers_data
 
 
 router = APIRouter()
+
+
+class InterfaceVisibilityForm(BaseModel):
+    visibility: dict[str, StrictBool]
+
+
+@router.post("/interface/visibility", response_model=InterfaceVisibilityForm)
+async def set_interface_visibility(
+    form_data: InterfaceVisibilityForm, user=Depends(get_admin_user)
+):
+    return form_data
 
 
 ############################

@@ -216,6 +216,19 @@ def get_automation_runs(
     return automation_store.runs(id, skip, limit)
 
 
+@router.get("/{id}/runs/{run_id}", response_model=AutomationRunModel)
+def get_automation_run(
+    id: str,
+    run_id: str,
+    user=Depends(get_automation_admin),
+):
+    _owned(id, user)
+    run = automation_store.get_run(id, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return run
+
+
 def _completion_text(value):
     if not isinstance(value, dict):
         raise RuntimeError("Automation provider returned an unsupported response")
@@ -312,7 +325,7 @@ async def _execute_automation(request, automation, user):
         automation_store.record_run(automation["id"], "success", chat_id=chat.id)
     except Exception as error:
         message = str(error).strip() or error.__class__.__name__
-        automation_store.record_run(automation["id"], "failed", error=message[:1000])
+        automation_store.record_run(automation["id"], "error", error=message[:1000])
 
 
 def _scheduler_request(app):
@@ -356,7 +369,7 @@ async def scheduler_loop(app, poll_ceiling=30.0):
             except Exception as error:
                 message = str(error).strip() or error.__class__.__name__
                 automation_store.record_run(
-                    automation["id"], "failed", error=message[:1000]
+                    automation["id"], "error", error=message[:1000]
                 )
         if claimed:
             continue

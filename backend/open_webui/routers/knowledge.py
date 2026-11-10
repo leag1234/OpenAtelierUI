@@ -66,6 +66,43 @@ log.setLevel(SRC_LOG_LEVELS["MODELS"])
 router = APIRouter()
 
 
+class KnowledgeUploadValidationForm(BaseModel):
+    count: int = Field(ge=0)
+    file_size: Optional[int] = Field(default=None, ge=0)
+    removed_file_ids: list[str] = Field(default_factory=list)
+
+
+@router.post("/{id}/files/validate")
+async def validate_knowledge_upload(
+    request: Request,
+    id: str,
+    form_data: KnowledgeUploadValidationForm,
+    user=Depends(get_verified_user),
+):
+    knowledge = Knowledges.get_knowledge_by_id(id=id)
+    if knowledge is None:
+        raise HTTPException(status_code=404, detail=ERROR_MESSAGES.NOT_FOUND)
+    if not _can_write_knowledge(knowledge, user):
+        raise HTTPException(status_code=403, detail=ERROR_MESSAGES.ACCESS_PROHIBITED)
+    data = _knowledge_data(knowledge)
+    current_ids = data.get("file_ids", [])
+    if not isinstance(current_ids, list):
+        current_ids = []
+    removed = set(form_data.removed_file_ids)
+    projected_count = len([file_id for file_id in current_ids if file_id not in removed]) + form_data.count
+    max_count = request.app.state.config.FILE_MAX_COUNT
+    if max_count is not None and projected_count > max_count:
+        raise HTTPException(status_code=400, detail="Maximum file count exceeded")
+    max_size = request.app.state.config.FILE_MAX_SIZE
+    if (
+        max_size is not None
+        and form_data.file_size is not None
+        and form_data.file_size > max_size * 1024 * 1024
+    ):
+        raise HTTPException(status_code=400, detail="Maximum file size exceeded")
+    return {"status": True}
+
+
 class FileUserResponse(BaseModel):
     id: str
     user_id: str

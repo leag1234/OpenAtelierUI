@@ -228,6 +228,16 @@ async def get_base_models(user=Depends(get_admin_user)):
     return Models.get_base_models()
 
 
+@router.get("/all", response_model=list[ModelResponse])
+async def get_all_model_records(user=Depends(get_admin_user)):
+    responses = []
+    for model in Models.get_all_models():
+        response = model.model_dump()
+        response["version_id"] = _current_version_id(model)
+        responses.append(response)
+    return responses
+
+
 @router.get("/base/tags", response_model=list[str])
 async def get_base_model_tags(user=Depends(get_admin_user)):
     return sorted(

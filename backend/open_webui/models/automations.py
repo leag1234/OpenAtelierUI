@@ -200,10 +200,31 @@ class Automations:
                 (automation_id, limit, skip),
             ).fetchall()
         return [
-            {"id": row[0], "automation_id": row[1], "status": row[2], "chat_id": row[3],
-             "error": row[4], "created_at": row[5]}
+            {
+                "id": row[0],
+                "automation_id": row[1],
+                "status": "error" if row[2] == "failed" else row[2],
+                "chat_id": row[3],
+                "error": row[4],
+                "created_at": row[5],
+            }
             for row in rows
         ]
+
+    def get_run(self, automation_id, run_id):
+        with self._connection() as db:
+            row = db.execute(
+                "SELECT id,automation_id,status,chat_id,error,created_at "
+                "FROM openatelier_automation_run WHERE automation_id=? AND id=?",
+                (automation_id, run_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row[0], "automation_id": row[1],
+            "status": "error" if row[2] == "failed" else row[2],
+            "chat_id": row[3], "error": row[4], "created_at": row[5],
+        }
 
     def mark_started(self, automation_id, user_id):
         now = time.time_ns()
@@ -256,7 +277,7 @@ class Automations:
         return bool(cursor.rowcount)
 
     def record_run(self, automation_id, status, chat_id=None, error=None):
-        if status not in ("success", "failed"):
+        if status not in ("success", "error"):
             raise ValueError("unsupported automation run status")
         run_id, now = str(uuid.uuid4()), time.time_ns()
         with self._connection() as db:

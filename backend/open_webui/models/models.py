@@ -6,6 +6,7 @@ from open_webui.internal.db import Base, JSONField, get_db
 from open_webui.env import SRC_LOG_LEVELS
 
 from open_webui.models.users import Users, UserResponse
+from open_webui.models.skills import AccessGrantModel
 
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -16,7 +17,10 @@ from sqlalchemy import BigInteger, Column, Text, JSON, Boolean
 
 
 from open_webui.utils.access_control import has_access
-from open_webui.utils.access_grants import convert_explicit_access_grants
+from open_webui.utils.access_grants import (
+    access_grants_for_acl,
+    convert_explicit_access_grants,
+)
 
 
 log = logging.getLogger(__name__)
@@ -34,6 +38,10 @@ class ModelParams(BaseModel):
     pass
 
 
+class ModelSubagents(BaseModel):
+    model_ids: list[str] = Field(default_factory=list)
+
+
 # ModelMeta is a model for the data stored in the meta field of the Model table
 class ModelMeta(BaseModel):
     profile_image_url: Optional[str] = None
@@ -42,6 +50,7 @@ class ModelMeta(BaseModel):
     voice_avatar: Optional[str] = None
     i18n: Optional[dict] = None
     knowledge: Optional[list] = None
+    subagents: Optional[ModelSubagents] = None
 
     description: Optional[str] = None
     """
@@ -135,8 +144,36 @@ class ModelUserResponse(ModelModel):
     user: Optional[UserResponse] = None
 
 
-class ModelResponse(ModelModel):
-    pass
+class ModelResponse(BaseModel):
+    id: str
+    user_id: str
+    base_model_id: Optional[str] = None
+    name: str
+    params: ModelParams
+    meta: ModelMeta
+    access_grants: list[AccessGrantModel] = Field(default_factory=list)
+    is_active: bool
+    updated_at: int
+    created_at: int
+    version_id: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def project_access_grants(cls, data):
+        if hasattr(data, "model_dump"):
+            data = data.model_dump()
+        if isinstance(data, dict):
+            projected = dict(data)
+            projected["access_grants"] = access_grants_for_acl(
+                projected.pop("access_control", None),
+                "model",
+                projected.get("id", ""),
+                projected.get("created_at", 0),
+            )
+            return projected
+        return data
 
 
 class ModelOwnerResponse(BaseModel):

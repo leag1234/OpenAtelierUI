@@ -39,6 +39,35 @@ IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 router = APIRouter()
 
 
+class ConnectionVerificationForm(BaseModel):
+    engine: str
+    url: str
+    key: Optional[str] = None
+
+
+@router.post("/verify")
+async def verify_connection(
+    form_data: ConnectionVerificationForm, user=Depends(get_admin_user)
+):
+    engine = form_data.engine
+    if engine not in {"automatic1111", "comfyui"}:
+        raise HTTPException(status_code=400, detail="Unsupported image engine")
+    endpoint = (
+        form_data.url.rstrip("/") + "/sdapi/v1/options"
+        if engine == "automatic1111"
+        else form_data.url.rstrip("/") + "/object_info"
+    )
+    headers = None
+    if form_data.key:
+        headers = {"Authorization": f"Bearer {form_data.key}"}
+    try:
+        response = requests.get(endpoint, headers=headers, timeout=10)
+        response.raise_for_status()
+    except requests.RequestException:
+        raise HTTPException(status_code=400, detail=ERROR_MESSAGES.INVALID_URL) from None
+    return {}
+
+
 @router.get("/config")
 async def get_config(request: Request, user=Depends(get_admin_user)):
     return {
