@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Literal, Optional
 import time
 import unicodedata
 from urllib.parse import urlsplit
@@ -39,7 +39,7 @@ from open_webui.config import CACHE_DIR
 from open_webui.constants import ERROR_MESSAGES
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, WithJsonSchema
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
 from open_webui.utils.tools import (
     _named_server_config,
     _tool_server_connection_binding,
@@ -55,7 +55,14 @@ from open_webui.utils.access_grants import (
     access_grants_for_acl,
     preserve_access_control_for_update,
 )
-from open_webui.env import DATA_DIR, DATABASE_URL, SRC_LOG_LEVELS
+from open_webui.env import DATA_DIR, DATABASE_URL, SRC_LOG_LEVELS, WEBUI_SECRET_KEY
+from open_webui.utils.mcp_apps import (
+    call_mcp_method,
+    resolve_mcp_connection,
+    shape_mcp_app_result,
+    validate_mcp_app_request,
+    verify_mcp_app_binding,
+)
 
 from open_webui.utils.tools import get_tool_servers_data
 
@@ -71,6 +78,17 @@ JsonObject = Annotated[
 
 class ToolVersionForm(BaseModel):
     version_id: str
+
+
+class MCPAppRPCForm(BaseModel):
+    tool_name: str = Field(min_length=1, max_length=256)
+    binding: str = Field(pattern=r"^[a-f0-9]{64}$")
+    method: Literal[
+        "tools/call", "resources/read", "resources/list", "ui/resource"
+    ]
+    params: JsonObject
+
+    model_config = ConfigDict(extra="forbid")
 
 
 def _tool_snapshot(tool) -> dict:
@@ -519,6 +537,48 @@ async def get_tool_specs_by_id(
             if isinstance(spec, dict) and isinstance(spec.get("name"), str)
         ]
     }
+
+
+@router.post(
+    "/id/{id}/mcp/app/rpc",
+    operation_id="mcp_app_rpc_api_v1_tools_id__id__mcp_app_rpc_post",
+    summary="MCP App RPC",
+)
+async def mcp_app_rpc(
+    request: Request,
+    id: str,
+    form_data: MCPAppRPCForm,
+    user=Depends(get_verified_user),
+):
+    """Proxy a bounded app request to one accessible configured MCP server."""
+    resolved = resolve_mcp_connection(
+        id, request.app.state.config.TOOL_SERVER_CONNECTIONS, user
+    )
+    if resolved is None:
+        raise HTTPException(status_code=404, detail="Tool not found")
+    connection, server_id = resolved
+    if not verify_mcp_app_binding(
+        form_data.binding,
+        WEBUI_SECRET_KEY,
+        user.id,
+        server_id,
+        form_data.tool_name,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid app binding. Run the tool again.",
+        )
+    try:
+        params = validate_mcp_app_request(
+            form_data.tool_name, form_data.method, form_data.params
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from None
+    try:
+        result = await call_mcp_method(connection, form_data.method, params)
+    except ValueError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from None
+    return shape_mcp_app_result(form_data.method, result)
 
 
 @router.post("/id/{id}/toggle", response_model=ToolResponse)
