@@ -13,6 +13,13 @@ from pathlib import Path
 
 BASE = Path(__file__).resolve().parents[1]
 SOURCE = BASE / "backend/open_webui/main.py"
+TASKS_SOURCE = BASE / "backend/open_webui/tasks.py"
+
+
+def load_ephemeral_chat_helper():
+    namespace = {}
+    exec(compile(TASKS_SOURCE.read_text(encoding="utf-8"), str(TASKS_SOURCE), "exec"), namespace)
+    return namespace["is_ephemeral_chat_id"]
 
 
 class HTTPError(Exception):
@@ -76,6 +83,7 @@ class ChatHookOwnershipTests(unittest.TestCase):
             "HTTPException": HTTPError,
             "status": type("Status", (), {"HTTP_404_NOT_FOUND": 404, "HTTP_400_BAD_REQUEST": 400}),
             "Chats": self.chats,
+            "is_ephemeral_chat_id": load_ephemeral_chat_helper(),
             "_authorize_direct_model": lambda _request, item, _form, _user: item,
             "chat_completed_handler": completed,
             "chat_action_handler": action,

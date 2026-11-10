@@ -146,6 +146,7 @@ class TrustedHeaderIdentityTests(unittest.TestCase):
             "WEBUI_AUTH_COOKIE_SAME_SITE": "lax",
             "WEBUI_AUTH_COOKIE_SECURE": False,
             "signup": signup,
+            "_mfa_required": lambda _request: False,
         }
         extract_functions(namespace, {"_trusted_header_user", "signin", "signup"})
         actual_signup = namespace["signup"]

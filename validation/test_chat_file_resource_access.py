@@ -18,6 +18,10 @@ class ChatFileResourceAccessTests(unittest.TestCase):
         load_functions(ROOT/'backend/open_webui/routers/retrieval.py',['authorize_chat_files'],self.ns)
         self.request.app.state.MODELS={}
         self.ns['status'].HTTP_404_NOT_FOUND=404
+        task_namespace={}
+        task_source=ROOT/'backend/open_webui/tasks.py'
+        exec(compile(task_source.read_text(encoding='utf-8'),str(task_source),'exec'),task_namespace)
+        self.ns['is_ephemeral_chat_id']=task_namespace['is_ephemeral_chat_id']
         async def model_load(*a,**kw):self.effects.append(('model-load',));raise RuntimeError('authorized model loading reached')
         self.ns.update(retrieval=NS(authorize_chat_files=self.ns['authorize_chat_files']),get_all_models=model_load,Chats=NS(get_chat_by_id=lambda _:NS(user_id='someone-else')))
         load_functions(ROOT/'backend/open_webui/main.py',['_authorize_direct_model','chat_completion'],self.ns)

@@ -14,6 +14,13 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parents[1]
 MAIN_SOURCE = BASE / "backend/open_webui/main.py"
 MIDDLEWARE_SOURCE = BASE / "backend/open_webui/utils/middleware.py"
+TASKS_SOURCE = BASE / "backend/open_webui/tasks.py"
+
+
+def load_ephemeral_chat_helper():
+    namespace = {}
+    exec(compile(TASKS_SOURCE.read_text(encoding="utf-8"), str(TASKS_SOURCE), "exec"), namespace)
+    return namespace["is_ephemeral_chat_id"]
 
 
 class HTTPError(Exception):
@@ -129,6 +136,7 @@ class ChatMetadataOwnershipTests(unittest.TestCase):
             "HTTPException": HTTPError,
             "status": Status,
             "Chats": self.chats,
+            "is_ephemeral_chat_id": load_ephemeral_chat_helper(),
             "get_all_models": discover_models,
             "Models": ModelsStub,
             "BYPASS_MODEL_ACCESS_CONTROL": True,

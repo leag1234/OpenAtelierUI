@@ -81,9 +81,9 @@ class AutomationStoreTests(unittest.TestCase):
         success = self.store.record_run(created["id"], "success", chat_id="synthetic-chat")
         self.assertEqual(success["status"], "success")
         self.assertEqual(success["chat_id"], "synthetic-chat")
-        failed = self.store.record_run(created["id"], "failed", error="synthetic failure")
+        failed = self.store.record_run(created["id"], "error", error="synthetic failure")
         self.assertEqual(failed["error"], "synthetic failure")
-        self.assertEqual([item["status"] for item in self.store.runs(created["id"])], ["failed", "success"])
+        self.assertEqual([item["status"] for item in self.store.runs(created["id"])], ["error", "success"])
         with self.assertRaises(ValueError):
             self.store.record_run(created["id"], "running")
         self.assertTrue(self.store.delete(created["id"], "owner"))
