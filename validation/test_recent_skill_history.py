@@ -62,7 +62,7 @@ class RecentSkillHistoryTests(unittest.TestCase):
             HELPER.select_version(root, "skill", "workshop", "owner", first)
             self.assertTrue(HELPER.delete_version(root, "skill", "workshop", "owner", second))
 
-    def test_all_nine_recent_skill_routes_are_declared(self):
+    def test_all_twelve_recent_skill_routes_are_declared(self):
         routes = declared_routes(ROOT / "backend/open_webui/routers/skills.py")
         expected = {
             ("GET", "/id/{id}/files"),
@@ -74,8 +74,20 @@ class RecentSkillHistoryTests(unittest.TestCase):
             ("DELETE", "/id/{id}/history/{history_id}"),
             ("POST", "/id/{id}/clone"),
             ("POST", "/id/{id}/update/version"),
+            ("POST", "/import"),
+            ("POST", "/import/preview"),
+            ("POST", "/load/url"),
         }
         self.assertTrue(expected.issubset(routes), expected - routes)
+
+    def test_skill_url_import_is_bounded_and_does_not_follow_redirects(self):
+        source = (ROOT / "backend/open_webui/routers/skills.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("MAX_SKILL_IMPORT_BYTES = 16 * 1024 * 1024", source)
+        self.assertIn("allow_redirects=False", source)
+        self.assertIn("Private skill URLs are disabled", source)
+        self.assertIn('suffix != ".md"', source)
 
     def test_forms_keep_optimistic_version_fields_required(self):
         tree = ast.parse((ROOT / "backend/open_webui/routers/skills.py").read_text(encoding="utf-8"))

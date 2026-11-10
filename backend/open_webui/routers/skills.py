@@ -2,11 +2,30 @@
 # Copyright (c) 2026 Gaël Duval
 """Measured compatibility routes for reusable Skills."""
 
+import asyncio
 import difflib
+import ipaddress
+import json
+import os
+import re
+import socket
+from pathlib import PurePosixPath
 from typing import Optional
+from urllib.parse import urlparse
 
+import aiohttp
+import yaml
 from pydantic import BaseModel
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
 from fastapi.responses import JSONResponse
 
 from open_webui.constants import ERROR_MESSAGES
@@ -24,6 +43,7 @@ from open_webui.models.skills import (
 from open_webui.models.users import Users
 from open_webui.utils.access_control import has_permission
 from open_webui.utils.auth import get_verified_user
+from open_webui.utils.bounded_url_loader import LoadUrlForm
 from open_webui.env import DATA_DIR
 from open_webui.utils.version_history import (
     VersionHistoryNotFound,
@@ -39,6 +59,8 @@ from open_webui.utils.version_history import (
 
 
 router = APIRouter()
+MAX_SKILL_IMPORT_BYTES = 16 * 1024 * 1024
+MAX_SKILL_IMPORT_FILES = 64
 
 
 class CloneSkillForm(BaseModel):
@@ -50,6 +72,157 @@ class CloneSkillForm(BaseModel):
 class SkillVersionUpdateForm(BaseModel):
     version_id: str
     expected_version_id: str
+
+
+def _skill_slug(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.casefold()).strip("-")
+    if not slug:
+        raise HTTPException(status_code=400, detail="Skill name is required")
+    return slug[:128]
+
+
+def _frontmatter(content: str) -> tuple[dict, str]:
+    if not content.startswith("---\n"):
+        raise HTTPException(status_code=400, detail="SKILL.md frontmatter is required")
+    marker = content.find("\n---\n", 4)
+    if marker < 0:
+        raise HTTPException(status_code=400, detail="SKILL.md frontmatter is invalid")
+    try:
+        value = yaml.safe_load(content[4:marker]) or {}
+    except yaml.YAMLError as error:
+        raise HTTPException(status_code=400, detail="SKILL.md frontmatter is invalid") from error
+    if not isinstance(value, dict):
+        raise HTTPException(status_code=400, detail="SKILL.md frontmatter is invalid")
+    return value, content[marker + 5 :]
+
+
+def _markdown_package(filename: str, raw: bytes) -> dict:
+    suffix = PurePosixPath(filename).suffix.casefold()
+    if suffix != ".md":
+        raise HTTPException(status_code=400, detail="Use JSON, ZIP, .skill, or Markdown")
+    try:
+        content = raw.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise HTTPException(status_code=400, detail="Skill Markdown must be UTF-8") from error
+    metadata, _body = _frontmatter(content)
+    name = metadata.get("name")
+    description = metadata.get("description")
+    if not isinstance(name, str) or not name.strip():
+        raise HTTPException(status_code=400, detail="Skill name is required")
+    if description is not None and not isinstance(description, str):
+        raise HTTPException(status_code=400, detail="Skill description is invalid")
+    return {
+        "id": _skill_slug(name),
+        "name": name.strip(),
+        "description": description,
+        "meta": {},
+        "files": [{"path": "SKILL.md", "content": content}],
+    }
+
+
+async def _uploaded_packages(request: Request, files: list[bytes]) -> list[dict]:
+    if len(files) > MAX_SKILL_IMPORT_FILES:
+        raise HTTPException(status_code=413, detail="Too many skill files")
+    form = await request.form()
+    uploads = form.getlist("files")
+    packages, total = [], 0
+    for index, raw in enumerate(files):
+        total += len(raw)
+        if total > MAX_SKILL_IMPORT_BYTES:
+            raise HTTPException(status_code=413, detail="Skill import exceeds the size limit")
+        filename = getattr(uploads[index], "filename", "") if index < len(uploads) else ""
+        packages.append(_markdown_package(filename or "", raw))
+    return packages
+
+
+def _import_allowed(request: Request, user) -> bool:
+    return user.role == "admin" or has_permission(
+        user.id, "workspace.skills_import", request.app.state.config.USER_PERMISSIONS
+    )
+
+
+def _preview(packages: list[dict], user) -> list[dict]:
+    existing = Skills.list()
+    by_id = {item.id: item for item in existing}
+    names = {item.name: item for item in existing}
+    result = []
+    for index, package in enumerate(packages):
+        current = by_id.get(package["id"]) or names.get(package["name"])
+        result.append(
+            {
+                "index": index,
+                "id": package["id"],
+                "name": package["name"],
+                "description": package["description"],
+                "meta": package["meta"],
+                "files": [
+                    {
+                        "path": item["path"],
+                        "size": len(item["content"].encode("utf-8")),
+                        "encoding": None,
+                    }
+                    for item in package["files"]
+                ],
+                "id_taken": package["id"] in by_id,
+                "name_taken": package["name"] in names,
+                "can_replace": current is not None
+                and (user.role == "admin" or current.user_id == user.id),
+                "expected_version_id": current.version_id if current is not None else None,
+            }
+        )
+    return result
+
+
+def _allow_local_skill_fetch() -> bool:
+    return any(
+        os.environ.get(name, "False").casefold() == "true"
+        for name in ("ENABLE_LOCAL_WEB_FETCH", "ENABLE_RAG_LOCAL_WEB_FETCH")
+    )
+
+
+async def _validate_skill_url(value: str):
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise HTTPException(status_code=400, detail="Invalid skill URL")
+    if parsed.username is not None or parsed.password is not None or parsed.fragment:
+        raise HTTPException(status_code=400, detail="Invalid skill URL")
+    if _allow_local_skill_fetch():
+        return
+    try:
+        loop = asyncio.get_running_loop()
+        records = await loop.run_in_executor(
+            None,
+            lambda: socket.getaddrinfo(
+                parsed.hostname,
+                parsed.port or (443 if parsed.scheme == "https" else 80),
+                type=socket.SOCK_STREAM,
+            ),
+        )
+        addresses = {record[4][0] for record in records}
+    except OSError as error:
+        raise HTTPException(status_code=400, detail="Skill URL could not be resolved") from error
+    if not addresses or any(not ipaddress.ip_address(item).is_global for item in addresses):
+        raise HTTPException(status_code=400, detail="Private skill URLs are disabled")
+
+
+async def _load_skill_url(value: str) -> list[dict]:
+    await _validate_skill_url(value)
+    parsed = urlparse(value)
+    filename = PurePosixPath(parsed.path).name
+    timeout = aiohttp.ClientTimeout(total=60, connect=10)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout, trust_env=False) as session:
+            async with session.get(value, allow_redirects=False) as response:
+                if response.status != 200:
+                    raise HTTPException(status_code=400, detail="Skill URL could not be loaded")
+                raw = await response.content.read(MAX_SKILL_IMPORT_BYTES + 1)
+    except HTTPException:
+        raise
+    except (asyncio.TimeoutError, aiohttp.ClientError) as error:
+        raise HTTPException(status_code=400, detail="Skill URL could not be loaded") from error
+    if len(raw) > MAX_SKILL_IMPORT_BYTES:
+        raise HTTPException(status_code=413, detail="Skill import exceeds the size limit")
+    return [_markdown_package(filename, raw)]
 
 
 def _snapshot(skill) -> dict:
@@ -256,6 +429,90 @@ async def export_skills(request: Request, user=Depends(get_verified_user)):
         }
         for item in _visible(user)
     ]
+
+
+@router.post("/import/preview")
+async def preview_skill_import(
+    request: Request,
+    files: list[bytes] = File(...),
+    user=Depends(get_verified_user),
+):
+    if not _import_allowed(request, user):
+        raise HTTPException(status_code=403, detail="Import permission required")
+    return _preview(await _uploaded_packages(request, files), user)
+
+
+@router.post("/import")
+async def import_skills(
+    request: Request,
+    files: list[bytes] = File(...),
+    decisions: str = Form(...),
+    user=Depends(get_verified_user),
+):
+    if not _import_allowed(request, user):
+        raise HTTPException(status_code=403, detail="Import permission required")
+    packages = await _uploaded_packages(request, files)
+    try:
+        choices = json.loads(decisions)
+    except json.JSONDecodeError as error:
+        raise HTTPException(status_code=400, detail="Import decisions are invalid") from error
+    if not isinstance(choices, list) or len(choices) != len(packages):
+        raise HTTPException(status_code=400, detail="One decision is required per skill")
+    results = []
+    for index, (package, choice) in enumerate(zip(packages, choices)):
+        if not isinstance(choice, dict) or choice.get("index", index) != index:
+            raise HTTPException(status_code=400, detail="Import decisions are invalid")
+        action = choice.get("action")
+        if action == "skip":
+            results.append({"id": package["id"], "status": "skipped"})
+            continue
+        skill_id = choice.get("id") or package["id"]
+        name = choice.get("name") or package["name"]
+        form = SkillForm.model_validate(
+            {
+                "id": skill_id,
+                "name": name,
+                "description": package["description"],
+                "meta": package["meta"],
+                "files": package["files"],
+                "commit_message": "Imported skill",
+            }
+        )
+        if action in {"create", "copy"}:
+            inserted = Skills.insert(user.id, form)
+            if inserted is None:
+                raise HTTPException(status_code=400, detail="Skill already exists")
+            skill = Skills.get(skill_id)
+            if skill is None:
+                raise HTTPException(status_code=500, detail="Skill import failed")
+            _record(skill, user.id, "Imported skill")
+        elif action == "replace":
+            current = _get(skill_id)
+            _require(current, user, "write")
+            expected = choice.get("expected_version_id")
+            if expected is not None and expected != current.version_id:
+                raise HTTPException(status_code=409, detail="Skill version changed")
+            form.expected_version_id = expected
+            form.access_grants = [item.model_dump() for item in current.access_grants]
+            updated = Skills.update(skill_id, form)
+            if updated is None:
+                raise _not_found()
+            _record(updated, user.id, "Imported skill")
+        else:
+            raise HTTPException(status_code=400, detail="Import decision is invalid")
+        results.append({"id": skill_id, "status": "saved"})
+    return results
+
+
+@router.post("/load/url")
+async def load_skill_by_url(
+    form_data: LoadUrlForm, user=Depends(get_verified_user)
+):
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=401, detail=ERROR_MESSAGES.ACCESS_PROHIBITED
+        )
+    return await _load_skill_url(str(form_data.url))
 
 
 @router.post("/create", response_model=SkillResponse)
