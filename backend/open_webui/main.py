@@ -75,6 +75,7 @@ from open_webui.routers import (
     models,
     knowledge,
     prompts,
+    search,
     skills,
     evaluations,
     tools,
@@ -1097,6 +1098,7 @@ app.include_router(events.router, prefix="/api/events")
 
 app.include_router(channels.router, prefix="/api/v1/channels", tags=["channels"])
 app.include_router(chats.router, prefix="/api/v1/chats", tags=["chats"])
+app.include_router(search.router, prefix="/api/v1/search", tags=["search"])
 
 app.include_router(models.router, prefix="/api/v1/models", tags=["models"])
 app.include_router(knowledge.router, prefix="/api/v1/knowledge", tags=["knowledge"])
