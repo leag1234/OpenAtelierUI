@@ -84,6 +84,7 @@ from open_webui.routers import (
     analytics,
     notifications,
     events,
+    comments,
 )
 
 
@@ -318,6 +319,7 @@ from open_webui.config import (
     ENABLE_API_KEY_ENDPOINT_RESTRICTIONS,
     API_KEY_ALLOWED_ENDPOINTS,
     ENABLE_CHANNELS,
+    ENABLE_COMMENTS,
     ENABLE_COMMUNITY_SHARING,
     ENABLE_MESSAGE_RATING,
     ENABLE_USER_WEBHOOKS,
@@ -660,6 +662,7 @@ app.state.config.MODEL_ORDER_LIST = MODEL_ORDER_LIST
 
 
 app.state.config.ENABLE_CHANNELS = ENABLE_CHANNELS
+app.state.config.ENABLE_COMMENTS = ENABLE_COMMENTS
 app.state.config.ENABLE_COMMUNITY_SHARING = ENABLE_COMMUNITY_SHARING
 app.state.config.ENABLE_MESSAGE_RATING = ENABLE_MESSAGE_RATING
 app.state.config.ENABLE_USER_WEBHOOKS = ENABLE_USER_WEBHOOKS
@@ -1098,6 +1101,7 @@ app.include_router(events.router, prefix="/api/events")
 
 app.include_router(channels.router, prefix="/api/v1/channels", tags=["channels"])
 app.include_router(chats.router, prefix="/api/v1/chats", tags=["chats"])
+app.include_router(comments.router, prefix="/api/v1/comments", tags=["comments"])
 app.include_router(search.router, prefix="/api/v1/search", tags=["search"])
 
 app.include_router(models.router, prefix="/api/v1/models", tags=["models"])

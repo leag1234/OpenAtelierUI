@@ -1201,6 +1201,12 @@ ENABLE_CHANNELS = PersistentConfig(
     os.environ.get("ENABLE_CHANNELS", "False").lower() == "true",
 )
 
+ENABLE_COMMENTS = PersistentConfig(
+    "ENABLE_COMMENTS",
+    "comments.enable",
+    os.environ.get("ENABLE_COMMENTS", "False").lower() == "true",
+)
+
 
 ENABLE_EVALUATION_ARENA_MODELS = PersistentConfig(
     "ENABLE_EVALUATION_ARENA_MODELS",
