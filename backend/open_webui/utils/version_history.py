@@ -23,7 +23,7 @@ MAX_SNAPSHOT_BYTES = 4 * 1024 * 1024
 MAX_DATABASE_BYTES = 64 * 1024 * 1024
 MAX_SNAPSHOT_DATASET_BYTES = 48 * 1024 * 1024
 PAGE_SIZE = 50
-_KINDS = {"function", "model", "tool"}
+_KINDS = {"function", "model", "skill", "tool"}
 
 
 class VersionHistoryNotFound(Exception):
@@ -315,6 +315,57 @@ def compare_versions(
             == after_content.replace("\r\n", "\n")
         ),
         "metadata": metadata,
+    }
+
+
+def compare_version_files(
+    data_dir: str | Path,
+    kind: str,
+    resource_id: str,
+    owner_id: str,
+    from_id: str,
+    to_id: str,
+    path: str,
+    user_lookup,
+) -> dict:
+    """Compare one inert text file held in two resource snapshots."""
+
+    before = get_version(
+        data_dir, kind, resource_id, owner_id, from_id, user_lookup
+    )["snapshot"]
+    after = get_version(
+        data_dir, kind, resource_id, owner_id, to_id, user_lookup
+    )["snapshot"]
+
+    def content(snapshot: dict) -> str:
+        files = snapshot.get("data", {}).get("files", [])
+        for item in files:
+            if isinstance(item, dict) and item.get("path") == path:
+                value = item.get("content")
+                if isinstance(value, str):
+                    return value
+                break
+        raise VersionHistoryNotFound()
+
+    before_content, after_content = content(before), content(after)
+    return {
+        "from_id": from_id,
+        "to_id": to_id,
+        "path": path,
+        "content_diff": "\n".join(
+            difflib.unified_diff(
+                before_content.splitlines(),
+                after_content.splitlines(),
+                fromfile=path,
+                tofile=path,
+                lineterm="",
+            )
+        ),
+        "line_endings_only": (
+            before_content != after_content
+            and before_content.replace("\r\n", "\n")
+            == after_content.replace("\r\n", "\n")
+        ),
     }
 
 

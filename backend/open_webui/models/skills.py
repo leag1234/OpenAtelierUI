@@ -336,6 +336,39 @@ class SkillsTable:
             db.commit()
             return SkillModel.model_validate(_public(row, detail=True))
 
+    def set_version_id(self, skill_id: str, version_id: str) -> Optional[SkillModel]:
+        with get_db() as db:
+            row = db.query(Skill).filter_by(id=skill_id).first()
+            if row is None:
+                return None
+            row.version_id = version_id
+            db.commit()
+            return SkillModel.model_validate(_public(row, detail=True))
+
+    def select_snapshot(
+        self, skill_id: str, snapshot: dict[str, Any], expected_version_id: str
+    ) -> Optional[SkillModel]:
+        form = SkillForm.model_validate({"id": skill_id, **snapshot})
+        with get_db() as db:
+            row = db.query(Skill).filter_by(id=skill_id).first()
+            if row is None:
+                return None
+            if row.version_id != expected_version_id:
+                raise RuntimeError("stale_skill_version")
+            files = _files_from_form(form, row.data)
+            row.name = form.name
+            row.description = form.description
+            row.meta = form.meta.model_dump()
+            row.data = {"files": files}
+            row.content = next(
+                (item["content"] for item in files if item["path"] == "SKILL.md"),
+                "",
+            )
+            row.is_active = form.is_active
+            row.updated_at = _now()
+            db.commit()
+            return SkillModel.model_validate(_public(row, detail=True))
+
     def toggle(self, skill_id: str) -> Optional[SkillModel]:
         with get_db() as db:
             row = db.query(Skill).filter_by(id=skill_id).first()
