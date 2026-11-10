@@ -52,7 +52,7 @@ class MCPAppUITests(unittest.TestCase):
 
     def test_resource_load_has_a_bounded_timeout(self):
         source = FRAME.read_text(encoding="utf-8")
-        self.assertIn("const appResourceTimeoutMs = 30_000", source)
+        self.assertIn("const appResourceTimeoutMs = 20_000", source)
         self.assertIn("The interactive tool result timed out.", source)
 
 
