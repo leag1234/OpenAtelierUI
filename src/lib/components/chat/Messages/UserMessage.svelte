@@ -339,6 +339,7 @@
 								<Tooltip content={$i18n.t('Edit')} placement="bottom">
 									<button
 										class="invisible group-hover:visible p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition edit-user-message-button"
+										aria-label={$i18n.t('Edit')}
 										on:click={() => {
 											editMessageHandler();
 										}}
@@ -364,6 +365,7 @@
 							<Tooltip content={$i18n.t('Copy')} placement="bottom">
 								<button
 									class="invisible group-hover:visible p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
+									aria-label={$i18n.t('Copy')}
 									on:click={() => {
 										copyToClipboard(message.content);
 									}}

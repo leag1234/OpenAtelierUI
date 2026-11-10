@@ -153,13 +153,15 @@
 </script>
 
 <Dropdown
+	asChild
+	let:builder
 	on:change={(e) => {
 		if (e.detail === false) {
 			onClose();
 		}
 	}}
 >
-	<slot />
+	<slot {builder} />
 
 	<div slot="content">
 		<DropdownMenu.Content
