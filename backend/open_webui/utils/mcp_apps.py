@@ -239,3 +239,84 @@ def shape_mcp_app_result(method: str, result: dict[str, Any]) -> dict[str, Any]:
         shaped["cacheScope"] = "private"
         shaped["ttlMs"] = 0
     return shaped
+
+
+async def get_mcp_server_data(connection: dict[str, Any]) -> dict[str, Any]:
+    """Return a bounded OpenAI-style tool catalog for one MCP connection."""
+    result = await call_mcp_method(connection, "tools/list", {})
+    tools = result.get("tools")
+    if not isinstance(tools, list) or len(tools) > 256:
+        raise ValueError("MCP server returned an invalid tool catalog")
+    specs = []
+    for tool in tools:
+        if not isinstance(tool, dict):
+            raise ValueError("MCP server returned an invalid tool")
+        name = tool.get("name")
+        description = tool.get("description", "")
+        parameters = tool.get("inputSchema", {"type": "object", "properties": {}})
+        if (
+            not isinstance(name, str)
+            or not 1 <= len(name) <= 256
+            or not isinstance(description, str)
+            or len(description) > 4096
+            or not isinstance(parameters, dict)
+            or parameters.get("type", "object") != "object"
+        ):
+            raise ValueError("MCP server returned an invalid tool")
+        metadata = tool.get("_meta")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        specs.append(
+            {
+                "name": name,
+                "description": description,
+                "parameters": parameters,
+                "mcp_meta": metadata,
+            }
+        )
+    info = connection.get("info")
+    if not isinstance(info, dict):
+        info = {}
+    return {
+        "kind": "mcp",
+        "info": {
+            "title": info.get("name", "MCP Server"),
+            "description": info.get("description", ""),
+        },
+        "specs": specs,
+    }
+
+
+async def execute_mcp_tool(
+    connection: dict[str, Any],
+    *,
+    secret: str,
+    user_id: str,
+    server_id: str,
+    tool_name: str,
+    arguments: dict[str, Any],
+    metadata: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Execute one catalogued MCP tool and attach a narrow app capability."""
+    result = await call_mcp_method(
+        connection,
+        "tools/call",
+        {"name": tool_name, "arguments": arguments},
+    )
+    metadata = metadata if isinstance(metadata, dict) else {}
+    ui = metadata.get("ui")
+    resource_uri = ui.get("resourceUri") if isinstance(ui, dict) else None
+    if isinstance(resource_uri, str) and resource_uri:
+        result_meta = result.get("_meta")
+        if not isinstance(result_meta, dict):
+            result_meta = {}
+        result_meta["openatelier_mcp_app"] = {
+            "server_id": f"server:mcp:{server_id}",
+            "tool_name": tool_name,
+            "binding": create_mcp_app_binding(
+                secret, user_id, server_id, tool_name
+            ),
+            "resource_uri": resource_uri,
+        }
+        result["_meta"] = result_meta
+    return result

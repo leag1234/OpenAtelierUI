@@ -164,6 +164,84 @@ class MCPAppPureTests(unittest.TestCase):
         )
 
 
+class MCPToolDiscoveryTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        tree = ast.parse(MCP_SOURCE.read_text(encoding="utf-8"))
+        nodes = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.AsyncFunctionDef)
+            and node.name in {"get_mcp_server_data", "execute_mcp_tool"}
+        ]
+        self.calls = []
+
+        async def call(_connection, method, params):
+            self.calls.append((method, params))
+            if method == "tools/list":
+                return {
+                    "tools": [{
+                        "name": "echo",
+                        "description": "Echo one label.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {"label": {"type": "string"}},
+                            "required": ["label"],
+                        },
+                        "_meta": {"ui": {"resourceUri": "ui://synthetic/app.html"}},
+                    }]
+                }
+            return {"content": [{"type": "text", "text": "Synthetic result"}], "isError": False}
+
+        namespace = {
+            "Any": Any,
+            "Optional": Optional,
+            "call_mcp_method": call,
+            "create_mcp_app_binding": create_mcp_app_binding,
+        }
+        exec(compile(ast.Module(body=nodes, type_ignores=[]), str(MCP_SOURCE), "exec"), namespace)
+        self.discover = namespace["get_mcp_server_data"]
+        self.execute = namespace["execute_mcp_tool"]
+
+    async def test_discovery_projects_schema_and_private_metadata(self):
+        data = await self.discover(
+            {"info": {"name": "Synthetic MCP", "description": "Local fixture"}}
+        )
+        self.assertEqual(data["kind"], "mcp")
+        self.assertEqual(data["info"]["title"], "Synthetic MCP")
+        self.assertEqual(data["specs"][0]["name"], "echo")
+        self.assertEqual(
+            data["specs"][0]["mcp_meta"]["ui"]["resourceUri"],
+            "ui://synthetic/app.html",
+        )
+
+    async def test_execution_issues_binding_only_for_declared_app_resource(self):
+        result = await self.execute(
+            {},
+            secret="secret",
+            user_id="owner",
+            server_id="synthetic",
+            tool_name="echo",
+            arguments={"label": "Community workshop"},
+            metadata={"ui": {"resourceUri": "ui://synthetic/app.html"}},
+        )
+        app = result["_meta"]["openatelier_mcp_app"]
+        self.assertEqual(app["server_id"], "server:mcp:synthetic")
+        self.assertEqual(app["tool_name"], "echo")
+        self.assertEqual(app["resource_uri"], "ui://synthetic/app.html")
+        self.assertTrue(
+            verify_mcp_app_binding(
+                app["binding"], "secret", "owner", "synthetic", "echo"
+            )
+        )
+        self.assertEqual(
+            self.calls[-1],
+            (
+                "tools/call",
+                {"name": "echo", "arguments": {"label": "Community workshop"}},
+            ),
+        )
+
+
 class MCPAppRouteTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         tree = ast.parse(ROUTER_SOURCE.read_text(encoding="utf-8"))

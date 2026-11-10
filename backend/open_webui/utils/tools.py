@@ -38,7 +38,11 @@ from langchain_core.utils.function_calling import (
 from open_webui.models.tools import Tools
 from open_webui.models.users import UserModel
 from open_webui.utils.plugin import load_tool_module_by_id
-from open_webui.env import AIOHTTP_CLIENT_TIMEOUT_TOOL_SERVER_DATA
+from open_webui.env import AIOHTTP_CLIENT_TIMEOUT_TOOL_SERVER_DATA, WEBUI_SECRET_KEY
+from open_webui.utils.mcp_apps import (
+    execute_mcp_tool,
+    get_mcp_server_data,
+)
 
 log = logging.getLogger(__name__)
 
@@ -55,7 +59,11 @@ def _named_server_config(connection: dict) -> tuple[bool, Optional[str]]:
     attempted = "spec_type" in connection or has_info_id
     if not attempted:
         return False, None
-    if connection.get("type") != "openapi" or connection.get("spec_type") != "url":
+    connection_type = connection.get("type")
+    if connection_type == "mcp":
+        if connection.get("spec_type") not in (None, "url"):
+            return True, None
+    elif connection_type != "openapi" or connection.get("spec_type") != "url":
         return True, None
     if not isinstance(info, dict):
         return True, None
@@ -115,7 +123,8 @@ def named_tool_server_catalog_ids(
             continue
         if matches[0].get("connection_binding") != _tool_server_connection_binding(connections[index]):
             continue
-        catalog_ids[index] = f"server:{server_id}"
+        prefix = "server:mcp:" if connections[index].get("type") == "mcp" else "server:"
+        catalog_ids[index] = f"{prefix}{server_id}"
     return catalog_ids, named_indices
 
 
@@ -193,6 +202,12 @@ def is_reserved_named_server_reference(tool_id: str, connections: list) -> bool:
         raw_id = info.get("id") if isinstance(info, dict) else None
         if isinstance(raw_id, str) and suffix == raw_id:
             return True
+        if (
+            connection.get("type") == "mcp"
+            and isinstance(raw_id, str)
+            and suffix == f"mcp:{raw_id}"
+        ):
+            return True
         if server_id is not None and suffix == server_id:
             return True
     return False
@@ -264,6 +279,60 @@ def get_tools(
 
                 for spec in specs:
                     function_name = spec["name"]
+
+                    if tool_server_data.get("kind") == "mcp":
+                        _attempted, server_id = _named_server_config(
+                            tool_server_connection
+                        )
+                        if server_id is None:
+                            continue
+
+                        def make_mcp_tool_function(
+                            connection,
+                            server_identifier,
+                            name,
+                            mcp_metadata,
+                        ):
+                            async def tool_function(**kwargs):
+                                return await execute_mcp_tool(
+                                    connection,
+                                    secret=WEBUI_SECRET_KEY,
+                                    user_id=user.id,
+                                    server_id=server_identifier,
+                                    tool_name=name,
+                                    arguments=kwargs,
+                                    metadata=mcp_metadata,
+                                )
+
+                            return tool_function
+
+                        tool_function = make_mcp_tool_function(
+                            tool_server_connection,
+                            server_id,
+                            function_name,
+                            spec.get("mcp_meta"),
+                        )
+                        callable = get_async_tool_function_and_apply_extra_params(
+                            tool_function, {}
+                        )
+                        tool_dict = {
+                            "tool_id": tool_id,
+                            "callable": callable,
+                            "spec": {
+                                key: value
+                                for key, value in spec.items()
+                                if key != "mcp_meta"
+                            },
+                        }
+                        if function_name not in tools_dict:
+                            tools_dict[function_name] = tool_dict
+                        else:
+                            log.warning(
+                                "Discarding duplicate MCP tool %s.%s",
+                                tool_id,
+                                function_name,
+                            )
+                        continue
 
                     auth_type = tool_server_connection.get("auth_type", "bearer")
                     token = None
@@ -663,27 +732,35 @@ async def get_tool_servers_data(
     server_entries = []
     for idx, server in enumerate(servers):
         if server.get("config", {}).get("enable"):
-            url_path = server.get("path", "openapi.json")
-            full_url = f"{server.get('url')}/{url_path}"
+            if server.get("type") == "mcp":
+                server_entries.append((idx, server, server.get("url"), None, "mcp"))
+            else:
+                url_path = server.get("path", "openapi.json")
+                full_url = f"{server.get('url')}/{url_path}"
 
-            auth_type = server.get("auth_type", "bearer")
-            token = None
+                auth_type = server.get("auth_type", "bearer")
+                token = None
 
-            if auth_type == "bearer":
-                token = server.get("key", "")
-            elif auth_type == "session":
-                token = session_token
-            server_entries.append((idx, server, full_url, token))
+                if auth_type == "bearer":
+                    token = server.get("key", "")
+                elif auth_type == "session":
+                    token = session_token
+                server_entries.append((idx, server, full_url, token, "openapi"))
 
     # Create async tasks to fetch data
-    tasks = [get_tool_server_data(token, url) for (_, _, url, token) in server_entries]
+    tasks = [
+        get_mcp_server_data(server)
+        if kind == "mcp"
+        else get_tool_server_data(token, url)
+        for (_, server, url, token, kind) in server_entries
+    ]
 
     # Execute tasks concurrently
     responses = await asyncio.gather(*tasks, return_exceptions=True)
 
     # Build final results with index and server metadata
     results = []
-    for (idx, server, url, _), response in zip(server_entries, responses):
+    for (idx, server, url, _, kind), response in zip(server_entries, responses):
         if isinstance(response, Exception):
             print(f"Failed to connect to {url} OpenAPI tool server")
             continue
@@ -693,7 +770,8 @@ async def get_tool_servers_data(
                 "idx": idx,
                 "url": server.get("url"),
                 "connection_binding": _tool_server_connection_binding(server),
-                "openapi": response.get("openapi"),
+                "kind": response.get("kind", kind),
+                "openapi": response.get("openapi", {"info": response.get("info", {})}),
                 "info": response.get("info"),
                 "specs": response.get("specs"),
             }

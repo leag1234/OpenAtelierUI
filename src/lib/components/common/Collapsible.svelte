@@ -38,6 +38,7 @@
 	import CodeBlock from '../chat/Messages/CodeBlock.svelte';
 	import Markdown from '../chat/Messages/Markdown.svelte';
 	import Image from './Image.svelte';
+	import MCPAppFrame from './MCPAppFrame.svelte';
 
 	export let open = false;
 
@@ -47,7 +48,15 @@
 
 	export let id = '';
 	export let title = null;
-	export let attributes = null;
+	export let attributes: {
+		type?: string;
+		arguments?: string;
+		result?: string;
+		files?: string;
+		done?: string;
+		id?: string;
+		name?: string;
+	} | null = null;
 
 	export let chevron = false;
 	export let grow = false;
@@ -57,7 +66,7 @@
 
 	const collapsibleId = uuidv4();
 
-	function parseJSONString(str) {
+	function parseJSONString(str: unknown): any {
 		try {
 			return parseJSONString(JSON.parse(str));
 		} catch (e) {
@@ -203,6 +212,7 @@
 	{#if attributes?.type === 'tool_calls'}
 		{@const args = decode(attributes?.arguments)}
 		{@const result = decode(attributes?.result ?? '')}
+		{@const parsedResult = parseJSONString(result)}
 		{@const files = parseJSONString(decode(attributes?.files ?? ''))}
 
 		{#if !grow}
@@ -244,6 +254,10 @@
 					{/each}
 				{/if}
 			{/if}
+		{/if}
+
+		{#if attributes?.done === 'true' && parsedResult?._meta?.openatelier_mcp_app}
+			<MCPAppFrame app={parsedResult._meta.openatelier_mcp_app} />
 		{/if}
 	{:else if !grow}
 		{#if open && !hide}

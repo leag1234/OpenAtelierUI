@@ -82,6 +82,12 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
             return self.executor_result
 
         self.namespace["execute_tool_server"] = execute_tool_server
+        async def execute_mcp_tool(connection, **kwargs):
+            self.server_calls.append({"connection": connection, **kwargs})
+            return self.executor_result
+
+        self.namespace["execute_mcp_tool"] = execute_mcp_tool
+        self.namespace["WEBUI_SECRET_KEY"] = "synthetic-secret"
         self.local_collision = False
 
     def named_connection(self, server_id="synthetic_openapi", **overrides):
@@ -118,6 +124,18 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
                 ],
             },
         )
+
+    def mcp_connection(self, server_id="synthetic_mcp", **overrides):
+        connection = {
+            "type": "mcp",
+            "info": {"id": server_id, "name": "Synthetic MCP"},
+            "url": "https://example.invalid/mcp",
+            "auth_type": "none",
+            "key": "",
+            "config": {"enable": True},
+        }
+        connection.update(overrides)
+        return connection
 
     def invoke(
         self,
@@ -246,6 +264,41 @@ class NamedOpenAPIServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.server_calls), 1)
         self.assertEqual(self.server_calls[0]["name"], "echo")
         self.assertNotIn("include_response_headers", self.server_calls[0])
+
+    async def test_mcp_catalog_uses_separate_id_and_user_bound_executor(self):
+        connection = self.mcp_connection()
+        server = self.cache_entry(
+            0,
+            connection,
+            specs=[{
+                "name": "echo",
+                "description": "Echo one label.",
+                "parameters": {"type": "object", "properties": {"label": {"type": "string"}}},
+                "mcp_meta": {"ui": {"resourceUri": "ui://synthetic/app.html"}},
+            }],
+        )
+        server["kind"] = "mcp"
+        catalog, named_indices = self.namespace["named_tool_server_catalog_ids"](
+            [connection], [server]
+        )
+        self.assertEqual(catalog, {0: "server:mcp:synthetic_mcp"})
+        self.assertEqual(named_indices, {0})
+        tools = self.invoke(
+            [connection], [server], "server:mcp:synthetic_mcp", "admin", user_id="admin-1"
+        )
+        self.assertEqual(set(tools), {"echo"})
+        result = await tools["echo"]["callable"](label="Community workshop")
+        self.assertEqual(result, self.executor_result)
+        call = self.server_calls[-1]
+        self.assertEqual(call["secret"], "synthetic-secret")
+        self.assertEqual(call["user_id"], "admin-1")
+        self.assertEqual(call["server_id"], "synthetic_mcp")
+        self.assertEqual(call["tool_name"], "echo")
+        self.assertEqual(call["arguments"], {"label": "Community workshop"})
+        self.assertEqual(
+            call["metadata"],
+            {"ui": {"resourceUri": "ui://synthetic/app.html"}},
+        )
 
     async def test_named_opt_in_forwards_header_flag_and_preserves_executor_tuple(self):
         connection = self.grant_connection(self.named_connection(), "user-1")

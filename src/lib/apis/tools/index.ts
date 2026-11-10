@@ -66,6 +66,35 @@ export const getTools = async (token: string = '') => {
 	return res;
 };
 
+export const callMCPAppRPC = async (
+	token: string,
+	serverId: string,
+	request: {
+		tool_name: string;
+		binding: string;
+		method: 'tools/call' | 'resources/read' | 'resources/list' | 'ui/resource';
+		params: Record<string, unknown>;
+	}
+) => {
+	const response = await fetch(
+		`${WEBUI_API_BASE_URL}/tools/id/${encodeURIComponent(serverId)}/mcp/app/rpc`,
+		{
+			method: 'POST',
+			headers: {
+				Accept: 'application/json',
+				'Content-Type': 'application/json',
+				authorization: `Bearer ${token}`
+			},
+			body: JSON.stringify(request)
+		}
+	);
+	const payload = await response.json().catch(() => ({}));
+	if (!response.ok) {
+		throw new Error(payload?.detail ?? 'The interactive tool result could not be loaded.');
+	}
+	return payload;
+};
+
 export const getToolList = async (token: string = '') => {
 	let error = null;
 
