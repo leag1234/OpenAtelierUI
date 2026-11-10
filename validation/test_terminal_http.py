@@ -194,12 +194,16 @@ class TerminalHTTPTests(unittest.TestCase):
         else:
             os.environ["TERMINAL_SERVER_CONNECTIONS"] = self.original_config
 
-    def request(self, method="GET", raw_path=None, query="", headers=None):
+    def request(self, method="GET", raw_path=None, query="", headers=None, body=b""):
+        async def read_body():
+            return body
+
         return types.SimpleNamespace(
             method=method,
             url=types.SimpleNamespace(query=query),
             scope={"raw_path": raw_path or ("/api/v1/terminals/synthetic-terminal/files/serve/home/user/requests/" + FILE_PATH).encode()},
             headers=headers or {"Authorization": "caller-secret", "X-User-Id": "forged-user"},
+            body=read_body,
         )
 
     def invoke_download(self, method="GET", path=FILE_PATH, request=None, user=None):
@@ -330,6 +334,59 @@ class TerminalHTTPTests(unittest.TestCase):
             "synthetic-terminal", "api/config", self.request(), self.user
         ))
         self.assertEqual(config_error.status_code, 503)
+        self.assertEqual(self.calls, [])
+
+    def test_recent_browser_route_fails_closed_without_authentication_or_upstream(self):
+        for method in ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"):
+            result = asyncio.run(self.ns["browser_http"](
+                "synthetic-terminal", "session-1", "expired-ticket", "api/config",
+                self.request(method),
+            ))
+            self.assertEqual(result.status_code, 401)
+            self.assertEqual(result.body, b'{"detail":"Browser session expired"}')
+        self.assertEqual(self.calls, [])
+
+    def test_recent_chat_proxy_strips_chat_prefix_and_forwards_bounded_admin_request(self):
+        admin = types.SimpleNamespace(id="admin-1", role="admin")
+        raw_path = b"/api/v1/terminals/synthetic-terminal/chats/chat-1/api%2Fconfig"
+        request = self.request(
+            "POST", raw_path=raw_path, query="mode=recent",
+            headers={"content-type": "application/json", "X-Caller": "must-not-cross"},
+            body=b'{"synthetic":true}',
+        )
+        result = asyncio.run(self.ns["proxy_terminal_chat"](
+            "synthetic-terminal", "api/config", request, admin
+        ))
+        self.assertEqual(result.status_code, 200)
+        args, kwargs = self.calls[0]
+        self.assertEqual(args, ("POST", BASE_URL + "/api/config?mode=recent"))
+        self.assertEqual(kwargs["headers"], {
+            "Authorization": "Bearer " + SYNTHETIC_KEY,
+            "X-User-Id": "admin-1",
+            "Content-Type": "application/json",
+        })
+        self.assertEqual(kwargs["data"], b'{"synthetic":true}')
+
+    def test_recent_chat_proxy_preserves_auth_order_and_rejects_traversal(self):
+        admin = types.SimpleNamespace(id="admin-1", role="admin")
+        user = types.SimpleNamespace(id="owner-1", role="user")
+        missing = asyncio.run(self.ns["proxy_terminal_chat"](
+            "missing-terminal", "api/config", self.request(), user
+        ))
+        self.assertEqual(missing.status_code, 404)
+        denied = asyncio.run(self.ns["proxy_terminal_chat"](
+            "synthetic-terminal", "api/config", self.request(), user
+        ))
+        self.assertEqual(denied.status_code, 403)
+        for raw_path in (
+            b"/api/v1/terminals/synthetic-terminal/chats/chat-1/api/../private",
+            b"/api/v1/terminals/synthetic-terminal/chats/chat-1/api/%2e%2e/private",
+        ):
+            refused = asyncio.run(self.ns["proxy_terminal_chat"](
+                "synthetic-terminal", "private", self.request(raw_path=raw_path), admin
+            ))
+            self.assertEqual(refused.status_code, 400)
+            self.assertEqual(refused.body, b'{"error":"Invalid path"}')
         self.assertEqual(self.calls, [])
 
     def test_upstream_statuses_redirects_and_transport_errors_are_sanitized(self):

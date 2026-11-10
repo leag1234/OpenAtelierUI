@@ -122,6 +122,18 @@ def _raw_path_is_safe(request, path):
     return all(part not in (".", "..") for part in path.replace("\\", "/").split("/"))
 
 
+def _chat_path_is_safe(request, path):
+    """Match the recent chat proxy's slash handling without allowing traversal."""
+    raw_path = request.scope.get("raw_path", b"")
+    raw_lower = raw_path.lower() if isinstance(raw_path, bytes) else b""
+    if any(encoded in raw_lower for encoded in (b"%2e", b"%5c", b"%25")):
+        return False
+    raw_text = raw_lower.decode("latin-1").replace("\\", "/")
+    if any(part in (".", "..") for part in raw_text.split("/")):
+        return False
+    return all(part not in (".", "..") for part in path.replace("\\", "/").split("/"))
+
+
 def _proxy_connection(server_id, user):
     try:
         connections = parse_terminal_connections(_connection_json())
@@ -270,6 +282,41 @@ async def download_terminal_file(
         return _proxy_error(403, "Access denied")
     filename = unquote(spec.path.rsplit("/", 1)[-1])
     return await _fetch_file(request, spec, filename)
+
+
+@router.api_route(
+    "/{server_id}/browser/view/{sid}/{ticket}/{path:path}",
+    methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    operation_id=(
+        "browser_http_api_v1_terminals__server_id__browser_view__sid___ticket___path__put"
+    ),
+)
+async def browser_http(
+    server_id: str, sid: str, ticket: str, path: str, request: Request
+):
+    # A positive browser-session relay is intentionally unavailable until its
+    # token lifecycle can be implemented and qualified without weakening trust.
+    return JSONResponse(status_code=401, content={"detail": "Browser session expired"})
+
+
+@router.api_route(
+    "/{server_id}/chats/{chat_id}/{path:path}",
+    methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    operation_id=(
+        "proxy_terminal_api_v1_terminals__server_id__chats__chat_id___path__put"
+    ),
+    name="proxy_terminal",
+)
+async def proxy_terminal_chat(
+    server_id: str, path: str, request: Request, user=Depends(get_verified_user)
+):
+    """Proxy a request to the admin terminal server identified by *server_id*."""
+    connection, error = _proxy_connection(server_id, user)
+    if error is not None:
+        return error
+    if not _chat_path_is_safe(request, path):
+        return _proxy_error(400, "Invalid path")
+    return await _proxy_terminal_request(request, connection, path, user.id)
 
 
 @router.api_route(
