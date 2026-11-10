@@ -155,13 +155,18 @@ app = socketio.ASGIApp(
 )
 
 
-def _socket_user(token):
-    if not isinstance(token, str) or not token or token.startswith("sk-"):
+def _socket_user(token, scope):
+    if (
+        not isinstance(token, str)
+        or not token
+        or token.startswith("sk-")
+        or not isinstance(scope, dict)
+        or "app" not in scope
+    ):
         return None
-    scope = {"type": "http", "http_version": "1.1", "method": "GET", "scheme": "http",
-             "path": "/ws/socket.io", "raw_path": b"/ws/socket.io", "query_string": b"",
-             "headers": [], "client": ("127.0.0.1", 0), "server": ("127.0.0.1", 80), "state": {}}
-    request = Request(scope)
+    request = Request(
+        {**scope, "type": "http", "state": dict(scope.get("state", {}))}
+    )
     credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
     try:
         return get_verified_user(get_current_user(request, None, credentials))
@@ -184,6 +189,16 @@ def _session_identity(sid):
             or not isinstance(sessions, (list, tuple, set)) or sid not in sessions):
         return None
     return session
+
+
+def socket_session_belongs_to_user(session_id, user_id):
+    """Return whether an active, verified socket session belongs to the user."""
+    if not isinstance(session_id, str) or not session_id:
+        return False
+    if not isinstance(user_id, str) or not user_id:
+        return False
+    session = _session_identity(session_id)
+    return isinstance(session, dict) and session.get("id") == user_id
 
 
 async def _emit_verified(event, payload):
@@ -277,7 +292,8 @@ async def usage(sid, data):
 
 @sio.event
 async def connect(sid, environ, auth):
-    user = _socket_user(_socket_token(auth))
+    scope = environ.get("asgi.scope") if isinstance(environ, dict) else None
+    user = _socket_user(_socket_token(auth), scope)
     if user and _register_socket_user(sid, user):
         await _emit_user_list()
         await _emit_verified("usage", {"models": get_models_in_use()})
@@ -285,9 +301,9 @@ async def connect(sid, environ, auth):
 
 @sio.on("user-join")
 async def user_join(sid, data):
-    auth = data.get("auth") if isinstance(data, dict) else None
-    user = _socket_user(_socket_token(auth))
-    if user is None or not _register_socket_user(sid, user):
+    session = _session_identity(sid)
+    user = Users.get_user_by_id(session.get("id")) if isinstance(session, dict) else None
+    if user is None:
         return
 
     # Join all the channels
@@ -305,9 +321,9 @@ async def user_join(sid, data):
 
 @sio.on("join-channels")
 async def join_channel(sid, data):
-    auth = data.get("auth") if isinstance(data, dict) else None
-    user = _socket_user(_socket_token(auth))
-    if user is None or not _register_socket_user(sid, user):
+    session = _session_identity(sid)
+    user = Users.get_user_by_id(session.get("id")) if isinstance(session, dict) else None
+    if user is None:
         return
 
     # Join all the channels

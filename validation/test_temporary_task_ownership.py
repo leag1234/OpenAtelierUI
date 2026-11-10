@@ -67,6 +67,7 @@ def route_namespace(task_api, chats):
         "Chats": chats,
         "list_task_ids_by_chat_id": task_api["list_task_ids_by_chat_id"],
         "list_task_ids_by_chat_id_for_user": task_api["list_task_ids_by_chat_id_for_user"],
+        "is_ephemeral_chat_id": task_api["is_ephemeral_chat_id"],
         "get_task": task_api["get_task"],
         "stop_task": task_api["stop_task"],
         "TaskNotFoundError": task_api["TaskNotFoundError"],

@@ -134,11 +134,28 @@ export function shouldRequestInitialChatTasks({
 }
 
 export function isEphemeralChatId(chatId) {
-	return chatId === 'local' || (typeof chatId === 'string' && chatId.startsWith('local:'));
+	return chatId === 'local' || (
+		typeof chatId === 'string' &&
+		(chatId.startsWith('local:') || chatId.startsWith('temporary:'))
+	);
+}
+
+export function isTemporaryChatId(chatId) {
+	return typeof chatId === 'string' && chatId.startsWith('temporary:');
+}
+
+export function createTemporaryChatId(sessionId, randomId) {
+	if (typeof sessionId !== 'string' || sessionId.length === 0) return null;
+	if (typeof randomId !== 'string' || randomId.length === 0) return null;
+	return `temporary:${sessionId}:${randomId}`;
 }
 
 export function chatTaskStopPath(chatId) {
 	return `/api/tasks/chat/${encodeURIComponent(chatId)}/stop`;
+}
+
+export function chatTaskResumePath(chatId) {
+	return `/api/tasks/chat/${encodeURIComponent(chatId)}/resume`;
 }
 
 export async function requestSavedChatStop(stopRequest, listRequest, isStillCurrent) {

@@ -10,6 +10,13 @@ chat_tasks = {}
 task_owners: Dict[str, str] = {}
 
 
+EPHEMERAL_CHAT_PREFIXES = ("local:", "temporary:")
+
+
+def is_ephemeral_chat_id(id):
+    return isinstance(id, str) and id.startswith(EPHEMERAL_CHAT_PREFIXES)
+
+
 class TaskNotFoundError(ValueError):
     """The requested task is no longer present in the active registry."""
 
@@ -60,8 +67,7 @@ def create_task(coroutine, id=None, *, owner_user_id=None):
         chat_tasks[id] = [task_id]
 
     if (
-        isinstance(id, str)
-        and id.startswith("local:")
+        is_ephemeral_chat_id(id)
         and isinstance(owner_user_id, str)
         and owner_user_id.strip()
     ):
@@ -93,8 +99,7 @@ def list_task_ids_by_chat_id(id):
 
 def list_task_ids_by_chat_id_for_user(id, user_id):
     if (
-        not isinstance(id, str)
-        or not id.startswith("local:")
+        not is_ephemeral_chat_id(id)
         or not isinstance(user_id, str)
         or not user_id.strip()
     ):

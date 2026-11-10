@@ -72,6 +72,8 @@ def main_namespace(chats, task_api, verified_user, admin_user):
         "Chats": chats,
         "list_tasks": task_api["list_tasks"],
         "list_task_ids_by_chat_id": task_api["list_task_ids_by_chat_id"],
+        "list_task_ids_by_chat_id_for_user": task_api["list_task_ids_by_chat_id_for_user"],
+        "is_ephemeral_chat_id": task_api["is_ephemeral_chat_id"],
         "stop_task": task_api["stop_task"],
         "get_task": task_api["get_task"],
         "TaskNotFoundError": task_api["TaskNotFoundError"],

@@ -17,7 +17,9 @@
 		bindChatEventChannel,
 		chatResultMatchesCurrent,
 		confirmConnectedSocketUser,
+		createTemporaryChatId,
 		isEphemeralChatId,
+		isTemporaryChatId,
 		mergeTaskIds,
 		normalizeTaskIds,
 		requestSavedChatStop,
@@ -87,6 +89,7 @@
 		generateQueries,
 		chatAction,
 		generateMoACompletion,
+		resumeTemporaryChat,
 		stopTask,
 		stopTasksByChatId,
 		getTaskIdsByChatId
@@ -128,6 +131,8 @@
 	let chatIdUnsubscriber: Unsubscriber | undefined;
 	let chatEventBinding: ReturnType<typeof bindChatEventChannel> | undefined;
 	let chatEventBindingUnsubscribers: Unsubscriber[] = [];
+	let reconnectSocket: any = null;
+	let reconnectHandler: (() => Promise<void>) | null = null;
 
 	let selectedModels = [''];
 	let atSelectedModel: Model | undefined;
@@ -436,6 +441,34 @@
 
 		chatEventBinding?.cleanup();
 		chatEventBinding = bindChatEventChannel(currentSocket, chatEventHandler, currentConfig);
+
+		if (reconnectSocket && reconnectHandler) reconnectSocket.off('connect', reconnectHandler);
+		reconnectSocket = currentSocket;
+		reconnectHandler = async () => {
+			const currentChatId = get(chatId);
+			const hasPendingReply = Object.values(history.messages).some(
+				(message) => message?.role === 'assistant' && message?.done !== true
+			);
+			if (
+				!hasPendingReply ||
+				!get(temporaryChatEnabled) ||
+				!isTemporaryChatId(currentChatId) ||
+				typeof currentSocket?.id !== 'string'
+			) return;
+			try {
+				const resumed = await resumeTemporaryChat(
+					localStorage.token,
+					currentChatId,
+					currentSocket.id
+				);
+				taskIds = mergeTaskIds(taskIds, resumed);
+			} catch (error) {
+				// A completion can finish before Socket.IO reconnects. In that case
+				// there is no active volatile task left to resume.
+				console.debug('Temporary chat resume unavailable', error);
+			}
+		};
+		currentSocket?.on('connect', reconnectHandler);
 	};
 
 	onMount(async () => {
@@ -492,6 +525,7 @@
 		chatIdUnsubscriber?.();
 		chatEventBindingUnsubscribers.forEach((unsubscribe) => unsubscribe());
 		chatEventBinding?.cleanup();
+		if (reconnectSocket && reconnectHandler) reconnectSocket.off('connect', reconnectHandler);
 		window.removeEventListener('message', onMessageHandler);
 	});
 
@@ -1860,8 +1894,7 @@
 		const currentIdAtStop = history.currentId;
 
 		const savedChat = !$temporaryChatEnabled && !isEphemeralChatId(stoppingChatId);
-		const ownerScopedContext =
-			savedChat || (typeof stoppingChatId === 'string' && stoppingChatId.startsWith('local:'));
+		const ownerScopedContext = savedChat || isEphemeralChatId(stoppingChatId);
 		if (ownerScopedContext) {
 			const outcome = await requestSavedChatStop(
 				() => stopTasksByChatId(localStorage.token, stoppingChatId),
@@ -2070,9 +2103,15 @@
 
 			window.history.replaceState(history.state, '', `/c/${_chatId}`);
 		} else {
-			_chatId = typeof _chatId === 'string' && _chatId.startsWith('local:') && _chatId.length > 6
-				? _chatId
-				: `local:${uuidv4()}`;
+			if (!isEphemeralChatId(_chatId) || _chatId.length <= 6) {
+				try {
+					const connectedSocket = await waitForConnectedSocket(get(socket));
+					await confirmConnectedSocketUser(connectedSocket, localStorage.token);
+					_chatId = createTemporaryChatId(connectedSocket.id, uuidv4());
+				} catch (_error) {
+					_chatId = `local:${uuidv4()}`;
+				}
+			}
 			await chatId.set(_chatId);
 		}
 		await tick();

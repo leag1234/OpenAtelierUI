@@ -51,7 +51,7 @@ class TemporaryChatUITests(unittest.TestCase):
         result = subprocess.run(["node", "-e", body], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_temporary_initializer_creates_unique_local_ids_and_reuses_current_conversation(self):
+    def test_temporary_initializer_uses_socket_scoped_ids_and_reuses_current_conversation(self):
         prelude = r"""
 const assert = require('assert');
 let $chatId = '';
@@ -63,16 +63,24 @@ const $temporaryChatEnabled = true;
 const tick = async () => {};
 const uuidValues = ['first-uuid', 'second-uuid'];
 const uuidv4 = () => uuidValues.shift();
+const socketValue = {id:'session-1'};
+const socket = {};
+const get = value => value === socket ? socketValue : null;
+const waitForConnectedSocket = async value => value;
+const confirmConnectedSocketUser = async () => ({id:'member'});
+const localStorage = {token:'synthetic'};
+const isEphemeralChatId = value => typeof value === 'string' && (value.startsWith('local:') || value.startsWith('temporary:'));
+const createTemporaryChatId = (sessionId, randomId) => `temporary:${sessionId}:${randomId}`;
 const selectedModels = [];
 const createNewChat = async () => { throw new Error('temporary chat must not persist'); };
 """
         assertions = r"""
 (async () => {
-  assert.strictEqual(await initChatHandler({}), 'local:first-uuid');
-  assert.strictEqual(await initChatHandler({}), 'local:first-uuid');
+  assert.strictEqual(await initChatHandler({}), 'temporary:session-1:first-uuid');
+  assert.strictEqual(await initChatHandler({}), 'temporary:session-1:first-uuid');
   await chatId.set(''); // initNewChat clears the store before the next conversation.
-  assert.strictEqual(await initChatHandler({}), 'local:second-uuid');
-  assert.deepStrictEqual(writes, ['local:first-uuid', 'local:first-uuid', '', 'local:second-uuid']);
+  assert.strictEqual(await initChatHandler({}), 'temporary:session-1:second-uuid');
+  assert.deepStrictEqual(writes, ['temporary:session-1:first-uuid', 'temporary:session-1:first-uuid', '', 'temporary:session-1:second-uuid']);
 })().catch(error => { process.stderr.write(String(error)); process.exitCode = 1; });
 """
         self._run_node(prelude + self.init_chat + assertions)
@@ -98,6 +106,7 @@ let persistCalls = 0;
 const localStorage = {token:'synthetic'};
 const normalizeTaskIds = value => value && Array.isArray(value.task_ids) ? value.task_ids : Array.isArray(value) ? value : [];
 const chatResultMatchesCurrent = (target,current) => target === current;
+const isEphemeralChatId = value => typeof value === 'string' && (value.startsWith('local:') || value.startsWith('temporary:'));
 const markCurrentResponsesDone = (confirmed, ids) => { if (confirmed) history.messages.reply.done = true; return confirmed; };
 const persistStoppedChat = async () => { persistCalls += 1; };
 const toast = {error: message => { throw new Error(`unexpected toast: ${message}`); }};
@@ -139,6 +148,7 @@ const notices = [];
 const localStorage = {token:'synthetic'};
 const normalizeTaskIds = value => value && Array.isArray(value.task_ids) ? value.task_ids : Array.isArray(value) ? value : [];
 const chatResultMatchesCurrent = (target,current) => target === current;
+const isEphemeralChatId = value => typeof value === 'string' && (value.startsWith('local:') || value.startsWith('temporary:'));
 const markCurrentResponsesDone = confirmed => { if (confirmed) history.messages.reply.done = true; return confirmed; };
 const persistStoppedChat = async () => { persistCalls += 1; };
 const toast = {error: message => notices.push(message)};
@@ -166,7 +176,7 @@ let persistCalls = 0;
 const localStorage = {token:'synthetic'};
 const normalizeTaskIds = value => value && Array.isArray(value.task_ids) ? value.task_ids : Array.isArray(value) ? value : [];
 const chatResultMatchesCurrent = (target,current) => target === current;
-const isEphemeralChatId = value => value === 'local' || (typeof value === 'string' && value.startsWith('local:'));
+const isEphemeralChatId = value => value === 'local' || (typeof value === 'string' && (value.startsWith('local:') || value.startsWith('temporary:')));
 const markCurrentResponsesDone = confirmed => { if (confirmed) history.messages.reply.done = true; return confirmed; };
 const persistStoppedChat = async id => { assert.strictEqual(id, 'saved-chat'); persistCalls += 1; };
 const toast = {error: message => { throw new Error(`unexpected toast: ${message}`); }};
@@ -188,8 +198,9 @@ const stopTask = async () => { throw new Error('saved stop must use the owner ro
         self.assertIn("await chatId.set('');", self.source)
         self.assertIn("const savedChat = !$temporaryChatEnabled && !isEphemeralChatId(stoppingChatId);", self.source)
         self.assertIn("if (confirmedStopped && changed && savedChat)", self.source)
-        self.assertIn("_chatId = typeof _chatId === 'string' && _chatId.startsWith('local:')", self.source)
-        self.assertIn(": `local:${uuidv4()}`;", self.source)
+        self.assertIn("createTemporaryChatId(connectedSocket.id, uuidv4())", self.source)
+        self.assertIn("_chatId = `local:${uuidv4()}`;", self.source)
+        self.assertIn("const ownerScopedContext = savedChat || isEphemeralChatId(stoppingChatId);", self.source)
 
 
 if __name__ == "__main__":

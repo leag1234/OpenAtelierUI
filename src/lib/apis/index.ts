@@ -1,6 +1,6 @@
 import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 import { convertOpenApiToToolPayload } from '$lib/utils';
-import { chatTaskStopPath } from '$lib/utils/chat-session';
+import { chatTaskResumePath, chatTaskStopPath } from '$lib/utils/chat-session';
 import { getOpenAIModelsDirect } from './openai';
 
 import { parse } from 'yaml';
@@ -269,6 +269,21 @@ export const stopTasksByChatId = async (token: string, chatId: string) => {
 			'Content-Type': 'application/json',
 			...(token && { authorization: `Bearer ${token}` })
 		}
+	});
+
+	if (!res.ok) throw await res.json();
+	return res.json();
+};
+
+export const resumeTemporaryChat = async (token: string, chatId: string, sessionId: string) => {
+	const res = await fetch(`${WEBUI_BASE_URL}${chatTaskResumePath(chatId)}`, {
+		method: 'POST',
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			...(token && { authorization: `Bearer ${token}` })
+		},
+		body: JSON.stringify({ session_id: sessionId })
 	});
 
 	if (!res.ok) throw await res.json();

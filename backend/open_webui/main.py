@@ -13,10 +13,10 @@ from pathlib import Path
 
 from contextlib import asynccontextmanager, suppress
 from urllib.parse import urlencode, parse_qs, urlparse
-from pydantic import BaseModel
+from pydantic import BaseModel, WithJsonSchema
 from sqlalchemy import text
 
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 from aiocache import cached
 import aiohttp
 import requests
@@ -54,6 +54,7 @@ from open_webui.socket.main import (
     USAGE_POOL,
     app as socket_app,
     periodic_usage_pool_cleanup,
+    socket_session_belongs_to_user,
 )
 from open_webui.routers import (
     audio,
@@ -459,6 +460,7 @@ from open_webui.tasks import (
     list_tasks,
     get_task,
     TaskNotFoundError,
+    is_ephemeral_chat_id,
 )  # Import from tasks.py
 
 from open_webui.utils.redis import get_sentinels_from_env
@@ -471,6 +473,9 @@ if SAFE_MODE:
 logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
 log = logging.getLogger(__name__)
 log.setLevel(SRC_LOG_LEVELS["MAIN"])
+JsonObject = Annotated[
+    dict[str, Any], WithJsonSchema({"type": "object", "additionalProperties": True})
+]
 
 
 def spa_fallback_allowed(path):
@@ -1448,7 +1453,7 @@ async def chat_completion(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Chat not found"
             )
-        if not chat_id.startswith("local:"):
+        if not is_ephemeral_chat_id(chat_id):
             chat = Chats.get_chat_by_id(chat_id)
             if chat is None or chat.user_id != user.id:
                 raise HTTPException(
@@ -1594,7 +1599,7 @@ async def chat_completion(
 
 def _validate_private_chat_context(form_data, user):
     chat_id = form_data.get("chat_id")
-    if chat_id is None or (isinstance(chat_id, str) and chat_id.startswith("local:")):
+    if chat_id is None or is_ephemeral_chat_id(chat_id):
         return
     if not isinstance(chat_id, str) or not chat_id:
         raise HTTPException(
@@ -1684,7 +1689,7 @@ async def list_tasks_endpoint(user=Depends(get_admin_user)):
 
 @app.get("/api/tasks/chat/{chat_id}")
 async def list_tasks_by_chat_id_endpoint(chat_id: str, user=Depends(get_verified_user)):
-    if chat_id.startswith("local:"):
+    if is_ephemeral_chat_id(chat_id):
         return {"task_ids": list(list_task_ids_by_chat_id_for_user(chat_id, user.id))}
 
     chat = Chats.get_chat_by_id(chat_id)
@@ -1696,7 +1701,7 @@ async def list_tasks_by_chat_id_endpoint(chat_id: str, user=Depends(get_verified
 
 @app.post("/api/tasks/chat/{chat_id}/stop")
 async def stop_tasks_by_chat_id_endpoint(chat_id: str, user=Depends(get_verified_user)):
-    if chat_id.startswith("local:"):
+    if is_ephemeral_chat_id(chat_id):
         task_ids = list(list_task_ids_by_chat_id_for_user(chat_id, user.id))
     else:
         chat = Chats.get_chat_by_id(chat_id)
@@ -1722,6 +1727,27 @@ async def stop_tasks_by_chat_id_endpoint(chat_id: str, user=Depends(get_verified
         "status": stopped,
         "message": "Task(s) stopped." if stopped else "No active tasks were stopped.",
     }
+
+
+@app.post("/api/tasks/chat/{chat_id}/resume")
+async def resume_temporary_chat(
+    chat_id: str,
+    form_data: JsonObject,
+    user=Depends(get_verified_user),
+):
+    session_id = form_data.get("session_id")
+    task_ids = list(list_task_ids_by_chat_id_for_user(chat_id, user.id))
+    active_task_ids = [task_id for task_id in task_ids if get_task(task_id) is not None]
+    if (
+        not is_ephemeral_chat_id(chat_id)
+        or not active_task_ids
+        or not socket_session_belongs_to_user(session_id, user.id)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Temporary chat expired or unavailable",
+        )
+    return {"status": True, "task_ids": active_task_ids}
 
 
 ##################################

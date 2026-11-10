@@ -62,8 +62,14 @@ assert.strictEqual(shouldRequestInitialChatTasks({temporary:false,title:'New Cha
 assert.strictEqual(shouldRequestInitialChatTasks({temporary:false,title:'New Chat',messageCount:1,selectedModelMatches:false}), false);
 assert.strictEqual(isEphemeralChatId('local'), true);
 assert.strictEqual(isEphemeralChatId('local:temporary'), true);
+assert.strictEqual(isEphemeralChatId('temporary:session:chat'), true);
 assert.strictEqual(isEphemeralChatId('local-work-chat'), false);
+assert.strictEqual(isTemporaryChatId('temporary:session:chat'), true);
+assert.strictEqual(isTemporaryChatId('local:temporary'), false);
+assert.strictEqual(createTemporaryChatId('session','chat'), 'temporary:session:chat');
+assert.strictEqual(createTemporaryChatId('','chat'), null);
 assert.strictEqual(chatTaskStopPath('saved/chat 1'), '/api/tasks/chat/saved%2Fchat%201/stop');
+assert.strictEqual(chatTaskResumePath('temporary:session/chat'), '/api/tasks/chat/temporary%3Asession%2Fchat/resume');
 (async function () {
   let listCalls = 0;
   const success = await requestSavedChatStop(
