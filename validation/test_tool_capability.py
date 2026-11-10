@@ -72,6 +72,7 @@ def call_update_route(*, role="user", user_id="owner", capability=False, tool_ow
     form_data = SimpleNamespace(
         id="synthetic-tool",
         content="synthetic candidate source",
+        commit_message=None,
         meta=SimpleNamespace(manifest=None),
         model_dump=lambda **kwargs: {"name": "Updated synthetic tool", "content": "synthetic candidate source", "meta": {}},
     )
@@ -102,6 +103,10 @@ def call_update_route(*, role="user", user_id="owner", capability=False, tool_ow
         "load_tool_module_by_id": event("load_module", lambda *args, **kwargs: (SimpleNamespace(), {})),
         "get_tool_specs": event("get_specs", []),
         "preserve_access_control_for_update": event("preserve_acl", lambda updated, _acl: updated),
+        "DATA_DIR": "/synthetic/data",
+        "_tool_snapshot": event("snapshot", {}),
+        "ensure_root": event("ensure_root"),
+        "_record_tool": event("record", "synthetic-version"),
         "_tool_access_fields": lambda _tool, _user: {"access_grants": [], "write_access": True},
         "log": SimpleNamespace(debug=lambda _value: events.append("debug")),
     }
@@ -129,7 +134,7 @@ class ToolCapabilityGateTests(unittest.TestCase):
         result, error, events, permissions, before = call_update_route(capability=True)
         self.assertIsNone(error)
         self.assertEqual(result["content"], "updated")
-        self.assertEqual(events, ["lookup", "permission_check", "replace_imports", "load_module", "cache_write", "get_specs", "preserve_acl", "debug", "store"])
+        self.assertEqual(events, ["lookup", "permission_check", "snapshot", "ensure_root", "replace_imports", "load_module", "cache_write", "get_specs", "preserve_acl", "debug", "store", "record"])
         self.assertEqual(permissions, before)
 
     def test_revocation_takes_effect_on_the_next_request(self):

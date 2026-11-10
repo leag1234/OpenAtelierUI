@@ -275,6 +275,13 @@ class ImportedHistoryTests(unittest.TestCase):
         tree = ast.parse((base / filename).read_text(encoding="utf-8"))
         node = next(item for item in tree.body if isinstance(item, ast.AsyncFunctionDef) and item.name == function_name)
         node.decorator_list = []
+        nodes = [node]
+        if filename == "tools.py":
+            owner_helper = next(
+                item for item in tree.body
+                if isinstance(item, ast.FunctionDef) and item.name == "_require_tool_owner"
+            )
+            nodes.insert(0, owner_helper)
 
         class RouteHTTPException(Exception):
             def __init__(self, status_code, detail=None):
@@ -305,10 +312,14 @@ class ImportedHistoryTests(unittest.TestCase):
             "get_imported_tool_history": reader,
             "list_imported_model_history": reader,
             "get_imported_model_history": reader,
+            "VersionHistoryNotFound": type("VersionHistoryNotFound", (Exception,), {}),
+            "VersionHistoryUnavailable": type("VersionHistoryUnavailable", (Exception,), {}),
         }
-        exec(compile(ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[])), str(base / filename), "exec"), namespace)
+        namespace["list_versions"] = lambda *_args: (_ for _ in ()).throw(namespace["VersionHistoryNotFound"]())
+        namespace["get_version"] = lambda *_args: (_ for _ in ()).throw(namespace["VersionHistoryNotFound"]())
+        exec(compile(ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[])), str(base / filename), "exec"), namespace)
         route = namespace[function_name]
-        if function_name.endswith("_version"):
+        if function_name.endswith("_version") or function_name == "get_model_history_entry":
             return asyncio.run(route(resource.id, "version-1", user=user))
         if "model" in function_name:
             return asyncio.run(route(resource.id, user=user))
@@ -322,7 +333,7 @@ class ImportedHistoryTests(unittest.TestCase):
                 "model",
                 "model-private",
                 "list_imported_model_versions",
-                "read_imported_model_version",
+                "get_model_history_entry",
                 403,
             ),
         ):

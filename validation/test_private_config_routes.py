@@ -232,6 +232,7 @@ def _route_namespace():
         "HistoryNotFound": HistoryNotFound,
         "HistoryUnavailable": HistoryUnavailable,
         "get_imported_model_current_version_id": lambda *_args: (_ for _ in ()).throw(HistoryNotFound()),
+        "_current_version_id": lambda _model: None,
     }
 
 

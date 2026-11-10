@@ -78,6 +78,17 @@ def call_direct_get(kind, *, role="user", user_id="owner", owner="owner", allowe
             raise metadata
         return metadata
 
+    def current_version(lookup_resource):
+        try:
+            return version_lookup(
+                "/synthetic/data",
+                "sqlite:////synthetic/data/webui.db",
+                kind,
+                lookup_resource,
+            )
+        except (HistoryNotFound, HistoryUnavailable):
+            return None
+
     namespace = {
         "router": SimpleNamespace(),
         "Depends": lambda dependency: None,
@@ -94,6 +105,8 @@ def call_direct_get(kind, *, role="user", user_id="owner", owner="owner", allowe
         "_model_access_fields": access_fields,
         "get_imported_tool_current_version_id": version_lookup,
         "get_imported_model_current_version_id": version_lookup,
+        "_tool_current_version": current_version,
+        "_current_version_id": current_version,
         "DATA_DIR": "/synthetic/data",
         "DATABASE_URL": "sqlite:////synthetic/data/webui.db",
     }

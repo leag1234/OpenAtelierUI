@@ -57,10 +57,10 @@ class NameDecisionTests(unittest.TestCase):
                 "get_model_history_api_v1_models_model_history_get",
                 ["id", "page", "user"],
             ),
-            "read_imported_model_version": (
-                "/model/history/{version_id}",
-                "get_model_history_version_api_v1_models_model_history__version_id__get",
-                ["id", "version_id", "user"],
+            "get_model_history_entry": (
+                "/model/history/{history_id}",
+                "get_model_history_entry_api_v1_models_model_history__history_id__get",
+                ["id", "history_id", "user"],
             ),
             "apply_model_access_grants": (
                 "/model/access/update",
