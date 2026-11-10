@@ -135,8 +135,10 @@ class BrowserContractSourceTests(unittest.TestCase):
         ]
         sources = "\n".join(path.read_text() for path in callers)
         self.assertEqual(sources.count("<UserMenu"), 5)
-        self.assertEqual(sources.count("let:builder"), 5)
-        self.assertEqual(sources.count("use:builder.action"), 5)
+        # Five established trigger builders plus the two saved-chat context
+        # menu triggers introduced by the single-trigger accessibility fix.
+        self.assertEqual(sources.count("let:builder"), 7)
+        self.assertEqual(sources.count("use:builder.action"), 7)
         self.assertEqual(sources.count('aria-haspopup="menu"'), 5)
         stable = ROOT / "static/static/openatelierui/i18n.js"
         legacy = ROOT / "static/_app/immutable/chunks/DKxluP3e.js"
