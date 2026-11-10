@@ -257,7 +257,11 @@
 		{/if}
 
 		{#if attributes?.done === 'true' && parsedResult?._meta?.openatelier_mcp_app}
-			<MCPAppFrame app={parsedResult._meta.openatelier_mcp_app} />
+			<MCPAppFrame
+				app={parsedResult._meta.openatelier_mcp_app}
+				toolInput={parseJSONString(args)}
+				toolResult={parsedResult}
+			/>
 		{/if}
 	{:else if !grow}
 		{#if open && !hide}

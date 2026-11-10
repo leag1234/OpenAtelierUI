@@ -36,7 +36,34 @@ class MCPAppUITests(unittest.TestCase):
     def test_only_signed_tool_result_metadata_mounts_app_renderer(self):
         source = COLLAPSIBLE.read_text(encoding="utf-8")
         self.assertIn("parsedResult?._meta?.openatelier_mcp_app", source)
-        self.assertIn("<MCPAppFrame app={parsedResult._meta.openatelier_mcp_app} />", source)
+        self.assertIn("app={parsedResult._meta.openatelier_mcp_app}", source)
+        self.assertIn("toolInput={parseJSONString(args)}", source)
+        self.assertIn("toolResult={parsedResult}", source)
+
+    def test_public_mcp_apps_lifecycle_is_bounded_and_source_checked(self):
+        source = FRAME.read_text(encoding="utf-8")
+        self.assertIn("event.source !== iframeElement.contentWindow", source)
+        self.assertIn("message.method === 'ui/initialize'", source)
+        self.assertIn("message.method === 'ui/notifications/initialized'", source)
+        self.assertIn("method: 'ui/notifications/tool-input'", source)
+        self.assertIn("method: 'ui/notifications/tool-result'", source)
+        self.assertIn("method: 'ui/resource-teardown'", source)
+        self.assertIn("delete metadata.openatelier_mcp_app", source)
+
+    def test_view_resize_is_numeric_and_clamped(self):
+        source = FRAME.read_text(encoding="utf-8")
+        self.assertIn("message.method === 'ui/notifications/size-changed'", source)
+        self.assertIn("Number.isFinite(requested)", source)
+        self.assertIn("Math.min(maxFrameHeight, Math.max(minFrameHeight", source)
+        self.assertIn("style:height", source)
+
+    def test_unadvertised_view_requests_receive_explicit_errors(self):
+        source = FRAME.read_text(encoding="utf-8")
+        self.assertIn("hostCapabilities: {", source)
+        self.assertNotIn("serverTools:", source)
+        self.assertNotIn("openLinks:", source)
+        self.assertIn("code: -32601", source)
+        self.assertIn("This host action is not available", source)
 
     def test_retry_control_does_not_collapse_on_narrow_viewports(self):
         source = FRAME.read_text(encoding="utf-8")

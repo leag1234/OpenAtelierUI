@@ -8,6 +8,8 @@
 		binding: string;
 		resource_uri: string;
 	};
+	export let toolInput: Record<string, unknown> = {};
+	export let toolResult: Record<string, unknown> = {};
 
 	let html = '';
 	let error = '';
@@ -15,7 +17,14 @@
 	let activeRequest: AbortController | null = null;
 	let requestGeneration = 0;
 	let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+	let iframeElement: HTMLIFrameElement | null = null;
+	let frameHeight = 256;
+	let initialized = false;
+	let hostRequestId = 1;
 	const appResourceTimeoutMs = 8_000;
+	const minFrameHeight = 160;
+	const maxFrameHeight = 800;
+	const mcpAppsProtocolVersion = '2026-01-26';
 	const appCSP =
 		"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
@@ -25,6 +34,99 @@
 			return source.replace(/<head([^>]*)>/i, `<head$1>${meta}`);
 		}
 		return `${meta}${source}`;
+	};
+
+	const postToView = (message: Record<string, unknown>) => {
+		iframeElement?.contentWindow?.postMessage(message, '*');
+	};
+
+	const sanitizedToolResult = () => {
+		const result = { ...toolResult };
+		if (result._meta && typeof result._meta === 'object') {
+			const metadata = { ...(result._meta as Record<string, unknown>) };
+			delete metadata.openatelier_mcp_app;
+			result._meta = metadata;
+		}
+		return result;
+	};
+
+	const respond = (id: unknown, result?: unknown, error?: { code: number; message: string }) => {
+		if (typeof id !== 'string' && typeof id !== 'number') {
+			return;
+		}
+		postToView(error ? { jsonrpc: '2.0', id, error } : { jsonrpc: '2.0', id, result });
+	};
+
+	const sendToolData = () => {
+		postToView({
+			jsonrpc: '2.0',
+			method: 'ui/notifications/tool-input',
+			params: { arguments: toolInput && typeof toolInput === 'object' ? toolInput : {} }
+		});
+		postToView({
+			jsonrpc: '2.0',
+			method: 'ui/notifications/tool-result',
+			params: sanitizedToolResult()
+		});
+	};
+
+	const handleViewMessage = (event: MessageEvent) => {
+		if (!iframeElement?.contentWindow || event.source !== iframeElement.contentWindow) {
+			return;
+		}
+		const message = event.data;
+		if (!message || typeof message !== 'object' || message.jsonrpc !== '2.0') {
+			return;
+		}
+		if (message.method === 'ui/initialize') {
+			const rect = iframeElement.getBoundingClientRect();
+			respond(message.id, {
+				protocolVersion: mcpAppsProtocolVersion,
+				hostCapabilities: {
+					sandbox: { permissions: {}, csp: { connectDomains: [], resourceDomains: [] } }
+				},
+				hostInfo: { name: 'OpenAtelierUI', version: '0.6.5' },
+				hostContext: {
+					theme: document.documentElement.classList.contains('dark') ? 'dark' : 'light',
+					displayMode: 'inline',
+					availableDisplayModes: ['inline'],
+					containerDimensions: { maxWidth: Math.round(rect.width), maxHeight: maxFrameHeight },
+					locale: navigator.language,
+					timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+					userAgent: navigator.userAgent,
+					platform: window.matchMedia('(max-width: 640px)').matches ? 'mobile' : 'web',
+					deviceCapabilities: {
+						touch: navigator.maxTouchPoints > 0,
+						hover: window.matchMedia('(hover: hover)').matches
+					}
+				}
+			});
+			return;
+		}
+		if (message.method === 'ui/notifications/initialized') {
+			if (!initialized) {
+				initialized = true;
+				sendToolData();
+			}
+			return;
+		}
+		if (message.method === 'ui/notifications/size-changed') {
+			const requested = Number(message.params?.height);
+			if (Number.isFinite(requested)) {
+				frameHeight = Math.min(maxFrameHeight, Math.max(minFrameHeight, Math.round(requested)));
+			}
+			return;
+		}
+		if (message.method === 'ping') {
+			respond(message.id, {});
+			return;
+		}
+		if ('id' in message) {
+			respond(message.id, undefined, {
+				code: -32601,
+				message: 'This host action is not available in the inline application.'
+			});
+		}
 	};
 
 	const clearRequestTimeout = () => {
@@ -98,8 +200,20 @@
 		}
 	};
 
-	onMount(load);
+	onMount(() => {
+		window.addEventListener('message', handleViewMessage);
+		load();
+	});
 	onDestroy(() => {
+		if (initialized) {
+			postToView({
+				jsonrpc: '2.0',
+				id: `host-${hostRequestId++}`,
+				method: 'ui/resource-teardown',
+				params: { reason: 'The inline application was removed.' }
+			});
+		}
+		window.removeEventListener('message', handleViewMessage);
 		requestGeneration += 1;
 		activeRequest?.abort();
 		activeRequest = null;
@@ -128,10 +242,12 @@
 		</div>
 	{:else}
 		<iframe
+			bind:this={iframeElement}
 			title="Interactive tool result"
 			sandbox="allow-scripts"
 			srcdoc={html}
-			class="block h-64 w-full border-0 bg-white"
+			style:height={`${frameHeight}px`}
+			class="block w-full border-0 bg-white"
 		></iframe>
 	{/if}
 </div>
