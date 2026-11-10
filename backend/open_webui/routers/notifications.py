@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2026 Gaël Duval
-"""Measured notification-target compatibility routes."""
+"""Measured notification-target and inbox compatibility routes."""
 
+import time
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict
 
 from open_webui.constants import ERROR_MESSAGES
@@ -30,6 +31,38 @@ class NotificationTargetForm(BaseModel):
     delivery: Optional[str] = None
     config: Optional[dict] = None
     model_config = ConfigDict(extra="ignore")
+
+
+@router.get("/inbox")
+async def get_inbox(
+    cursor: Optional[str] = Query(default=None, max_length=100),
+    limit: int = Query(default=20, ge=1, le=50),
+    user=Depends(get_verified_user),
+):
+    # Populated-item storage is intentionally not fabricated until a public
+    # producer exposes its item contract to the black-box qualification suite.
+    return {"items": [], "next_cursor": None}
+
+
+@router.get("/inbox/count")
+async def get_inbox_count(user=Depends(get_verified_user)):
+    return {"count": 0}
+
+
+@router.post("/inbox/open")
+async def open_inbox(user=Depends(get_verified_user)):
+    return {
+        "acknowledged_at": str(time.time_ns()),
+        "acknowledged_count": 0,
+        "count": 0,
+        "items": [],
+        "next_cursor": None,
+    }
+
+
+@router.patch("/inbox/{id}")
+async def read_inbox_item(id: str, user=Depends(get_verified_user)):
+    raise HTTPException(status_code=404, detail="Notification not found")
 
 
 def _available(request: Request) -> None:
