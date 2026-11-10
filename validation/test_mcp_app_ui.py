@@ -33,6 +33,10 @@ class MCPAppUITests(unittest.TestCase):
         self.assertIn("parsedResult?._meta?.openatelier_mcp_app", source)
         self.assertIn("<MCPAppFrame app={parsedResult._meta.openatelier_mcp_app} />", source)
 
+    def test_retry_control_does_not_collapse_on_narrow_viewports(self):
+        source = FRAME.read_text(encoding="utf-8")
+        self.assertIn("shrink-0 whitespace-nowrap", source)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

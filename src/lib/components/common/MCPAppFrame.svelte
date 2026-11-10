@@ -60,7 +60,7 @@
 			<span class="text-sm text-red-600 dark:text-red-400">{error}</span>
 			<button
 				type="button"
-				class="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
+				class="shrink-0 whitespace-nowrap rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
 				on:click={load}>Retry</button
 			>
 		</div>
