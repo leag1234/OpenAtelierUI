@@ -21,6 +21,7 @@ from open_webui.models.auths import (
     UserResponse,
 )
 from open_webui.models.users import Users
+from open_webui.models.mfa import get_mfa_credential, update_mfa_credential
 
 from open_webui.constants import ERROR_MESSAGES, WEBHOOK_MESSAGES
 from open_webui.env import (
@@ -35,12 +36,13 @@ from open_webui.env import (
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse, Response
 from open_webui.config import OPENID_PROVIDER_URL, ENABLE_OAUTH_SIGNUP, ENABLE_LDAP
-from pydantic import AliasChoices, BaseModel, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, SecretStr, model_validator
 from open_webui.utils.misc import parse_duration, validate_email_format
 from open_webui.utils.auth import (
     create_api_key,
     create_token,
     create_password_session_token,
+    decode_token,
     get_validated_session_context,
     is_validated_api_key_request,
     get_admin_user,
@@ -51,8 +53,22 @@ from open_webui.utils.auth import (
 from open_webui.utils.webhook import post_webhook
 from open_webui.utils.access_control import get_permissions, has_permission
 from open_webui.utils.imported_profile import user_profile_fields_enabled
+from open_webui.utils.mfa import (
+    MfaError,
+    consume_challenge,
+    consume_recovery_code,
+    decrypt_secret,
+    encrypt_secret,
+    issue_challenge,
+    new_recovery_codes,
+    new_totp_secret,
+    qr_code_data_uri,
+    validate_challenge,
+    verify_totp,
+)
 
-from typing import Optional, List
+from typing import Any, Literal, Optional, List
+from urllib.parse import urlsplit
 
 from ssl import CERT_REQUIRED, PROTOCOL_TLS
 
@@ -127,6 +143,72 @@ log.setLevel(SRC_LOG_LEVELS["MAIN"])
 class SessionUserResponse(Token, UserResponse):
     expires_at: Optional[int] = None
     permissions: Optional[dict] = None
+
+
+class MfaChallengeResponse(BaseModel):
+    next_step: Literal["enroll", "verify", "recover"]
+    challenge_token: str
+    expires_in: int
+
+
+class PendingUserResponse(BaseModel):
+    next_step: Literal["pending"] = "pending"
+
+
+class MfaStatusResponse(BaseModel):
+    enabled: bool
+    required: bool
+    recovery_codes_remaining: int
+
+
+class MfaChallengeForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    challenge_token: SecretStr = Field(min_length=20, max_length=160)
+
+
+class MfaVerifyForm(MfaChallengeForm):
+    code: SecretStr = Field(min_length=1, max_length=128)
+    recovery: bool = False
+
+
+class MfaFactorForm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: SecretStr = Field(min_length=1, max_length=128)
+    recovery: bool = False
+
+
+class MfaRecoveryForm(MfaChallengeForm):
+    reset_token: SecretStr = Field(min_length=20, max_length=160)
+
+
+class MfaSetupResponse(BaseModel):
+    manual_key: str
+    qr_code: str
+
+
+class MfaRecoveryCodesResponse(BaseModel):
+    recovery_codes: list[str]
+
+
+def _mfa_enrollment_json_schema(schema: dict):
+    permissions = schema.get("properties", {}).get("permissions", {})
+    for variant in permissions.get("anyOf", []):
+        if variant.get("type") == "object":
+            variant["additionalProperties"] = True
+
+
+class MfaEnrollmentResponse(BaseModel):
+    model_config = ConfigDict(json_schema_extra=_mfa_enrollment_json_schema)
+    id: str
+    name: str
+    role: str
+    email: str
+    profile_image_url: str
+    token: str
+    token_type: str
+    recovery_codes: list[str]
+    expires_at: Optional[int] = None
+    permissions: Optional[dict[str, Any]] = None
 
 
 class ImportedSessionUserResponse(SessionUserResponse):
@@ -230,7 +312,7 @@ async def delete_oauth_session_by_provider(
 
 @router.post(
     "/oauth/{provider}/token/exchange",
-    response_model=SessionUserResponse,
+    response_model=SessionUserResponse | MfaChallengeResponse | PendingUserResponse,
     description=(
         "Exchange an external OAuth provider token for an OpenWebUI JWT.\n"
         "This endpoint is disabled by default. Set ENABLE_OAUTH_TOKEN_EXCHANGE=True to enable."
@@ -265,8 +347,11 @@ async def get_session_user(
         expires_at = None
         if expires_delta:
             expires_at = int(time.time()) + int(expires_delta.total_seconds())
+        token_data = {"id": user.id}
+        if _mfa_required(request):
+            token_data.update({"auth_method": "mfa", "mfa_verified": True})
         token = create_token(
-            data={"id": user.id},
+            data=token_data,
             expires_delta=expires_delta,
         )
 
@@ -308,6 +393,221 @@ async def get_session_user(
             "date_of_birth": user.date_of_birth,
         })
     return result
+
+
+def _require_mfa_origin(request: Request):
+    origin = request.headers.get("origin")
+    host = request.headers.get("host")
+    try:
+        valid = bool(origin and host and urlsplit(origin).netloc == host)
+    except ValueError:
+        valid = False
+    if not valid:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Invalid request origin.")
+
+
+def _mfa_required(request: Request) -> bool:
+    return bool(getattr(request.app.state.config, "ENABLE_MFA", False))
+
+
+def _mfa_failure(detail="Invalid or already used code."):
+    raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=detail)
+
+
+def _validate_mfa_challenge(token: SecretStr, expected_step: str):
+    try:
+        return validate_challenge(token.get_secret_value(), expected_step)
+    except MfaError:
+        _mfa_failure("This authentication step expired. Please start again.")
+
+
+def _verify_mfa_factor(user_id: str, code: SecretStr, recovery: bool) -> bool:
+    value = code.get_secret_value()
+    if recovery:
+        return consume_recovery_code(user_id, value)
+    credential = get_mfa_credential(user_id)
+    if credential is None or not credential.secret:
+        return False
+    try:
+        secret = decrypt_secret(credential.secret)
+    except MfaError:
+        return False
+    return verify_totp(user_id, secret, value)
+
+
+def _issue_mfa_session(
+    request: Request,
+    response: Response,
+    user,
+    recovery_codes: Optional[list[str]] = None,
+):
+    expires_delta = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
+    expires_at = None
+    if expires_delta:
+        expires_at = int(time.time()) + int(expires_delta.total_seconds())
+    token = create_token(
+        data={"id": user.id, "auth_method": "mfa", "mfa_verified": True},
+        expires_delta=expires_delta,
+    )
+    datetime_expires_at = (
+        datetime.datetime.fromtimestamp(expires_at, datetime.timezone.utc)
+        if expires_at is not None
+        else None
+    )
+    response.set_cookie(
+        key="token",
+        value=token,
+        expires=datetime_expires_at,
+        httponly=True,
+        samesite=WEBUI_AUTH_COOKIE_SAME_SITE,
+        secure=WEBUI_AUTH_COOKIE_SECURE,
+    )
+    result = {
+        "token": token,
+        "token_type": "Bearer",
+        "expires_at": expires_at,
+        "id": user.id,
+        "email": user.email,
+        "name": user.name,
+        "role": user.role,
+        "profile_image_url": user.profile_image_url,
+        "permissions": get_permissions(
+            user.id, request.app.state.config.USER_PERMISSIONS
+        ),
+    }
+    if recovery_codes is not None:
+        result["recovery_codes"] = recovery_codes
+    return result
+
+
+@router.get("/mfa/status", response_model=MfaStatusResponse)
+async def get_mfa_status(request: Request, user=Depends(get_verified_user)):
+    credential = get_mfa_credential(user.id)
+    enabled = bool(credential and credential.secret)
+    return {
+        "enabled": enabled,
+        "required": _mfa_required(request),
+        "recovery_codes_remaining": len(credential.recovery_codes) if enabled else 0,
+    }
+
+
+@router.post("/mfa/challenge", response_model=MfaChallengeResponse)
+async def get_mfa_challenge(request: Request):
+    _require_mfa_origin(request)
+    raw = request.cookies.get("token")
+    if not raw:
+        authorization = request.headers.get("authorization", "")
+        if authorization.startswith("Bearer "):
+            raw = authorization[7:]
+    claims = decode_token(raw) if raw else None
+    if not claims or claims.get("mfa_pending") is not True:
+        _mfa_failure("This authentication step expired. Please start again.")
+    user_id = claims.get("id")
+    user = Users.get_user_by_id(user_id) if isinstance(user_id, str) else None
+    if user is None:
+        _mfa_failure("This authentication step expired. Please start again.")
+    credential = get_mfa_credential(user.id)
+    return issue_challenge(user.id, "verify" if credential and credential.secret else "enroll")
+
+
+@router.post("/mfa/enroll/start", response_model=MfaSetupResponse)
+async def start_mfa_enrollment(request: Request, form_data: MfaChallengeForm):
+    _require_mfa_origin(request)
+    user_id, _ = _validate_mfa_challenge(form_data.challenge_token, "enroll")
+    user = Users.get_user_by_id(user_id)
+    if user is None:
+        _mfa_failure("This authentication step expired. Please start again.")
+    secret = new_totp_secret()
+    update_mfa_credential(user_id, pending_secret=encrypt_secret(secret))
+    try:
+        qr_code = qr_code_data_uri(user.email, request.app.state.WEBUI_NAME, secret)
+    except MfaError as error:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)) from error
+    return {"manual_key": secret, "qr_code": qr_code}
+
+
+@router.post(
+    "/mfa/enroll/confirm",
+    response_model=MfaEnrollmentResponse | MfaRecoveryCodesResponse,
+)
+async def confirm_mfa_enrollment(
+    request: Request,
+    response: Response,
+    form_data: MfaVerifyForm,
+):
+    _require_mfa_origin(request)
+    user_id, credential = _validate_mfa_challenge(form_data.challenge_token, "enroll")
+    if credential.pending_secret is None:
+        _mfa_failure("This authentication step expired. Please start again.")
+    try:
+        secret = decrypt_secret(credential.pending_secret)
+    except MfaError:
+        _mfa_failure()
+    if form_data.recovery or not verify_totp(user_id, secret, form_data.code.get_secret_value()):
+        _mfa_failure()
+    codes, hashes = new_recovery_codes(user_id)
+    update_mfa_credential(
+        user_id,
+        secret=credential.pending_secret,
+        pending_secret=None,
+        recovery_codes=hashes,
+    )
+    consume_challenge(user_id)
+    user = Users.get_user_by_id(user_id)
+    if user is None:
+        _mfa_failure("This authentication step expired. Please start again.")
+    return _issue_mfa_session(request, response, user, codes)
+
+
+@router.post("/mfa/verify", response_model=SessionUserResponse)
+async def verify_mfa_challenge(
+    request: Request,
+    response: Response,
+    form_data: MfaVerifyForm,
+):
+    _require_mfa_origin(request)
+    user_id, _ = _validate_mfa_challenge(form_data.challenge_token, "verify")
+    if not _verify_mfa_factor(user_id, form_data.code, form_data.recovery):
+        _mfa_failure()
+    consume_challenge(user_id)
+    user = Users.get_user_by_id(user_id)
+    if user is None:
+        _mfa_failure("This authentication step expired. Please start again.")
+    return _issue_mfa_session(request, response, user)
+
+
+@router.post("/mfa/recovery/codes", response_model=MfaRecoveryCodesResponse)
+async def regenerate_mfa_recovery_codes(
+    request: Request,
+    form_data: MfaFactorForm,
+    user=Depends(get_verified_user),
+):
+    _require_mfa_origin(request)
+    if not _verify_mfa_factor(user.id, form_data.code, form_data.recovery):
+        _mfa_failure()
+    codes, hashes = new_recovery_codes(user.id)
+    update_mfa_credential(user.id, recovery_codes=hashes)
+    return {"recovery_codes": codes}
+
+
+@router.post("/mfa/replace", response_model=MfaChallengeResponse)
+async def start_mfa_replacement(
+    request: Request,
+    form_data: MfaFactorForm,
+    user=Depends(get_verified_user),
+):
+    _require_mfa_origin(request)
+    if not _verify_mfa_factor(user.id, form_data.code, form_data.recovery):
+        _mfa_failure()
+    update_mfa_credential(user.id, pending_secret=None)
+    return issue_challenge(user.id, "enroll")
+
+
+@router.post("/mfa/recover", response_model=MfaChallengeResponse)
+async def redeem_mfa_reset_token(request: Request, form_data: MfaRecoveryForm):
+    _require_mfa_origin(request)
+    _validate_mfa_challenge(form_data.challenge_token, "recover")
+    _mfa_failure("This authentication step expired. Please start again.")
 
 
 ############################
@@ -390,7 +690,10 @@ async def update_password(
 ############################
 # LDAP Authentication
 ############################
-@router.post("/ldap", response_model=SessionUserResponse)
+@router.post(
+    "/ldap",
+    response_model=SessionUserResponse | MfaChallengeResponse | PendingUserResponse,
+)
 async def ldap_auth(request: Request, response: Response, form_data: LdapForm):
     ENABLE_LDAP = request.app.state.config.ENABLE_LDAP
     LDAP_SERVER_LABEL = request.app.state.config.LDAP_SERVER_LABEL
@@ -515,6 +818,13 @@ async def ldap_auth(request: Request, response: Response, form_data: LdapForm):
             user = Auths.authenticate_user_by_trusted_header(email)
 
             if user:
+                if _mfa_required(request):
+                    response.delete_cookie("token")
+                    credential = get_mfa_credential(user.id)
+                    return issue_challenge(
+                        user.id,
+                        "verify" if credential and credential.secret else "enroll",
+                    )
                 token = create_token(
                     data={"id": user.id},
                     expires_delta=parse_duration(
@@ -606,7 +916,10 @@ def _trusted_header_user(request):
     return Auths.authenticate_user_by_trusted_header(email)
 
 
-@router.post("/signin", response_model=SessionUserResponse)
+@router.post(
+    "/signin",
+    response_model=SessionUserResponse | MfaChallengeResponse | PendingUserResponse,
+)
 async def signin(request: Request, response: Response, form_data: SigninForm):
     password_authenticated = False
     if WEBUI_AUTH_TRUSTED_EMAIL_HEADER:
@@ -646,6 +959,14 @@ async def signin(request: Request, response: Response, form_data: SigninForm):
         password_authenticated = True
 
     if user:
+
+        if _mfa_required(request):
+            response.delete_cookie("token")
+            credential = get_mfa_credential(user.id)
+            return issue_challenge(
+                user.id,
+                "verify" if credential and credential.secret else "enroll",
+            )
 
         expires_delta = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
         password_session = (
@@ -704,7 +1025,10 @@ async def signin(request: Request, response: Response, form_data: SigninForm):
 ############################
 
 
-@router.post("/signup", response_model=SessionUserResponse)
+@router.post(
+    "/signup",
+    response_model=SessionUserResponse | MfaChallengeResponse | PendingUserResponse,
+)
 async def signup(request: Request, response: Response, form_data: SignupForm):
 
     if WEBUI_AUTH:
@@ -756,6 +1080,10 @@ async def signup(request: Request, response: Response, form_data: SignupForm):
         )
 
         if user:
+            if _mfa_required(request):
+                response.delete_cookie("token")
+                return issue_challenge(user.id, "enroll")
+
             expires_delta = parse_duration(request.app.state.config.JWT_EXPIRES_IN)
             expires_at = None
             if expires_delta:

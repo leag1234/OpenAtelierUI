@@ -133,6 +133,7 @@ from open_webui.utils.imported_profile import (
     user_profile_fields_enabled,
     validate_prepared_user_profile_schema,
 )
+from open_webui.utils.mfa import validate_mfa_storage
 
 from open_webui.models.functions import Functions
 from open_webui.models.models import Models
@@ -140,6 +141,7 @@ from open_webui.models.users import UserModel, Users
 from open_webui.models.chats import Chats
 
 from open_webui.config import (
+    ENABLE_PERSISTENT_CONFIG,
     # Ollama
     ENABLE_OLLAMA_API,
     OLLAMA_BASE_URLS,
@@ -315,6 +317,7 @@ from open_webui.config import (
     JWT_EXPIRES_IN,
     ENABLE_SIGNUP,
     ENABLE_LOGIN_FORM,
+    ENABLE_MFA,
     ENABLE_API_KEY,
     ENABLE_API_KEY_ENDPOINT_RESTRICTIONS,
     API_KEY_ALLOWED_ENDPOINTS,
@@ -506,6 +509,12 @@ https://github.com/leag1234/OpenAtelierUI
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     start_logger()
+    if app.state.config.ENABLE_MFA:
+        if not WEBUI_AUTH or not ENABLE_PERSISTENT_CONFIG:
+            raise RuntimeError(
+                "ENABLE_MFA requires WEBUI_AUTH and ENABLE_PERSISTENT_CONFIG"
+            )
+        validate_mfa_storage()
     if user_profile_fields_enabled():
         validate_prepared_user_profile_schema(engine)
     if RESET_CONFIG_ON_START:
@@ -636,6 +645,7 @@ app.state.config.SUBAGENTS_SYSTEM_PROMPT = SUBAGENTS_SYSTEM_PROMPT
 app.state.config.WEBUI_URL = WEBUI_URL
 app.state.config.ENABLE_SIGNUP = ENABLE_SIGNUP
 app.state.config.ENABLE_LOGIN_FORM = ENABLE_LOGIN_FORM
+app.state.config.ENABLE_MFA = ENABLE_MFA
 
 app.state.config.ENABLE_API_KEY = ENABLE_API_KEY
 app.state.config.ENABLE_API_KEY_ENDPOINT_RESTRICTIONS = (

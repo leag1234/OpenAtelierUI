@@ -940,6 +940,12 @@ ENABLE_LOGIN_FORM = PersistentConfig(
     os.environ.get("ENABLE_LOGIN_FORM", "True").lower() == "true",
 )
 
+ENABLE_MFA = PersistentConfig(
+    "ENABLE_MFA",
+    "auth.mfa.enabled",
+    os.environ.get("ENABLE_MFA", "False").lower() == "true",
+)
+
 
 DEFAULT_LOCALE = PersistentConfig(
     "DEFAULT_LOCALE",

@@ -244,6 +244,7 @@ def _install_session_user_route(namespace):
             "get_permissions": lambda *_args: {},
             "WEBUI_AUTH_COOKIE_SAME_SITE": "lax",
             "WEBUI_AUTH_COOKIE_SECURE": False,
+            "_mfa_required": lambda _request: False,
         }
     )
     selected = _function_nodes(route_path, {"get_session_user"})
@@ -285,6 +286,9 @@ def _install_password_signin_route(namespace, *, user, authenticated_user=None):
             "HTTPException": HTTPError,
             "time": time,
             "datetime": __import__("datetime"),
+            "_mfa_required": lambda _request: False,
+            "get_mfa_credential": lambda _user_id: None,
+            "issue_challenge": lambda _user_id, _step: None,
         }
     )
     selected = _function_nodes(route_path, {"signin", "_trusted_header_user"})

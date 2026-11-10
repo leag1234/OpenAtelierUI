@@ -112,11 +112,15 @@ def make_auth():
             "HTTPException": HTTPError,
             "bearer_security": object(),
             "Users": users,
+            "_VALIDATED_API_KEY_STATE_ATTRIBUTE": "_validated_api_key",
+            "_VALIDATED_API_KEY_STATE_MARKER": object(),
+            "_VALIDATED_SESSION_STATE_ATTRIBUTE": "_validated_session",
             "_session_epochs_enabled": lambda: False,
             "ERROR_MESSAGES": messages,
             "status": status,
             "decode_token": lambda token: {
                 "owner-token": {"id": "owner"},
+                "owner-mfa-token": {"id": "owner", "mfa_verified": True},
                 "member-token": {"id": "member"},
                 "admin-token": {"id": "admin"},
                 "missing-user-token": {"id": "not-present"},
@@ -128,6 +132,27 @@ def make_auth():
 
 
 class MissingCredentialStatusTests(unittest.TestCase):
+    def test_mfa_mode_rejects_legacy_session_without_verified_factor(self):
+        auth, owner, *_ = make_auth()
+        current_user = auth["get_current_user"]
+        request = _request()
+        request.app.state.config.ENABLE_MFA = True
+        with self.assertRaises(HTTPError) as caught:
+            current_user(
+                request,
+                BackgroundTasks(),
+                Credentials("Bearer", "owner-token"),
+            )
+        self.assertEqual(caught.exception.status_code, 401)
+        self.assertIs(
+            current_user(
+                request,
+                BackgroundTasks(),
+                Credentials("Bearer", "owner-mfa-token"),
+            ),
+            owner,
+        )
+
     def test_missing_and_empty_bearer_without_cookie_are_401(self):
         auth, *_ = make_auth()
         current_user = auth["get_current_user"]

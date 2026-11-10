@@ -353,6 +353,14 @@ def get_current_user(
         )
 
     if data is not None and "id" in data:
+        if (
+            getattr(request.app.state.config, "ENABLE_MFA", False)
+            and data.get("mfa_verified") is not True
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token",
+            )
         if _session_epochs_enabled():
             if "typ" in data and data["typ"] != "session":
                 raise HTTPException(
