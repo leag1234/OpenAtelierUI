@@ -100,7 +100,9 @@ class CommentTable:
             total = base.count()
             query = base
             if anchored:
-                query = query.filter(Comment.meta.isnot(None))
+                query = query.filter(
+                    Comment.target_type.isnot(None), Comment.target_id.isnot(None)
+                )
             if cursor:
                 try:
                     timestamp, comment_id = cursor.split(":", 1)

@@ -24,7 +24,6 @@ from open_webui.utils.auth import get_verified_user
 router = APIRouter()
 ResourceType = Literal["model", "knowledge", "prompt", "skill", "tool", "note", "chat"]
 TargetType = Literal["note_page", "chat_message"]
-NOT_FOUND = "We could not find what you're looking for :/"
 
 
 class CommentAnchor(BaseModel):
@@ -67,8 +66,12 @@ class ReactionForm(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
 
-def _missing():
-    return HTTPException(status_code=404, detail=NOT_FOUND)
+def _missing_comment():
+    return HTTPException(status_code=404, detail="Comment not found")
+
+
+def _missing_resource():
+    return HTTPException(status_code=404, detail="Resource not found")
 
 
 def _enabled(request):
@@ -129,7 +132,7 @@ def _can(resource_type, resource, user, permission="read"):
 def _resource_for(resource_type, resource_id, user, permission="read"):
     resource = _resource_object(resource_type, resource_id)
     if resource is None or not _can(resource_type, resource, user, permission):
-        raise _missing()
+        raise _missing_resource()
     return resource
 
 
@@ -188,7 +191,7 @@ def _response(comment, user):
 def _comment_for(comment_id, user):
     comment = Comments.get(comment_id)
     if comment is None:
-        raise _missing()
+        raise _missing_comment()
     _resource_for(comment.resource_type, comment.resource_id, user)
     return comment
 
@@ -289,7 +292,7 @@ async def edit(request: Request, id: str, form_data: CommentUpdateForm, user=Dep
     if error == "conflict":
         raise HTTPException(status_code=409, detail="Comment changed. Reload before editing.")
     if updated is None:
-        raise _missing()
+        raise _missing_comment()
     return _response(updated, user)
 
 
@@ -308,7 +311,7 @@ async def remove(
     if error == "conflict":
         raise HTTPException(status_code=409, detail="Comment changed. Reload before deleting.")
     if error == "missing":
-        raise _missing()
+        raise _missing_comment()
     return True
 
 
@@ -333,11 +336,11 @@ async def reply(request: Request, id: str, form_data: CommentReplyForm, user=Dep
     parent = _comment_for(id, user)
     _enabled(request)
     if parent.deleted_at is not None:
-        raise _missing()
+        raise _missing_comment()
     if form_data.reply_to_id:
         target = Comments.get(form_data.reply_to_id)
         if target is None or target.parent_id != id:
-            raise _missing()
+            raise _missing_comment()
     comment = Comments.create(user.id, form_data, parent=parent)
     if comment is None:
         raise HTTPException(status_code=409, detail="Comment already exists")
@@ -349,7 +352,7 @@ async def add_reaction(request: Request, id: str, form_data: ReactionForm, user=
     comment = _comment_for(id, user)
     _enabled(request)
     if comment.deleted_at is not None:
-        raise _missing()
+        raise _missing_comment()
     return Comments.add_reaction(id, user.id, form_data.name)
 
 
@@ -363,5 +366,5 @@ async def remove_reaction(
     comment = _comment_for(id, user)
     _enabled(request)
     if comment.deleted_at is not None:
-        raise _missing()
+        raise _missing_comment()
     return Comments.remove_reaction(id, user.id, name)

@@ -126,6 +126,7 @@ def test_replies_reactions_and_pagination_are_bounded(monkeypatch):
 
 def test_temp_identity_and_anchor_projection(monkeypatch):
     module = _comments_model(monkeypatch)
+    module.Comments.create("owner", _form(content="Unanchored"))
     anchor = SimpleNamespace(model_dump=lambda: {"quote": "Synthetic", "start": 0, "end": 9})
     comment = module.Comments.create(
         "owner",
@@ -139,7 +140,7 @@ def test_temp_identity_and_anchor_projection(monkeypatch):
     assert comment.id == "00000000-0000-4000-8000-000000000052"
     assert comment.meta == {"anchor": {"quote": "Synthetic", "start": 0, "end": 9}}
     anchored, total, _ = module.Comments.list_roots("chat", "chat-1", anchored=True)
-    assert [item.id for item in anchored] == [comment.id] and total == 1
+    assert [item.id for item in anchored] == [comment.id] and total == 2
 
 
 def test_public_forms_and_route_inventory(monkeypatch):
