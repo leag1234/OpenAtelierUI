@@ -19,6 +19,11 @@ class MCPAppUITests(unittest.TestCase):
         self.assertIn("authorization: `Bearer ${token}`", source)
         self.assertIn("/mcp/app/rpc", source)
 
+    def test_rpc_forwards_an_optional_abort_signal(self):
+        source = API.read_text(encoding="utf-8")
+        self.assertIn("signal?: AbortSignal", source)
+        self.assertIn("signal\n", source)
+
     def test_renderer_is_unique_origin_and_blocks_network_by_default(self):
         source = FRAME.read_text(encoding="utf-8")
         self.assertIn('sandbox="allow-scripts"', source)
@@ -35,7 +40,20 @@ class MCPAppUITests(unittest.TestCase):
 
     def test_retry_control_does_not_collapse_on_narrow_viewports(self):
         source = FRAME.read_text(encoding="utf-8")
-        self.assertIn("shrink-0 whitespace-nowrap", source)
+        self.assertEqual(source.count("shrink-0 whitespace-nowrap"), 2)
+
+    def test_resource_load_can_be_cancelled_and_ignores_late_responses(self):
+        source = FRAME.read_text(encoding="utf-8")
+        self.assertIn("new AbortController()", source)
+        self.assertIn("controller.signal", source)
+        self.assertIn("generation !== requestGeneration", source)
+        self.assertIn("on:click={cancelLoad}>Cancel", source)
+        self.assertIn("onDestroy(() =>", source)
+
+    def test_resource_load_has_a_bounded_timeout(self):
+        source = FRAME.read_text(encoding="utf-8")
+        self.assertIn("const appResourceTimeoutMs = 30_000", source)
+        self.assertIn("The interactive tool result timed out.", source)
 
 
 if __name__ == "__main__":

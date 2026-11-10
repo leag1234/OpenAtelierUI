@@ -74,7 +74,8 @@ export const callMCPAppRPC = async (
 		binding: string;
 		method: 'tools/call' | 'resources/read' | 'resources/list' | 'ui/resource';
 		params: Record<string, unknown>;
-	}
+	},
+	signal?: AbortSignal
 ) => {
 	const response = await fetch(
 		`${WEBUI_API_BASE_URL}/tools/id/${encodeURIComponent(serverId)}/mcp/app/rpc`,
@@ -85,7 +86,8 @@ export const callMCPAppRPC = async (
 				'Content-Type': 'application/json',
 				authorization: `Bearer ${token}`
 			},
-			body: JSON.stringify(request)
+			body: JSON.stringify(request),
+			signal
 		}
 	);
 	const payload = await response.json().catch(() => ({}));
