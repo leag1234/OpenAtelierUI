@@ -15,7 +15,7 @@
 	let activeRequest: AbortController | null = null;
 	let requestGeneration = 0;
 	let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-	const appResourceTimeoutMs = 20_000;
+	const appResourceTimeoutMs = 8_000;
 	const appCSP =
 		"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 

@@ -576,6 +576,11 @@ async def mcp_app_rpc(
         raise HTTPException(status_code=422, detail=str(error)) from None
     try:
         result = await call_mcp_method(connection, form_data.method, params)
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail="Interactive tool server timed out.",
+        ) from None
     except ValueError as error:
         raise HTTPException(status_code=502, detail=str(error)) from None
     return shape_mcp_app_result(form_data.method, result)

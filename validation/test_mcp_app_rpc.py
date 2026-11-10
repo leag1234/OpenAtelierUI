@@ -254,13 +254,17 @@ class MCPAppRouteTests(unittest.IsolatedAsyncioTestCase):
         self.calls = []
         self.resolved = (_connection(), "synthetic")
         self.binding_valid = True
+        self.call_error = None
 
         async def call(connection, method, params):
             self.calls.append((connection, method, params))
+            if self.call_error is not None:
+                raise self.call_error
             return {"resources": []}
 
         namespace = {
             "Request": object,
+            "asyncio": asyncio,
             "MCPAppRPCForm": object,
             "Depends": lambda dependency: dependency,
             "get_verified_user": lambda: None,
@@ -327,6 +331,18 @@ class MCPAppRouteTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(forged.exception.status_code, 403)
         self.assertEqual(self.calls, [])
+
+    async def test_upstream_timeout_is_a_clear_gateway_timeout(self):
+        self.call_error = asyncio.TimeoutError()
+        with self.assertRaises(RouteHTTPException) as timed_out:
+            await self.route(
+                self.request(),
+                "server:mcp:synthetic",
+                self.form(),
+                SimpleNamespace(id="owner", role="user"),
+            )
+        self.assertEqual(timed_out.exception.status_code, 504)
+        self.assertEqual(timed_out.exception.detail, "Interactive tool server timed out.")
 
 
 if __name__ == "__main__":
