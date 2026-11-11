@@ -99,7 +99,7 @@ def build_archive(
     layers = [layer_one, layer_two]
     diff_ids = ["sha256:" + hashlib.sha256(payload).hexdigest() for payload in layers]
     layer_names = (
-        ["blobs/sha256/" + digest.removeprefix("sha256:") for digest in diff_ids]
+        ["blobs/sha256/" + digest.split(":", 1)[1] for digest in diff_ids]
         if oci_blob_paths
         else [f"layer-{index}/layer.tar" for index in range(len(layers))]
     )
