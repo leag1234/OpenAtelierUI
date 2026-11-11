@@ -18,3 +18,9 @@ binary or container distribution.
 The container build writes the deterministic frontend package inventory and
 bundled license/notice texts to
 `/opt/openatelierui/THIRD_PARTY_NOTICES.frontend.txt`.
+
+The browser Python bundle also carries exact, hash-verified license texts for
+Pyodide 0.27.3, CPython 3.12.7 and OpenBLAS 0.3.26 under
+`/pyodide/licenses/`. The Pyodide npm package declares Apache-2.0 while the
+official Pyodide repository tag carries MPL-2.0; both facts are retained for
+human legal review rather than silently resolved by this project.

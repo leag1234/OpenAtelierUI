@@ -16,8 +16,27 @@ const packages = [
 ];
 
 import { loadPyodide } from 'pyodide';
+import { createHash } from 'crypto';
 import { setGlobalDispatcher, ProxyAgent } from 'undici';
-import { writeFile, readFile, copyFile, readdir, rmdir } from 'fs/promises';
+import { writeFile, readFile, copyFile, readdir, rmdir, mkdir } from 'fs/promises';
+
+const licenseDocuments = [
+	{
+		source: 'licenses/third-party/PYODIDE-0.27.3-LICENSE.txt',
+		target: 'PYODIDE-0.27.3-LICENSE.txt',
+		sha256: '1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5'
+	},
+	{
+		source: 'licenses/third-party/CPYTHON-3.12.7-LICENSE.txt',
+		target: 'CPYTHON-3.12.7-LICENSE.txt',
+		sha256: '3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf'
+	},
+	{
+		source: 'licenses/third-party/OPENBLAS-0.3.26-LICENSE.txt',
+		target: 'OPENBLAS-0.3.26-LICENSE.txt',
+		sha256: '190b5a9c8d9723fe958ad33916bd7346d96fab3c5ea90832bb02d854f620fcff'
+	}
+];
 
 /**
  * Loading network proxy configurations from the environment variables.
@@ -115,6 +134,20 @@ async function copyPyodide() {
 	}
 }
 
+async function copyPyodideLicenseBundle() {
+	const targetDirectory = 'static/pyodide/licenses';
+	await mkdir(targetDirectory, { recursive: true });
+	for (const document of licenseDocuments) {
+		const content = await readFile(document.source);
+		const actual = createHash('sha256').update(content).digest('hex');
+		if (actual !== document.sha256) {
+			throw new Error(`${document.source}: expected SHA-256 ${document.sha256}, got ${actual}`);
+		}
+		await copyFile(document.source, `${targetDirectory}/${document.target}`);
+	}
+}
+
 initNetworkProxyFromEnv();
 await downloadPackages();
 await copyPyodide();
+await copyPyodideLicenseBundle();
