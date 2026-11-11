@@ -25,6 +25,9 @@ MAX_LAYERS = 128
 MAX_JSON_MEMBERS = 32
 MAX_JSON_BYTES = 16 * 1024 * 1024
 MAX_TOTAL_JSON_BYTES = 32 * 1024 * 1024
+MAX_BUFFERED_MEMBERS = 256
+MAX_BUFFERED_BYTES = 64 * 1024 * 1024
+MAX_LAYER_OPERATIONS = 65_536
 MAX_REQUIRED_FILE_BYTES = 64 * 1024 * 1024
 CHUNK_BYTES = 1024 * 1024
 
@@ -107,11 +110,25 @@ def _remove_selected(state: dict[str, dict[str, Any]], target: str) -> None:
             del state[path]
 
 
-def _apply_layer(
-    layer_file: BinaryIO, state: dict[str, dict[str, Any]]
-) -> tuple[str, int, int]:
+def _affects_required_path(target: str) -> bool:
+    prefix = target.rstrip("/") + "/"
+    return any(path == target or path.startswith(prefix) for path in REQUIRED_PATHS)
+
+
+def _scan_layer(
+    layer_file: BinaryIO,
+) -> tuple[str, int, int, list[dict[str, Any]]]:
     reader = HashingReader(layer_file)
     member_count = 0
+    operations: list[dict[str, Any]] = []
+
+    def append_operation(operation: dict[str, Any]) -> None:
+        operations.append(operation)
+        if len(operations) > MAX_LAYER_OPERATIONS:
+            raise VerificationError(
+                "layer_operation_limit", f"more than {MAX_LAYER_OPERATIONS} operations"
+            )
+
     try:
         with tarfile.open(fileobj=reader, mode="r|*") as layer:
             for member in layer:
@@ -125,17 +142,14 @@ def _apply_layer(
                 parent = posixpath.dirname(path)
                 if basename == ".wh..wh..opq":
                     if not parent:
-                        state.clear()
-                    else:
-                        for selected in list(state):
-                            if selected.startswith(parent.rstrip("/") + "/"):
-                                del state[selected]
+                        append_operation({"action": "clear"})
+                    elif _affects_required_path(parent):
+                        append_operation({"action": "opaque", "path": parent})
                     continue
                 if basename.startswith(".wh."):
-                    _remove_selected(
-                        state,
-                        posixpath.join(parent, basename[len(".wh.") :]),
-                    )
+                    target = posixpath.join(parent, basename[len(".wh.") :])
+                    if _affects_required_path(target):
+                        append_operation({"action": "remove", "path": target})
                     continue
                 if path not in REQUIRED_PATHS:
                     continue
@@ -145,36 +159,91 @@ def _apply_layer(
                         if isinstance(member.type, bytes)
                         else str(member.type)
                     )
-                    state[path] = {"type": "unsafe", "kind": member_kind}
+                    append_operation(
+                        {
+                            "action": "set",
+                            "path": path,
+                            "item": {"type": "unsafe", "kind": member_kind},
+                        }
+                    )
                     continue
                 if member.size <= 0 or member.size > MAX_REQUIRED_FILE_BYTES:
-                    state[path] = {"type": "invalid_size", "bytes": member.size}
+                    append_operation(
+                        {
+                            "action": "set",
+                            "path": path,
+                            "item": {"type": "invalid_size", "bytes": member.size},
+                        }
+                    )
                     continue
                 extracted = layer.extractfile(member)
                 if extracted is None:
-                    state[path] = {"type": "unreadable"}
+                    append_operation(
+                        {
+                            "action": "set",
+                            "path": path,
+                            "item": {"type": "unreadable"},
+                        }
+                    )
                     continue
                 payload = extracted.read(MAX_REQUIRED_FILE_BYTES + 1)
                 if len(payload) != member.size:
-                    state[path] = {
-                        "type": "size_mismatch",
-                        "declared_bytes": member.size,
-                        "read_bytes": len(payload),
-                    }
+                    append_operation(
+                        {
+                            "action": "set",
+                            "path": path,
+                            "item": {
+                                "type": "size_mismatch",
+                                "declared_bytes": member.size,
+                                "read_bytes": len(payload),
+                            },
+                        }
+                    )
                     continue
-                state[path] = {
-                    "type": "file",
-                    "bytes": len(payload),
-                    "sha256": hashlib.sha256(payload).hexdigest(),
-                    "mode": stat.S_IMODE(member.mode),
-                    "prefix": payload[:4096],
-                }
+                append_operation(
+                    {
+                        "action": "set",
+                        "path": path,
+                        "item": {
+                            "type": "file",
+                            "bytes": len(payload),
+                            "sha256": hashlib.sha256(payload).hexdigest(),
+                            "mode": stat.S_IMODE(member.mode),
+                            "prefix": payload[:4096],
+                        },
+                    }
+                )
     except tarfile.TarError as exc:
         raise VerificationError("invalid_layer_tar", str(exc)) from exc
 
     while reader.read(CHUNK_BYTES):
         pass
-    return "sha256:" + reader.digest.hexdigest(), reader.bytes_read, member_count
+    return (
+        "sha256:" + reader.digest.hexdigest(),
+        reader.bytes_read,
+        member_count,
+        operations,
+    )
+
+
+def _apply_layer_operations(
+    operations: list[dict[str, Any]], state: dict[str, dict[str, Any]]
+) -> None:
+    for operation in operations:
+        action = operation["action"]
+        if action == "clear":
+            state.clear()
+        elif action == "opaque":
+            parent = operation["path"].rstrip("/") + "/"
+            for selected in list(state):
+                if selected.startswith(parent):
+                    del state[selected]
+        elif action == "remove":
+            _remove_selected(state, operation["path"])
+        elif action == "set":
+            state[operation["path"]] = operation["item"]
+        else:  # pragma: no cover - operations are created internally
+            raise VerificationError("invalid_layer_operation", str(action))
 
 
 def _hash_file(path: Path) -> tuple[str, int]:
@@ -293,12 +362,10 @@ def verify_archive(
     if hashed_identity != initial_identity:
         raise VerificationError("archive_changed_during_hash", str(archive))
 
-    state: dict[str, dict[str, Any]] = {}
-    json_members: dict[str, bytes] = {}
-    layer_results: list[dict[str, Any]] = []
+    buffered_members: dict[str, bytes] = {}
     seen_outer: set[str] = set()
     outer_count = 0
-    json_total_bytes = 0
+    buffered_total_bytes = 0
     try:
         with tarfile.open(archive, mode="r|gz") as outer:
             for member in outer:
@@ -316,35 +383,23 @@ def verify_archive(
                 extracted = outer.extractfile(member)
                 if extracted is None:
                     raise VerificationError("unreadable_outer_member", path)
-                if path == "manifest.json" or path.endswith(".json"):
-                    if len(json_members) >= MAX_JSON_MEMBERS:
+                is_named_json = path == "manifest.json" or path.endswith(".json")
+                if is_named_json and (member.size <= 0 or member.size > MAX_JSON_BYTES):
+                    raise VerificationError("json_member_size_limit", path)
+                if 0 < member.size <= MAX_JSON_BYTES:
+                    if len(buffered_members) >= MAX_BUFFERED_MEMBERS:
                         raise VerificationError(
-                            "json_member_count_limit", str(MAX_JSON_MEMBERS)
+                            "buffered_member_count_limit", str(MAX_BUFFERED_MEMBERS)
                         )
-                    if member.size <= 0 or member.size > MAX_JSON_BYTES:
-                        raise VerificationError("json_member_size_limit", path)
-                    json_total_bytes += member.size
-                    if json_total_bytes > MAX_TOTAL_JSON_BYTES:
+                    buffered_total_bytes += member.size
+                    if buffered_total_bytes > MAX_BUFFERED_BYTES:
                         raise VerificationError(
-                            "json_total_size_limit", str(json_total_bytes)
+                            "buffered_member_size_limit", str(buffered_total_bytes)
                         )
-                    payload = extracted.read(MAX_JSON_BYTES + 1)
+                    payload = extracted.read(member.size + 1)
                     if len(payload) != member.size:
-                        raise VerificationError("json_member_size_mismatch", path)
-                    json_members[path] = payload
-                    continue
-                if path.endswith(".tar"):
-                    if len(layer_results) >= MAX_LAYERS:
-                        raise VerificationError("layer_count_limit", str(MAX_LAYERS))
-                    digest, layer_bytes, members = _apply_layer(extracted, state)
-                    layer_results.append(
-                        {
-                            "path": path,
-                            "diff_id": digest,
-                            "bytes": layer_bytes,
-                            "members": members,
-                        }
-                    )
+                        raise VerificationError("buffered_member_size_mismatch", path)
+                    buffered_members[path] = payload
     except (tarfile.ReadError, EOFError, OSError) as exc:
         raise VerificationError("invalid_gzip_docker_archive", str(exc)) from exc
 
@@ -358,7 +413,7 @@ def verify_archive(
     if final_identity != initial_identity:
         raise VerificationError("archive_changed_during_scan", str(archive))
 
-    manifest_payload = json_members.get("manifest.json")
+    manifest_payload = buffered_members.get("manifest.json")
     if manifest_payload is None:
         raise VerificationError("missing_manifest", "manifest.json")
     manifest = _json_member(manifest_payload, "manifest.json")
@@ -376,18 +431,25 @@ def verify_archive(
         raise VerificationError("invalid_manifest_layers", "non-string layer")
     if not 1 <= len(declared_layers) <= MAX_LAYERS:
         raise VerificationError("layer_count_limit", str(len(declared_layers)))
-    actual_layers = [item["path"] for item in layer_results]
-    if actual_layers != declared_layers:
-        raise VerificationError(
-            "layer_order_mismatch",
-            f"declared={len(declared_layers)} streamed={len(actual_layers)}",
-        )
+    normalized_layers = [_safe_member_path(item) for item in declared_layers]
+    if normalized_layers != declared_layers or len(set(declared_layers)) != len(
+        declared_layers
+    ):
+        raise VerificationError("invalid_manifest_layers", "unsafe or duplicate layer")
+    missing_layers = [path for path in declared_layers if path not in seen_outer]
+    if missing_layers:
+        raise VerificationError("missing_declared_layer", missing_layers[0])
 
-    config_payload = json_members.get(config_path)
+    config_path = _safe_member_path(config_path)
+    config_payload = buffered_members.get(config_path)
     if config_payload is None:
         raise VerificationError("missing_configuration", config_path)
     config_sha256 = hashlib.sha256(config_payload).hexdigest()
-    expected_config_name = config_sha256 + ".json"
+    expected_config_name = (
+        config_sha256
+        if config_path.startswith("blobs/sha256/")
+        else config_sha256 + ".json"
+    )
     if posixpath.basename(config_path) != expected_config_name:
         raise VerificationError("configuration_digest_mismatch", config_path)
     config = _json_member(config_payload, config_path)
@@ -401,9 +463,49 @@ def verify_archive(
         isinstance(item, str) for item in diff_ids
     ):
         raise VerificationError("invalid_rootfs_diff_ids", "missing or malformed")
+
+    layer_by_path: dict[str, dict[str, Any]] = {}
+    declared_layer_set = set(declared_layers)
+    try:
+        with tarfile.open(archive, mode="r|gz") as outer:
+            for member in outer:
+                path = _safe_member_path(member.name)
+                if path not in declared_layer_set:
+                    continue
+                if not member.isfile():
+                    raise VerificationError("unsafe_declared_layer", path)
+                extracted = outer.extractfile(member)
+                if extracted is None:
+                    raise VerificationError("unreadable_declared_layer", path)
+                digest, layer_bytes, members, operations = _scan_layer(extracted)
+                layer_by_path[path] = {
+                    "path": path,
+                    "diff_id": digest,
+                    "bytes": layer_bytes,
+                    "members": members,
+                    "operations": operations,
+                }
+    except (tarfile.ReadError, EOFError, OSError) as exc:
+        raise VerificationError("invalid_gzip_docker_archive", str(exc)) from exc
+
+    layer_scan_stat = archive.lstat()
+    layer_scan_identity = (
+        layer_scan_stat.st_dev,
+        layer_scan_stat.st_ino,
+        layer_scan_stat.st_size,
+        layer_scan_stat.st_mtime_ns,
+    )
+    if layer_scan_identity != initial_identity:
+        raise VerificationError("archive_changed_during_layer_scan", str(archive))
+
+    layer_results = [layer_by_path[path] for path in declared_layers]
     measured_diff_ids = [item["diff_id"] for item in layer_results]
     if measured_diff_ids != diff_ids:
         raise VerificationError("layer_digest_mismatch", "rootfs diff_ids")
+
+    state: dict[str, dict[str, Any]] = {}
+    for layer in layer_results:
+        _apply_layer_operations(layer["operations"], state)
 
     image_config = config.get("config")
     if not isinstance(image_config, dict):

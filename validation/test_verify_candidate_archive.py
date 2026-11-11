@@ -66,6 +66,7 @@ def build_archive(
     wrong_diff_id: bool = False,
     image_count: int = 1,
     source_root: Path = ROOT,
+    oci_blob_paths: bool = False,
 ) -> None:
     first_entries = required_entries(source_root)
     if mutate_entries is not None:
@@ -88,8 +89,12 @@ def build_archive(
         ]
     )
     layers = [layer_one, layer_two]
-    layer_names = [f"layer-{index}/layer.tar" for index in range(len(layers))]
     diff_ids = ["sha256:" + hashlib.sha256(payload).hexdigest() for payload in layers]
+    layer_names = (
+        ["blobs/sha256/" + digest.removeprefix("sha256:") for digest in diff_ids]
+        if oci_blob_paths
+        else [f"layer-{index}/layer.tar" for index in range(len(layers))]
+    )
     if wrong_diff_id:
         diff_ids[-1] = "sha256:" + "0" * 64
     config = {
@@ -107,7 +112,12 @@ def build_archive(
         "rootfs": {"type": "layers", "diff_ids": diff_ids},
     }
     config_payload = json.dumps(config, sort_keys=True).encode()
-    config_name = hashlib.sha256(config_payload).hexdigest() + ".json"
+    config_digest = hashlib.sha256(config_payload).hexdigest()
+    config_name = (
+        "blobs/sha256/" + config_digest
+        if oci_blob_paths
+        else config_digest + ".json"
+    )
     if wrong_config_name:
         config_name = "0" * 64 + ".json"
     manifest_entry = {
@@ -116,12 +126,15 @@ def build_archive(
         "Layers": layer_names,
     }
     manifest = [manifest_entry for _ in range(image_count)]
-    with tarfile.open(path, mode="w:gz") as outer:
-        for name, payload in [
+    members = [
             (config_name, config_payload),
             *zip(layer_names, layers),
             ("manifest.json", json.dumps(manifest).encode()),
-        ]:
+        ]
+    if oci_blob_paths:
+        members = sorted(members[:-1]) + members[-1:]
+    with tarfile.open(path, mode="w:gz") as outer:
+        for name, payload in members:
             info = tarfile.TarInfo(name)
             info.mode = 0o444
             info.size = len(payload)
@@ -174,6 +187,37 @@ class CandidateArchiveVerifierTests(unittest.TestCase):
             REVISION,
         )
         self.assertTrue(result["archive"]["unchanged_during_scan"])
+
+    def test_oci_blob_layers_before_manifest_are_verified_in_declared_order(self):
+        build_archive(self.archive, oci_blob_paths=True)
+        result = verifier.verify_archive(self.archive, ROOT, REVISION)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["image"]["layer_count"], 2)
+        self.assertEqual(
+            result["image"]["rootfs_diff_ids"],
+            [
+                "sha256:" + hashlib.sha256(payload).hexdigest()
+                for payload in [
+                    tar_bytes(required_entries(ROOT)),
+                    tar_bytes(
+                        [
+                            (
+                                "usr/local/bin/.wh.openatelierui-restore-v0113",
+                                b"",
+                                0o000,
+                                "file",
+                            ),
+                            (
+                                "usr/local/bin/openatelierui-restore-v0113",
+                                (ROOT / "packaging/openatelierui-restore-v0113").read_bytes(),
+                                0o555,
+                                "file",
+                            ),
+                        ]
+                    ),
+                ]
+            ],
+        )
 
     def test_wrong_revision_is_refused(self):
         build_archive(self.archive, revision="2" * 40)
