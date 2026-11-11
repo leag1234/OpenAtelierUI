@@ -234,6 +234,11 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
             ("note-two", "u1", "Private reminder", None, "null", 1700000002, 1700000003, 1),
         ])
         self.assertTrue(list(self.root.glob("convert-target.source-archive-*/source.sqlite")))
+        archive = next(self.root.glob("convert-target.source-archive-*/source.sqlite"))
+        self.assertEqual(archive.read_bytes(), source_before)
+        core_report = json.loads((self.root / "convert-workspace" / "core-convert.json").read_text())
+        self.assertTrue(core_report["archive"]["exact_full_source_copy"])
+        self.assertEqual(core_report["archive"]["source_sqlite_sha256"], hashlib.sha256(source_before).hexdigest())
         self.assertEqual((self.root / "convert-workspace" / "source.sqlite").read_bytes(), source_before)
         self.assertEqual((self.source.read_bytes(), (self.uploads / "f1_synthetic.html").read_bytes(), self.template.read_bytes()),
                          (source_before, upload_before, template_before))

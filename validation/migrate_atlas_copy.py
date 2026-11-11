@@ -121,6 +121,51 @@ def _copy_uploads(source_root, destination_root, expected):
     return total, digest
 
 
+def _promote_full_source_archive(core_report, full_source, source_hash):
+    """Replace the trimmed core snapshot with the exact coordinator input."""
+    archive = core_report.get("archive")
+    if not isinstance(archive, dict) or not archive.get("path"):
+        raise Refusal("core_archive_missing")
+    archive_source = Path(archive["path"]) / str(archive.get("source_sqlite", "source.sqlite"))
+    expected_stage_hash = archive.get("source_sqlite_sha256")
+    if not archive_source.is_file() or _hash(archive_source) != expected_stage_hash:
+        raise Refusal("core_archive_mismatch")
+    archive_attempt = archive_source.with_name(".full-source.sqlite.attempt")
+    if archive_attempt.exists() or archive_attempt.is_symlink():
+        raise Refusal("core_archive_attempt_exists")
+    _copy_regular(full_source, archive_attempt, core.MAX_DATABASE_BYTES)
+    os.replace(archive_attempt, archive_source)
+    if _hash(archive_source) != source_hash:
+        raise Refusal("full_source_archive_hash_mismatch")
+    archive.update({
+        "core_staging_source_sha256": expected_stage_hash,
+        "source_sqlite_sha256": source_hash,
+        "exact_full_source_copy": True,
+    })
+    target_report = Path(core_report["target_dir"]) / "report.json"
+    report_attempt = target_report.with_name(".report.json.attempt")
+    try:
+        if report_attempt.exists() or report_attempt.is_symlink():
+            raise Refusal("core_report_attempt_exists")
+        published = json.loads(target_report.read_text(encoding="utf-8"))
+        published["archive"] = archive
+        published["coordinator_full_source"] = {
+            "bytes": Path(full_source).stat().st_size,
+            "sha256": source_hash,
+            "copy_only": True,
+        }
+        report_attempt.write_text(
+            json.dumps(published, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        os.chmod(report_attempt, 0o600)
+        os.replace(report_attempt, target_report)
+    except Refusal:
+        raise
+    except (OSError, ValueError, KeyError, TypeError):
+        raise Refusal("core_report_update_failed") from None
+
+
 def _new_directory(value):
     path = Path(value)
     if not path.is_absolute() or ".." in path.parts or path.exists() or path.is_symlink():
@@ -317,6 +362,7 @@ def run(mode, source_db, uploads_root, template_path, workspace_dir, target_dir=
                                       runtime_data_root=runtime_data_root,
                                       include_history_sidecar=include_history_sidecar,
                                       archive_unsupported_domains=True, **flags)
+            _promote_full_source_archive(core_report, full_source, source_hash)
             app_db = target / "webui.db"
             if notes_map:
                 merged = target / ".webui-notes-merged.db"
