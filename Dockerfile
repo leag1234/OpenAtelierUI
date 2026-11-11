@@ -175,10 +175,12 @@ COPY --chown=$UID:$GID ./packaging/start-with-atlas.sh /opt/openatelier/start-wi
 COPY --chown=$UID:$GID ./validation/migrate_atlas_copy.py /opt/openatelierui/migration/migrate_copy.py
 COPY --chown=$UID:$GID ./validation/migrate_sqlite.py /opt/openatelierui/migration/migrate_sqlite.py
 COPY --chown=$UID:$GID ./validation/import_private_notes.py /opt/openatelierui/migration/import_private_notes.py
+COPY --chown=$UID:$GID ./validation/restore_v0113_archive.py /opt/openatelierui/migration/restore_archive.py
 COPY --chown=$UID:$GID ./validation/fixtures /opt/openatelierui/migration/fixtures
 COPY --chown=$UID:$GID ./backend/open_webui/utils/imported_history.py /opt/openatelierui/backend/open_webui/utils/imported_history.py
 COPY --chown=$UID:$GID ./backend/open_webui/config.py /opt/openatelierui/backend/open_webui/config.py
 COPY --chown=$UID:$GID ./packaging/openatelierui-migrate-v0113 /usr/local/bin/openatelierui-migrate-v0113
+COPY --chown=$UID:$GID ./packaging/openatelierui-restore-v0113 /usr/local/bin/openatelierui-restore-v0113
 
 RUN migration_tmp="$(mktemp -d)" && \
     mkdir -p /opt/openatelierui/migration-template && \
@@ -189,7 +191,7 @@ RUN migration_tmp="$(mktemp -d)" && \
     python3 -c "import open_webui.config" && \
     cp "${migration_tmp}/webui.db" /opt/openatelierui/migration-template/webui.db && \
     chmod 0444 /opt/openatelierui/migration-template/webui.db && \
-    chmod 0555 /usr/local/bin/openatelierui-migrate-v0113 && \
+    chmod 0555 /usr/local/bin/openatelierui-migrate-v0113 /usr/local/bin/openatelierui-restore-v0113 && \
     rm -rf "${migration_tmp}"
 
 EXPOSE 8080

@@ -449,9 +449,13 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
         stage.close()
 
     def test_converted_target_can_be_started_as_the_direct_data_copy(self):
-        with sqlite3.connect(self.template) as db:
+        db = sqlite3.connect(self.template)
+        try:
             db.execute('DROP TABLE auth')
             db.execute('CREATE TABLE auth(id TEXT NOT NULL PRIMARY KEY, email TEXT, password TEXT, active INTEGER)')
+            db.commit()
+        finally:
+            db.close()
         result = self._run("convert", "handoff")
         target = self.root / "handoff-target"
         self.assertTrue(result["ok"], result)

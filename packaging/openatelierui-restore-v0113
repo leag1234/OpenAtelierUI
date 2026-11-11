@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec python3 -B /opt/openatelierui/migration/restore_archive.py "$@"
