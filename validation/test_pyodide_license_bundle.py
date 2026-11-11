@@ -29,6 +29,14 @@ class PyodideLicenseBundleTests(unittest.TestCase):
         self.assertIn("official Pyodide repository tag carries MPL-2.0", notice)
         self.assertIn("/pyodide/licenses/", notice)
 
+    def test_frontend_notice_is_built_as_a_public_static_resource(self):
+        dockerfile = (ROOT / "Dockerfile").read_text()
+        public_path = "static/legal/THIRD_PARTY_NOTICES.frontend.txt"
+        built_path = "/app/build/legal/THIRD_PARTY_NOTICES.frontend.txt"
+        self.assertIn(public_path, dockerfile)
+        self.assertIn(built_path, dockerfile)
+        self.assertLess(dockerfile.index(public_path), dockerfile.index("npm run build"))
+
 
 if __name__ == "__main__":
     unittest.main()

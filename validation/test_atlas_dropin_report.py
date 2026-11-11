@@ -104,6 +104,11 @@ class AtlasDropInReportTests(unittest.TestCase):
         self.assertFalse(ns["spa_fallback_allowed"]("api/v1/unknown"))
         self.assertTrue(ns["spa_fallback_allowed"]("c/synthetic-chat"))
         self.assertFalse(ns["spa_fallback_allowed"]("_app/example.js"))
+        self.assertFalse(
+            ns["spa_fallback_allowed"]("legal/THIRD_PARTY_NOTICES.frontend.txt")
+        )
+        self.assertFalse(ns["spa_fallback_allowed"]("legal/missing.txt"))
+        self.assertFalse(ns["spa_fallback_allowed"]("pyodide/licenses/missing.txt"))
         main_source = MAIN.read_text(encoding="utf-8")
         self.assertIn("if NOTES_COMPAT_ENABLED:", main_source)
         self.assertIn("if TERMINAL_COMPAT_ENABLED:", main_source)

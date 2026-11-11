@@ -31,10 +31,11 @@ RUN CYPRESS_INSTALL_BINARY=0 npm ci --no-audit --no-fund
 COPY . .
 ARG BUILD_HASH
 ENV APP_BUILD_HASH=${BUILD_HASH}
-RUN npm run build && \
+RUN mkdir -p static/legal && \
     node scripts/generate-third-party-notices.mjs \
       --node-modules node_modules \
-      --output /app/THIRD_PARTY_NOTICES.frontend.txt
+      --output static/legal/THIRD_PARTY_NOTICES.frontend.txt && \
+    npm run build
 
 ######## WebUI backend ########
 FROM python:3.11-slim-bookworm AS base
@@ -169,7 +170,7 @@ COPY --chown=$UID:$GID --from=build /app/package.json /app/package.json
 # copy backend files
 COPY --chown=$UID:$GID ./backend .
 COPY --chown=$UID:$GID ./LICENSE ./NOTICE ./PROVENANCE.md /opt/openatelierui/
-COPY --chown=$UID:$GID --from=build /app/THIRD_PARTY_NOTICES.frontend.txt /opt/openatelierui/
+COPY --chown=$UID:$GID --from=build /app/build/legal/THIRD_PARTY_NOTICES.frontend.txt /opt/openatelierui/
 COPY --chown=$UID:$GID ./packaging/start-with-atlas.sh /opt/openatelier/start-with-atlas.sh
 COPY --chown=$UID:$GID ./validation/migrate_atlas_copy.py /opt/openatelierui/migration/migrate_copy.py
 COPY --chown=$UID:$GID ./validation/migrate_sqlite.py /opt/openatelierui/migration/migrate_sqlite.py

@@ -479,7 +479,13 @@ JsonObject = Annotated[
 
 
 def spa_fallback_allowed(path):
-    return not (path == "api" or path.startswith("api/") or path.endswith(".js"))
+    return not (
+        path == "api"
+        or path.startswith("api/")
+        or path.startswith("legal/")
+        or path.startswith("pyodide/licenses/")
+        or path.endswith(".js")
+    )
 
 
 class SPAStaticFiles(StaticFiles):
@@ -489,7 +495,8 @@ class SPAStaticFiles(StaticFiles):
         except (HTTPException, StarletteHTTPException) as ex:
             if ex.status_code == 404:
                 if not spa_fallback_allowed(path):
-                    # API and JavaScript requests must never receive the HTML shell.
+                    # API, JavaScript, and redistributed legal resources must never
+                    # receive the HTML shell when the requested file is absent.
                     raise ex
                 else:
                     return await super().get_response("index.html", scope)
