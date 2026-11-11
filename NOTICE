@@ -20,7 +20,9 @@ bundled license/notice texts to
 `/opt/openatelierui/THIRD_PARTY_NOTICES.frontend.txt`.
 
 The browser Python bundle also carries exact, hash-verified license texts for
-Pyodide 0.27.3, CPython 3.12.7 and OpenBLAS 0.3.26 under
-`/pyodide/licenses/`. The Pyodide npm package declares Apache-2.0 while the
-official Pyodide repository tag carries MPL-2.0; both facts are retained for
-human legal review rather than silently resolved by this project.
+Pyodide 0.27.3, its Apache-2.0 JavaScript package, CPython 3.12.7 and OpenBLAS
+0.3.26 under `/pyodide/licenses/`. The exact Pyodide source tag declares the
+overall project under MPL-2.0 and its JavaScript package under Apache-2.0. An
+immutable source notice binds tag `0.27.3` to commit
+`584d055066f1a94bae719a7e5752c314c04e7858`. Every bundled component retains
+its own license; none is relicensed as BSD-3-Clause by this project.

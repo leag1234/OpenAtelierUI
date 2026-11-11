@@ -1,0 +1,30 @@
+Pyodide 0.27.3 source availability
+==================================
+
+OpenAtelierUI distributes the published Pyodide 0.27.3 browser runtime as a
+third-party component. OpenAtelierUI itself remains licensed under
+BSD-3-Clause. Pyodide and every embedded dependency retain their own licenses.
+
+Exact upstream source
+---------------------
+
+Project: Pyodide
+Version: 0.27.3
+Git commit: 584d055066f1a94bae719a7e5752c314c04e7858
+Tag: https://github.com/pyodide/pyodide/tree/0.27.3
+Immutable source archive:
+https://github.com/pyodide/pyodide/archive/584d055066f1a94bae719a7e5752c314c04e7858.tar.gz
+
+License scope
+-------------
+
+The Pyodide project source tag and project documentation declare MPL-2.0. The
+same source tag declares the JavaScript package in src/js/package.json as
+Apache-2.0. The bundled CPython runtime, OpenBLAS library and Python wheels
+retain their respective licenses. The accompanying license and notice files do
+not relicense any component.
+
+OpenAtelierUI does not patch upstream Pyodide source files. Its build copies
+the published 0.27.3 runtime and adds separately maintained package selection,
+lock data and license evidence. If OpenAtelierUI later modifies an MPL-covered
+Pyodide source file, that modified file must remain available under MPL-2.0.

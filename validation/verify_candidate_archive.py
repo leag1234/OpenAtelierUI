@@ -44,6 +44,12 @@ SOURCE_COPIES = {
     "app/build/pyodide/licenses/PYODIDE-0.27.3-LICENSE.txt": (
         "licenses/third-party/PYODIDE-0.27.3-LICENSE.txt"
     ),
+    "app/build/pyodide/licenses/PYODIDE-JS-APACHE-2.0-LICENSE.txt": (
+        "licenses/third-party/PYODIDE-JS-APACHE-2.0-LICENSE.txt"
+    ),
+    "app/build/pyodide/licenses/PYODIDE-0.27.3-SOURCE.txt": (
+        "licenses/third-party/PYODIDE-0.27.3-SOURCE.txt"
+    ),
     "app/build/pyodide/licenses/CPYTHON-3.12.7-LICENSE.txt": (
         "licenses/third-party/CPYTHON-3.12.7-LICENSE.txt"
     ),

@@ -27,6 +27,16 @@ const licenseDocuments = [
 		sha256: '1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5'
 	},
 	{
+		source: 'licenses/third-party/PYODIDE-JS-APACHE-2.0-LICENSE.txt',
+		target: 'PYODIDE-JS-APACHE-2.0-LICENSE.txt',
+		sha256: 'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30'
+	},
+	{
+		source: 'licenses/third-party/PYODIDE-0.27.3-SOURCE.txt',
+		target: 'PYODIDE-0.27.3-SOURCE.txt',
+		sha256: 'de0695eeb599bb6a99d65284499cc6385bd6372624a43d16f75be8f8ae7fe8a6'
+	},
+	{
 		source: 'licenses/third-party/CPYTHON-3.12.7-LICENSE.txt',
 		target: 'CPYTHON-3.12.7-LICENSE.txt',
 		sha256: '3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf'
