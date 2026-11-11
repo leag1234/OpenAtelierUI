@@ -31,7 +31,8 @@ RUN CYPRESS_INSTALL_BINARY=0 npm ci --no-audit --no-fund
 COPY . .
 ARG BUILD_HASH
 ENV APP_BUILD_HASH=${BUILD_HASH}
-RUN mkdir -p static/legal && \
+RUN node --test validation/test_third_party_notices.mjs && \
+    mkdir -p static/legal && \
     node scripts/generate-third-party-notices.mjs \
       --node-modules node_modules \
       --output static/legal/THIRD_PARTY_NOTICES.frontend.txt && \

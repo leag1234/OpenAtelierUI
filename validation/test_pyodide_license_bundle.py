@@ -45,6 +45,7 @@ class PyodideLicenseBundleTests(unittest.TestCase):
         dockerfile = (ROOT / "Dockerfile").read_text()
         public_path = "static/legal/THIRD_PARTY_NOTICES.frontend.txt"
         built_path = "/app/build/legal/THIRD_PARTY_NOTICES.frontend.txt"
+        self.assertIn("node --test validation/test_third_party_notices.mjs", dockerfile)
         self.assertIn(public_path, dockerfile)
         self.assertIn(built_path, dockerfile)
         self.assertLess(dockerfile.index(public_path), dockerfile.index("npm run build"))
