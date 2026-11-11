@@ -137,6 +137,11 @@ def _scan_layer(
                     raise VerificationError(
                         "layer_member_limit", f"more than {MAX_LAYER_MEMBERS} members"
                     )
+                raw_path = member.name
+                while raw_path.startswith("./"):
+                    raw_path = raw_path[2:]
+                if raw_path in {"", "."} and member.isdir():
+                    continue
                 path = _safe_member_path(member.name)
                 basename = posixpath.basename(path)
                 parent = posixpath.dirname(path)

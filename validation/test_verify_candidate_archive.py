@@ -22,9 +22,16 @@ ROOT = Path(__file__).resolve().parents[1]
 REVISION = "1" * 40
 
 
-def tar_bytes(entries: list[tuple[str, bytes, int, str]]) -> bytes:
+def tar_bytes(
+    entries: list[tuple[str, bytes, int, str]], *, root_directory: bool = False
+) -> bytes:
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w") as archive:
+        if root_directory:
+            root = tarfile.TarInfo(".")
+            root.mode = 0o755
+            root.type = tarfile.DIRTYPE
+            archive.addfile(root)
         for path, payload, mode, kind in entries:
             info = tarfile.TarInfo(path)
             info.mode = mode
@@ -67,11 +74,12 @@ def build_archive(
     image_count: int = 1,
     source_root: Path = ROOT,
     oci_blob_paths: bool = False,
+    layer_root_directory: bool = False,
 ) -> None:
     first_entries = required_entries(source_root)
     if mutate_entries is not None:
         first_entries = mutate_entries(first_entries)
-    layer_one = tar_bytes(first_entries)
+    layer_one = tar_bytes(first_entries, root_directory=layer_root_directory)
     layer_two = tar_bytes(
         [
             (
@@ -218,6 +226,20 @@ class CandidateArchiveVerifierTests(unittest.TestCase):
                 ]
             ],
         )
+
+    def test_layer_root_directory_entry_is_accepted(self):
+        build_archive(self.archive, oci_blob_paths=True, layer_root_directory=True)
+        result = verifier.verify_archive(self.archive, ROOT, REVISION)
+        self.assertTrue(result["ok"])
+
+    def test_layer_root_file_entry_is_refused(self):
+        def mutate(entries):
+            return [(".", b"not a directory", 0o444, "file"), *entries]
+
+        build_archive(self.archive, mutate_entries=mutate)
+        with self.assertRaises(verifier.VerificationError) as caught:
+            verifier.verify_archive(self.archive, ROOT, REVISION)
+        self.assertEqual(caught.exception.reason, "unsafe_member_path")
 
     def test_wrong_revision_is_refused(self):
         build_archive(self.archive, revision="2" * 40)
