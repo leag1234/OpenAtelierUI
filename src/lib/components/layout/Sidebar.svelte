@@ -664,8 +664,8 @@
 					}, 0);
 				}}
 			>
-				<div class="flex items-center">
-					<div class="self-center mx-1.5">
+				<div id="sidebar-branding-row" class="flex min-w-0 items-center gap-1 whitespace-nowrap">
+					<div class="mx-1.5 flex shrink-0 items-center gap-1 self-center whitespace-nowrap">
 						<img
 							crossorigin="anonymous"
 							src="{WEBUI_BASE_URL}/static/favicon.png"
@@ -806,19 +806,34 @@
 				</Folder>
 			{/if}
 
-            <div class="mx-3 mt-3 flex items-center justify-between text-xs font-medium text-gray-500">
-                <span>{$i18n.t('Chats')}</span>
-                <button type="button" aria-label={$i18n.t('New Folder')} class="rounded-lg p-2" on:click={() => createFolder()}>⋯</button>
-            </div>
+			{#if !search && folders}
+				<Folder
+					id="folders-section"
+					className="px-2 mt-0.5"
+					name={$i18n.t('Folders')}
+					onAdd={() => createFolder()}
+					onAddLabel={$i18n.t('New Folder')}
+				>
+					<Folders
+						{folders}
+						on:import={(e) => {
+							const { folderId, items } = e.detail;
+							importChatHandler(items, false, folderId);
+						}}
+						on:update={async () => {
+							initChatList();
+						}}
+						on:change={async () => {
+							initChatList();
+						}}
+					/>
+				</Folder>
+			{/if}
 
 			<Folder
 				collapsible={false}
 				className="px-2 mt-0.5"
 				name={$i18n.t('Chats')}
-				onAdd={() => {
-					createFolder();
-				}}
-				onAddLabel={$i18n.t('New Folder')}
 				on:import={(e) => {
 					importChatHandler(e.detail);
 				}}
@@ -948,22 +963,6 @@
 							</div>
 						</Folder>
 					</div>
-				{/if}
-
-				{#if !search && folders}
-					<Folders
-						{folders}
-						on:import={(e) => {
-							const { folderId, items } = e.detail;
-							importChatHandler(items, false, folderId);
-						}}
-						on:update={async (e) => {
-							initChatList();
-						}}
-						on:change={async () => {
-							initChatList();
-						}}
-					/>
 				{/if}
 
 				<div class=" flex-1 flex flex-col overflow-y-auto scrollbar-hidden">

@@ -471,7 +471,7 @@
 			</div>
 		</div>
 
-		<div class="w-full min-w-0 {transparentBackground ? 'bg-transparent' : 'bg-white dark:bg-gray-900'} ">
+		<div class="w-full min-w-0 bg-transparent">
 			<div
 				class="{($settings?.widescreenMode ?? null)
 					? 'max-w-full'
@@ -521,7 +521,7 @@
 						/>
 					{:else}
 						<form
-							class="w-full flex gap-1.5"
+							class="w-full flex flex-col items-stretch gap-1.5"
 							on:submit|preventDefault={() => {
 								// check if selectedModels support image input
 								dispatch('submit', prompt);

@@ -57,12 +57,17 @@ class AccessibleControlsTests(unittest.TestCase):
         self.assertIn("aria-label={$i18n.t('Language')}", general)
         self.assertIn("aria-label={$i18n.t('Close')}", settings)
 
-    def test_narrow_chat_header_keeps_temporary_chat_accessible_without_wrapping(self):
+    def test_narrow_chat_header_reserves_space_for_title_and_primary_actions(self):
         source = NAVBAR.read_text(encoding="utf-8")
         self.assertIn('aria-label={$i18n.t(\'Temporary Chat\')}', source)
-        self.assertIn('<EyeSlash className="size-5 md:hidden" />', source)
-        self.assertIn('class="hidden whitespace-nowrap md:inline"', source)
+        temporary = source.index('id="temporary-chat-button"')
+        temporary_context = source[temporary : temporary + 500]
+        self.assertIn("hidden", temporary_context)
+        self.assertIn("md:flex", temporary_context)
         self.assertIn('class="min-w-0 flex-1 overflow-hidden', source)
+        self.assertIn('class="truncate text-left" title={title}', source)
+        self.assertIn('id="sidebar-toggle-button"', source)
+        self.assertIn('id="new-chat-button"', source)
 
 
 if __name__ == "__main__":

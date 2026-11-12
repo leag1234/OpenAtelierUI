@@ -26,7 +26,6 @@
 	import UserMenu from '$lib/components/layout/Sidebar/UserMenu.svelte';
 	import MenuLines from '../icons/MenuLines.svelte';
 	import AdjustmentsHorizontal from '../icons/AdjustmentsHorizontal.svelte';
-	import EyeSlash from '../icons/EyeSlash.svelte';
 
 	import PencilSquare from '../icons/PencilSquare.svelte';
 	import Banner from '../common/Banner.svelte';
@@ -91,18 +90,25 @@
 				</div>
 
 				<div class="self-start flex flex-none items-center text-gray-600 dark:text-gray-400">
-                    {#if !$user?.permissions?.chat?.temporary_enforced && ($user?.role === 'admin' || ($user?.permissions?.chat?.temporary ?? true))}
-                        <button id="temporary-chat-button" type="button" aria-label={$i18n.t('Temporary Chat')} aria-pressed={$temporaryChatEnabled}
-                            class="flex flex-none items-center rounded-xl px-2 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-850"
-                            on:click={async () => {
-                                temporaryChatEnabled.set(!$temporaryChatEnabled);
-                                await initNewChat();
-                                const url = new URL(window.location.href);
-                                if ($temporaryChatEnabled) url.searchParams.set('temporary-chat', 'true');
-                                else url.searchParams.delete('temporary-chat');
-                                window.history.replaceState(window.history.state, '', url);
-                            }}><EyeSlash className="size-5 md:hidden" /><span class="hidden whitespace-nowrap md:inline">{$i18n.t('Temporary Chat')}</span></button>
-                    {/if}
+					{#if !$user?.permissions?.chat?.temporary_enforced && ($user?.role === 'admin' || ($user?.permissions?.chat?.temporary ?? true))}
+						<button
+							id="temporary-chat-button"
+							type="button"
+							aria-label={$i18n.t('Temporary Chat')}
+							aria-pressed={$temporaryChatEnabled}
+							class="hidden flex-none items-center rounded-xl px-2 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-850 md:flex"
+							on:click={async () => {
+								temporaryChatEnabled.set(!$temporaryChatEnabled);
+								await initNewChat();
+								const url = new URL(window.location.href);
+								if ($temporaryChatEnabled) url.searchParams.set('temporary-chat', 'true');
+								else url.searchParams.delete('temporary-chat');
+								window.history.replaceState(window.history.state, '', url);
+							}}
+						>
+							<span class="whitespace-nowrap">{$i18n.t('Temporary Chat')}</span>
+						</button>
+					{/if}
 
 					<!-- <div class="md:hidden flex self-center w-[1px] h-5 mx-2 bg-gray-300 dark:bg-stone-700" /> -->
 					{#if shareEnabled && chat && (chat.id || $temporaryChatEnabled)}
@@ -120,7 +126,7 @@
 							<button
 								{...builder}
 								use:builder.action
-								class="flex cursor-pointer px-2 py-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-850 transition"
+								class="hidden cursor-pointer px-2 py-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-850 transition md:flex"
 								id="chat-context-menu-button"
 								type="button"
 								aria-label={$i18n.t('Controls')}
@@ -147,7 +153,7 @@
 
 					<Tooltip content={$i18n.t('Controls')}>
 						<button
-							class=" flex cursor-pointer px-2 py-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-850 transition"
+							class="hidden cursor-pointer px-2 py-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-850 transition md:flex"
 							on:click={async () => {
 								await showControls.set(!$showControls);
 							}}
@@ -188,7 +194,7 @@
 							<button
 								{...builder}
 								use:builder.action
-								class="select-none flex rounded-xl p-1.5 w-full hover:bg-gray-50 dark:hover:bg-gray-850 transition"
+								class="hidden select-none rounded-xl p-1.5 w-full hover:bg-gray-50 dark:hover:bg-gray-850 transition"
 								aria-haspopup="menu"
 								aria-label={$i18n.t('User menu')}
 							>
