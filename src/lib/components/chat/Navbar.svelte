@@ -43,6 +43,7 @@
 
 	let showShareChatModal = false;
 	let showDownloadChatModal = false;
+	$: v0113Compatibility = $config?.compatibility_profile !== 'native';
 </script>
 
 <ShareChatModal bind:show={showShareChatModal} chatId={$chatId} />
@@ -82,7 +83,7 @@
 					{:else if title}
 						<div class="truncate text-left" title={title}>{title}</div>
 					{/if}
-					{#if $temporaryChatEnabled}
+					{#if !v0113Compatibility && $temporaryChatEnabled}
 						<span class="mt-0.5 inline-flex w-fit rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
 							{$i18n.t('Temporary Chat')}
 						</span>
@@ -90,7 +91,7 @@
 				</div>
 
 				<div class="self-start flex flex-none items-center text-gray-600 dark:text-gray-400">
-					{#if !$user?.permissions?.chat?.temporary_enforced && ($user?.role === 'admin' || ($user?.permissions?.chat?.temporary ?? true))}
+					{#if !v0113Compatibility && !$user?.permissions?.chat?.temporary_enforced && ($user?.role === 'admin' || ($user?.permissions?.chat?.temporary ?? true))}
 						<button
 							id="temporary-chat-button"
 							type="button"
@@ -151,19 +152,21 @@
 						</Menu>
 					{/if}
 
-					<Tooltip content={$i18n.t('Controls')}>
-						<button
-							class="hidden cursor-pointer px-2 py-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-850 transition md:flex"
-							on:click={async () => {
-								await showControls.set(!$showControls);
-							}}
-							aria-label={$i18n.t('Controls')}
-						>
-							<div class=" m-auto self-center">
-								<AdjustmentsHorizontal className=" size-5" strokeWidth="0.5" />
-							</div>
-						</button>
-					</Tooltip>
+					{#if !v0113Compatibility}
+						<Tooltip content={$i18n.t('Controls')}>
+							<button
+								class="hidden cursor-pointer px-2 py-2 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-850 transition md:flex"
+								on:click={async () => {
+									await showControls.set(!$showControls);
+								}}
+								aria-label={$i18n.t('Controls')}
+							>
+								<div class=" m-auto self-center">
+									<AdjustmentsHorizontal className=" size-5" strokeWidth="0.5" />
+								</div>
+							</button>
+						</Tooltip>
+					{/if}
 
 					<Tooltip content={$i18n.t('New Chat')}>
 						<button

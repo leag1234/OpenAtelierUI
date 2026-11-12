@@ -93,11 +93,17 @@ class AtlasDropInReportTests(unittest.TestCase):
     def test_default_feature_activation_matches_existing_integration_inputs(self):
         ns = extracted_functions(
             MAIN,
-            {"notes_compat_enabled", "terminal_compat_enabled", "spa_fallback_allowed"},
+            {
+                "environment_flag_enabled",
+                "notes_compat_enabled",
+                "terminal_compat_enabled",
+                "spa_fallback_allowed",
+            },
             {},
         )
         self.assertTrue(ns["notes_compat_enabled"]({}))
         self.assertFalse(ns["notes_compat_enabled"]({"OPENATELIER_PRIVATE_NOTES_COMPAT": "0"}))
+        self.assertFalse(ns["notes_compat_enabled"]({"ENABLE_NOTES": "False"}))
         self.assertTrue(ns["terminal_compat_enabled"]({"TERMINAL_SERVER_CONNECTIONS": "[]"}))
         self.assertTrue(ns["terminal_compat_enabled"]({}))
         self.assertFalse(ns["terminal_compat_enabled"]({"OPENATELIER_TERMINAL_DOWNLOAD_COMPAT": "0"}))
@@ -113,7 +119,7 @@ class AtlasDropInReportTests(unittest.TestCase):
         self.assertIn("if NOTES_COMPAT_ENABLED:", main_source)
         self.assertIn("if TERMINAL_COMPAT_ENABLED:", main_source)
         self.assertIn("if not spa_fallback_allowed(path):", main_source)
-        self.assertIn('.get("OPENATELIER_PRIVATE_NOTES_COMPAT", "1") != "0"', NOTES.read_text(encoding="utf-8"))
+        self.assertIn('environ.get("ENABLE_NOTES")', main_source)
 
     def model_routes(self, static_dir):
         status = types.SimpleNamespace(HTTP_401_UNAUTHORIZED=401, HTTP_404_NOT_FOUND=404)

@@ -100,7 +100,7 @@
 	}}
 />
 
-<div class=" flex w-full user-message" dir={$settings.chatDirection} id="message-{message.id}">
+<div class="group flex w-full user-message" dir={$settings.chatDirection} id="message-{message.id}">
 	{#if !($settings?.chatBubble ?? true)}
 		<div class={`shrink-0 ltr:mr-3 rtl:ml-3`}>
 			<ProfileImage
@@ -230,13 +230,22 @@
 							</div>
 						</div>
 
-{#if message.timestamp}<time class="message-timestamp block mt-1 text-xs text-gray-500" datetime={new Date(message.timestamp * 1000).toISOString()}>{formatDate(message.timestamp * 1000, $i18n.resolvedLanguage || $i18n.language)}</time>{/if}
-
 						<div
 							class=" flex {($settings?.chatBubble ?? true)
 								? 'justify-end'
 								: ''}  text-gray-600 dark:text-gray-500"
 						>
+							{#if message.timestamp}
+								<time
+									class="message-timestamp hover-reveal block mt-1 text-xs text-gray-500"
+									datetime={new Date(message.timestamp * 1000).toISOString()}
+								>
+									{formatDate(
+										message.timestamp * 1000,
+										$i18n.resolvedLanguage || $i18n.language
+									)}
+								</time>
+							{/if}
 							{#if !($settings?.chatBubble ?? true)}
 								{#if siblings.length > 1}
 									<div class="flex self-center" dir="ltr">
@@ -338,7 +347,7 @@
 							{#if !readOnly}
 								<Tooltip content={$i18n.t('Edit')} placement="bottom">
 									<button
-										class="invisible group-hover:visible p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition edit-user-message-button"
+										class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition edit-user-message-button"
 										aria-label={$i18n.t('Edit')}
 										on:click={() => {
 											editMessageHandler();
@@ -364,7 +373,7 @@
 
 							<Tooltip content={$i18n.t('Copy')} placement="bottom">
 								<button
-									class="invisible group-hover:visible p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
+									class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
 									aria-label={$i18n.t('Copy')}
 									on:click={() => {
 										copyToClipboard(message.content);
@@ -390,7 +399,7 @@
 							{#if !readOnly && (!isFirstMessage || siblings.length > 1)}
 								<Tooltip content={$i18n.t('Delete')} placement="bottom">
 									<button
-										class="invisible group-hover:visible p-1 rounded-sm dark:hover:text-white hover:text-black transition"
+										class="hover-reveal p-1 rounded-sm dark:hover:text-white hover:text-black transition"
 										on:click={() => {
 											showDeleteConfirm = true;
 										}}

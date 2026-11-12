@@ -28,11 +28,11 @@ class Round15IntegrationShellTests(unittest.TestCase):
     def test_each_response_exposes_one_assistant_hook_and_markdown_descendant(self):
         source = RESPONSE.read_text(encoding="utf-8")
         self.assertEqual(source.count("chat-assistant"), 1)
-        outer = source.index('class="chat-assistant flex w-full')
-        markdown = source.index(
-            'class="chat-message-body w-full min-w-full markdown-prose"'
-        )
-        self.assertLess(outer, markdown)
+        outer = source.index('id="message-{message.id}"')
+        assistant = source.index('class="chat-assistant w-full min-w-full"')
+        markdown = source.index('class="markdown-prose"')
+        self.assertLess(outer, assistant)
+        self.assertLess(assistant, markdown)
         self.assertNotIn('class="chat-{message.role}', source)
 
     def test_sidebar_keeps_folders_create_action_and_single_line_branding(self):

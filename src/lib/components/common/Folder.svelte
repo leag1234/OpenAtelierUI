@@ -145,7 +145,7 @@
 
 				{#if onAdd}
 					<button
-						class="absolute z-10 right-2 invisible group-hover:visible self-center flex items-center dark:text-gray-300"
+						class="absolute z-10 right-2 self-center flex items-center dark:text-gray-300"
 						on:pointerup={(e) => {
 							e.stopPropagation();
 						}}
@@ -171,6 +171,11 @@
 			</div>
 		</Collapsible>
 	{:else}
+		{#if name}
+			<div class="w-full px-2 py-1.5 text-xs font-medium text-gray-500 dark:text-gray-500">
+				{name}
+			</div>
+		{/if}
 		<slot></slot>
 	{/if}
 </div>

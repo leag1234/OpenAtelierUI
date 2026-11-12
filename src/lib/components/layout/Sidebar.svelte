@@ -672,9 +672,8 @@
 							class=" size-5 -translate-x-1.5 rounded-full"
 							alt="OpenAtelierUI"
 						/>
-					<span id="sidebar-webui-name" class="sr-only">{$config?.name ?? 'OpenAtelierUI'}</span>
 					</div>
-					<div class=" self-center font-medium text-sm text-gray-850 dark:text-white font-primary">
+					<div id="sidebar-webui-name" class="self-center font-medium text-sm text-gray-850 dark:text-white font-primary">
 						{$WEBUI_NAME}
 					</div>
 				</div>

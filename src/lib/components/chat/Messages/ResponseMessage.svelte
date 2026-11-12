@@ -585,11 +585,11 @@
 
 {#key message.id}
 	<div
-		class="chat-assistant flex w-full message-{message.id}"
+		class="group flex w-full message-{message.id}"
 		id="message-{message.id}"
 		dir={$settings.chatDirection}
 	>
-		<div class={`shrink-0 ltr:mr-3 rtl:ml-3`}>
+		<div class={`hidden shrink-0 ltr:mr-3 rtl:ml-3 lg:flex`}>
 			<ProfileImage
 				src={model?.info?.meta?.profile_image_url ??
 					($i18n.language === 'dg-DG' ? `/doge.png` : `${WEBUI_BASE_URL}/static/favicon.png`)}
@@ -600,15 +600,15 @@
 		<div class="flex-auto w-0 pl-1">
 			<Name>
 				<Tooltip content={responseName} placement="top-start">
-					<span class="line-clamp-1 text-black dark:text-white">
+					<span id="response-message-{message.id}" class="line-clamp-1 text-black dark:text-white">
 						{responseName}
 					</span>
 				</Tooltip>
 			</Name>
 
 			<div>
-				<div class="chat-message-body w-full min-w-full markdown-prose">
-					<div>
+				<div class="chat-assistant w-full min-w-full">
+					<div class="markdown-prose">
 						{#if (message?.statusHistory ?? [...(message?.status ? [message?.status] : [])]).length > 0}
 							{@const status = (
 								message?.statusHistory ?? [...(message?.status ? [message?.status] : [])]
@@ -864,13 +864,22 @@
 					</div>
 				</div>
 
-{#if message.timestamp}<time class="message-timestamp block mt-1 text-xs text-gray-500" datetime={new Date(message.timestamp * 1000).toISOString()}>{formatDate(message.timestamp * 1000, $i18n.resolvedLanguage || $i18n.language)}</time>{/if}
-
 				{#if !edit}
 					<div
 						bind:this={buttonsContainerElement}
 						class="flex justify-start overflow-x-auto buttons text-gray-600 dark:text-gray-500 mt-0.5"
 					>
+						{#if message.timestamp}
+							<time
+								class="message-timestamp hover-reveal block mt-1 text-xs text-gray-500"
+								datetime={new Date(message.timestamp * 1000).toISOString()}
+							>
+								{formatDate(
+									message.timestamp * 1000,
+									$i18n.resolvedLanguage || $i18n.language
+								)}
+							</time>
+						{/if}
 						{#if message.done || siblings.length > 1}
 							{#if siblings.length > 1}
 								<div class="flex self-center min-w-fit" dir="ltr">
@@ -973,9 +982,7 @@
 										<Tooltip content={$i18n.t('Edit')} placement="bottom">
 											<button
 												aria-label={$i18n.t('Edit')}
-												class="{isLastMessage
-													? 'visible'
-													: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
+												class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
 												on:click={() => {
 													editMessageHandler();
 												}}
@@ -1002,9 +1009,7 @@
 								<Tooltip content={$i18n.t('Copy')} placement="bottom">
 									<button
 										aria-label={$i18n.t('Copy')}
-										class="{isLastMessage
-											? 'visible'
-											: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition copy-response-button"
+										class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition copy-response-button"
 										on:click={() => {
 											copyToClipboard(message.content);
 										}}
@@ -1031,9 +1036,7 @@
 										<button
 											id="speak-button-{message.id}"
 											aria-label={$i18n.t('Read Aloud')}
-											class="{isLastMessage
-												? 'visible'
-												: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
+											class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
 											on:click={() => {
 												if (!loadingSpeech) {
 													toggleSpeakMessage();
@@ -1110,9 +1113,7 @@
 								{#if $config?.features.enable_image_generation && ($user?.role === 'admin' || $user?.permissions?.features?.image_generation) && !readOnly}
 									<Tooltip content={$i18n.t('Generate Image')} placement="bottom">
 										<button
-											class="{isLastMessage
-												? 'visible'
-												: 'invisible group-hover:visible'}  p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
+											class="hover-reveal  p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
 											on:click={() => {
 												if (!generatingImage) {
 													generateImage(message);
@@ -1187,9 +1188,7 @@
 										placement="bottom"
 									>
 										<button
-											class=" {isLastMessage
-												? 'visible'
-												: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition whitespace-pre-wrap"
+											class=" hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition whitespace-pre-wrap"
 											on:click={() => {
 												console.log(message);
 											}}
@@ -1218,9 +1217,7 @@
 										<Tooltip content={$i18n.t('Good Response')} placement="bottom">
 											<button
 												aria-label={$i18n.t('Good Response')}
-												class="{isLastMessage
-													? 'visible'
-													: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
+												class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
 													message?.annotation?.rating ?? ''
 												).toString() === '1'
 													? 'bg-gray-100 dark:bg-gray-800'
@@ -1255,9 +1252,7 @@
 										<Tooltip content={$i18n.t('Bad Response')} placement="bottom">
 											<button
 												aria-label={$i18n.t('Bad Response')}
-												class="{isLastMessage
-													? 'visible'
-													: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
+												class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
 													message?.annotation?.rating ?? ''
 												).toString() === '-1'
 													? 'bg-gray-100 dark:bg-gray-800'
@@ -1296,9 +1291,7 @@
 												type="button"
 												id="continue-response-button"
 												aria-label={$i18n.t('Continue Response')}
-												class="{isLastMessage
-													? 'visible'
-													: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition continue-response-button"
+												class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition continue-response-button"
 												on:click={() => {
 													continueResponse();
 												}}
@@ -1330,9 +1323,7 @@
 										<button
 											type="button"
 											aria-label={$i18n.t('Regenerate')}
-											class="{isLastMessage
-												? 'visible'
-													: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition regenerate-response-button"
+											class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition regenerate-response-button"
 											on:click={() => {
 												showRateComment = false;
 												regenerateResponse(message);
@@ -1372,9 +1363,7 @@
 											<button
 												type="button"
 												id="delete-response-button"
-												class="{isLastMessage
-													? 'visible'
-													: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition delete-response-button"
+												class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition delete-response-button"
 												on:click={() => {
 													showDeleteConfirm = true;
 												}}
@@ -1402,9 +1391,7 @@
 											<Tooltip content={action.name} placement="bottom">
 												<button
 													type="button"
-													class="{isLastMessage
-														? 'visible'
-														: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
+													class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
 													on:click={() => {
 														actionMessage(action.id, message);
 													}}

@@ -194,6 +194,7 @@ type Document = {
 
 type Config = {
 	status: boolean;
+	compatibility_profile?: 'open-webui-v0.11.3' | 'native';
 	event_call_channel?: 'events' | 'chat-events';
 	name: string;
 	version: string;

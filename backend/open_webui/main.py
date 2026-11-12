@@ -90,8 +90,37 @@ from open_webui.routers import (
 )
 
 
+COMPATIBILITY_PROFILE_V0113 = "open-webui-v0.11.3"
+COMPATIBILITY_PROFILE_NATIVE = "native"
+
+
+def environment_flag_enabled(value, default=True):
+    if value is None:
+        return default
+    normalized = str(value).strip().lower()
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    return default
+
+
+def compatibility_profile(environ):
+    value = environ.get(
+        "OPENATELIER_COMPATIBILITY_PROFILE", COMPATIBILITY_PROFILE_V0113
+    )
+    normalized = str(value).strip().lower()
+    if normalized == COMPATIBILITY_PROFILE_NATIVE:
+        return COMPATIBILITY_PROFILE_NATIVE
+    return COMPATIBILITY_PROFILE_V0113
+
+
 def notes_compat_enabled(environ):
-    return environ.get("OPENATELIER_PRIVATE_NOTES_COMPAT", "1") != "0"
+    if not environment_flag_enabled(environ.get("ENABLE_NOTES"), default=True):
+        return False
+    return environment_flag_enabled(
+        environ.get("OPENATELIER_PRIVATE_NOTES_COMPAT"), default=True
+    )
 
 
 def terminal_compat_enabled(environ):
@@ -107,6 +136,7 @@ def automation_compat_enabled(environ):
 
 
 NOTES_COMPAT_ENABLED = notes_compat_enabled(os.environ)
+COMPATIBILITY_PROFILE = compatibility_profile(os.environ)
 TERMINAL_COMPAT_ENABLED = terminal_compat_enabled(os.environ)
 CALENDAR_COMPAT_ENABLED = calendar_compat_enabled(os.environ)
 AUTOMATION_COMPAT_ENABLED = automation_compat_enabled(os.environ)
@@ -1790,6 +1820,7 @@ async def get_app_config(request: Request):
         "event_call_channel": _event_call_channel(),
         **({"onboarding": True} if onboarding else {}),
         "status": True,
+        "compatibility_profile": COMPATIBILITY_PROFILE,
         "name": app.state.WEBUI_NAME,
         "version": VERSION,
         "default_locale": str(DEFAULT_LOCALE),
