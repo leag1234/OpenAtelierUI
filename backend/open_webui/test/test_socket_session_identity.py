@@ -49,7 +49,7 @@ class Socket:
 
 class RealtimeIdentityTests(unittest.TestCase):
     def setUp(self):
-        self.session_pool, self.user_pool, self.usage_pool = {}, {}, {}
+        self.session_pool, self.user_pool, self.usage_pool, self.socket_scope_pool = {}, {}, {}, {}
         self.sio = Socket()
         self.sio.calls = []
         self.users = {
@@ -60,13 +60,16 @@ class RealtimeIdentityTests(unittest.TestCase):
         }
         self.http_auth_calls = []
         def get_current_user(request, tasks, credentials):
-            self.http_auth_calls.append((request.scope["path"], credentials.credentials))
+            self.http_auth_calls.append(
+                (request.scope["path"], credentials.credentials, request.scope.get("app"))
+            )
             return self.users.get(credentials.credentials)
         def get_verified_user(user):
             return user if user is not None and user.role in {"user", "admin"} else None
         ns = {
             "SESSION_POOL": self.session_pool, "USER_POOL": self.user_pool,
-            "USAGE_POOL": self.usage_pool, "sio": self.sio,
+            "USAGE_POOL": self.usage_pool, "SOCKET_SCOPE_POOL": self.socket_scope_pool,
+            "sio": self.sio,
             "Request": lambda scope: types.SimpleNamespace(scope=scope),
             "HTTPAuthorizationCredentials": lambda **kw: types.SimpleNamespace(**kw),
             "HTTPException": type("HTTPException", (Exception,), {}),
@@ -79,7 +82,7 @@ class RealtimeIdentityTests(unittest.TestCase):
         }
         socket_path = ROOT / "socket" / "main.py"
         _load(socket_path, {
-            "_socket_user", "_socket_token", "_session_identity", "_emit_verified",
+            "_socket_user", "_remember_socket_scope", "_socket_token", "_session_identity", "_emit_verified",
             "_emit_user_list", "_register_socket_user", "disconnect_user_sockets",
             "connect", "user_join", "join_channel", "usage", "user_list", "disconnect",
             "channel_events", "get_event_call",
@@ -88,13 +91,15 @@ class RealtimeIdentityTests(unittest.TestCase):
 
     def test_quiet_transport_can_join_after_signin_and_stale_token_cannot_reenroll(self):
         ns = self.ns
-        asyncio.run(ns["connect"]("sid-member", {}, None))
+        app = object()
+        asyncio.run(ns["connect"]("sid-member", {"asgi.scope": {"app": app}}, None))
         self.assertEqual((self.session_pool, self.user_pool, self.sio.emits), ({}, {}, []))
         joined = asyncio.run(ns["user_join"]("sid-member", {"auth": {"token": "member-token"}}))
         self.assertEqual(joined, {"id": "member", "name": "Member"})
         self.assertEqual(self.session_pool["sid-member"]["id"], "member")
         self.assertEqual(self.user_pool, {"member": ["sid-member"]})
-        self.assertTrue(self.http_auth_calls)
+        self.assertIn(("/ws/socket.io", "member-token", app), self.http_auth_calls)
+        self.assertEqual(set(self.socket_scope_pool["sid-member"]), {"app", "scheme", "client", "server"})
         before = list(self.sio.emits)
         self.users["stale-token"] = None  # Shared HTTP validator rejects revoked/invalid credentials.
         asyncio.run(ns["user_join"]("sid-stale", {"auth": {"token": "stale-token"}}))
@@ -110,9 +115,11 @@ class RealtimeIdentityTests(unittest.TestCase):
 
     def test_revoke_disconnects_only_target_and_removes_callback_binding(self):
         ns = self.ns
-        asyncio.run(ns["connect"]("sid-member", {}, {"token": "member-token"}))
-        asyncio.run(ns["connect"]("sid-member-second", {}, {"token": "member-token"}))
-        asyncio.run(ns["connect"]("sid-admin", {}, {"token": "admin-token"}))
+        app = object()
+        environ = {"asgi.scope": {"app": app}}
+        asyncio.run(ns["connect"]("sid-member", environ, {"token": "member-token"}))
+        asyncio.run(ns["connect"]("sid-member-second", environ, {"token": "member-token"}))
+        asyncio.run(ns["connect"]("sid-admin", environ, {"token": "admin-token"}))
         self.usage_pool["private-model"] = {
             "sid-member": {"updated_at": 1},
             "sid-member-second": {"updated_at": 1},
@@ -125,6 +132,7 @@ class RealtimeIdentityTests(unittest.TestCase):
         self.assertEqual(self.session_pool["sid-admin"]["id"], "admin")
         self.assertNotIn("member", self.user_pool)
         self.assertEqual(self.user_pool, {"admin": ["sid-admin"]})
+        self.assertEqual(set(self.socket_scope_pool), {"sid-admin"})
         self.assertEqual(self.usage_pool["private-model"], {"sid-admin": {"updated_at": 1}})
         self.assertEqual(self.sio.emits[-1], ("user-list", {"user_ids": ["admin"]}, "sid-admin"))
         caller = ns["get_event_call"]({"user_id": "member", "session_id": "sid-member"})

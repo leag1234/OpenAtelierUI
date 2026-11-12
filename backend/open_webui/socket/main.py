@@ -107,6 +107,12 @@ else:
     USAGE_POOL = {}
     aquire_func = release_func = renew_func = lambda: True
 
+# ASGI application objects cannot be stored in Redis. A Socket.IO connection and
+# its events are handled by the same worker, so retain only the local application
+# reference and non-sensitive transport metadata needed to validate a bearer
+# token through the shared HTTP authentication path. Never retain relay headers.
+SOCKET_SCOPE_POOL = {}
+
 
 async def periodic_usage_pool_cleanup():
     if not aquire_func():
@@ -155,23 +161,50 @@ app = socketio.ASGIApp(
 )
 
 
-def _socket_user(token, scope):
+def _socket_user(token, scope=None):
     if (
         not isinstance(token, str)
         or not token
         or token.startswith("sk-")
-        or not isinstance(scope, dict)
-        or "app" not in scope
     ):
         return None
+    scope = scope if isinstance(scope, dict) else {}
+    request_scope = {
+        "type": "http",
+        "http_version": scope.get("http_version", "1.1"),
+        "method": "GET",
+        "scheme": scope.get("scheme", "http"),
+        "path": "/ws/socket.io",
+        "raw_path": b"/ws/socket.io",
+        "query_string": b"",
+        "headers": [],
+        "client": scope.get("client", ("127.0.0.1", 0)),
+        "server": scope.get("server", ("127.0.0.1", 80)),
+        "state": dict(scope.get("state", {})),
+    }
+    if "app" in scope:
+        request_scope["app"] = scope["app"]
     request = Request(
-        {**scope, "type": "http", "state": dict(scope.get("state", {}))}
+        request_scope
     )
     credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
     try:
         return get_verified_user(get_current_user(request, None, credentials))
     except (HTTPException, AttributeError, TypeError, ValueError):
         return None
+
+
+def _remember_socket_scope(sid, scope):
+    if not isinstance(sid, str) or not sid or not isinstance(scope, dict) or "app" not in scope:
+        return None
+    retained = {
+        "app": scope["app"],
+        "scheme": scope.get("scheme", "http"),
+        "client": scope.get("client", ("127.0.0.1", 0)),
+        "server": scope.get("server", ("127.0.0.1", 80)),
+    }
+    SOCKET_SCOPE_POOL[sid] = retained
+    return retained
 
 
 def _socket_token(auth):
@@ -245,6 +278,7 @@ async def disconnect_user_sockets(user_id):
         sessions = []
     owned = []
     for sid in list(sessions):
+        SOCKET_SCOPE_POOL.pop(sid, None)
         session = SESSION_POOL.get(sid)
         if isinstance(session, dict) and session.get("id") == user_id:
             owned.append(sid)
@@ -293,7 +327,8 @@ async def usage(sid, data):
 @sio.event
 async def connect(sid, environ, auth):
     scope = environ.get("asgi.scope") if isinstance(environ, dict) else None
-    user = _socket_user(_socket_token(auth), scope)
+    retained_scope = _remember_socket_scope(sid, scope)
+    user = _socket_user(_socket_token(auth), retained_scope)
     if user and _register_socket_user(sid, user):
         await _emit_user_list()
         await _emit_verified("usage", {"models": get_models_in_use()})
@@ -302,9 +337,13 @@ async def connect(sid, environ, auth):
 @sio.on("user-join")
 async def user_join(sid, data):
     session = _session_identity(sid)
-    user = Users.get_user_by_id(session.get("id")) if isinstance(session, dict) else None
-    if user is None:
-        return
+    if isinstance(session, dict):
+        user = Users.get_user_by_id(session.get("id"))
+    else:
+        auth = data.get("auth") if isinstance(data, dict) else None
+        user = _socket_user(_socket_token(auth), SOCKET_SCOPE_POOL.get(sid))
+        if user is None or not _register_socket_user(sid, user):
+            return
 
     # Join all the channels
     channels = Channels.get_channels_by_user_id(user.id)
@@ -322,9 +361,13 @@ async def user_join(sid, data):
 @sio.on("join-channels")
 async def join_channel(sid, data):
     session = _session_identity(sid)
-    user = Users.get_user_by_id(session.get("id")) if isinstance(session, dict) else None
-    if user is None:
-        return
+    if isinstance(session, dict):
+        user = Users.get_user_by_id(session.get("id"))
+    else:
+        auth = data.get("auth") if isinstance(data, dict) else None
+        user = _socket_user(_socket_token(auth), SOCKET_SCOPE_POOL.get(sid))
+        if user is None or not _register_socket_user(sid, user):
+            return
 
     # Join all the channels
     channels = Channels.get_channels_by_user_id(user.id)
@@ -374,6 +417,7 @@ async def user_list(sid):
 
 @sio.event
 async def disconnect(sid):
+    SOCKET_SCOPE_POOL.pop(sid, None)
     if sid in SESSION_POOL:
         user = SESSION_POOL[sid]
         del SESSION_POOL[sid]

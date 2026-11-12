@@ -17,6 +17,7 @@ CHAT = BASE / "src/lib/components/chat/Chat.svelte"
 LAYOUT = BASE / "src/routes/+layout.svelte"
 USER_MESSAGE = BASE / "src/lib/components/chat/Messages/UserMessage.svelte"
 RESPONSE_MESSAGE = BASE / "src/lib/components/chat/Messages/ResponseMessage.svelte"
+FRENCH_TRANSLATIONS = BASE / "src/lib/i18n/locales/fr-FR/translation.json"
 
 
 class ChatSessionCompatTests(unittest.TestCase):
@@ -171,6 +172,14 @@ assert.strictEqual(chatTaskResumePath('temporary:session/chat'), '/api/tasks/cha
         self.assertIn("await confirmConnectedSocketUser(connectedSocket, localStorage.token)", chat)
         self.assertIn("session_id: connectedSocket.id", chat)
         self.assertIn("registerConnectedSocketUser(_socket, localStorage.token)", layout)
+
+    def test_socket_recovery_error_has_a_french_translation(self):
+        translations = json.loads(FRENCH_TRANSLATIONS.read_text(encoding="utf-8"))
+        key = "The server connection did not recover. Please retry."
+        self.assertEqual(
+            translations[key],
+            "La connexion au serveur n’a pas été rétablie. Veuillez réessayer.",
+        )
 
     def test_saved_chat_header_initial_tasks_and_branch_controls_keep_stable_semantics(self):
         chat = CHAT.read_text(encoding="utf-8")

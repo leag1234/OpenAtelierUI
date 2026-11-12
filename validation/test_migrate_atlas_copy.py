@@ -39,6 +39,26 @@ def add_notes(source):
     db.close()
 
 
+def add_chat_copy(db, chat_id):
+    source = db.execute('SELECT * FROM "chat" WHERE id="c1"').fetchone()
+    columns = [row[1] for row in db.execute('PRAGMA table_info("chat")')]
+    values = dict(zip(columns, source))
+    values.update(id=chat_id, title=f"Synthetic {chat_id}")
+    db.execute(
+        f'INSERT INTO "chat" ({",".join(columns)}) VALUES ({",".join("?" for _ in columns)})',
+        [values[column] for column in columns],
+    )
+    message_columns = [row[1] for row in db.execute('PRAGMA table_info("chat_message")')]
+    for source_message in db.execute('SELECT * FROM "chat_message" WHERE chat_id="c1" ORDER BY id').fetchall():
+        message = dict(zip(message_columns, source_message))
+        node_id = message["id"].removeprefix("c1-")
+        message.update(id=f"{chat_id}-{node_id}", chat_id=chat_id)
+        db.execute(
+            f'INSERT INTO "chat_message" ({",".join(message_columns)}) VALUES ({",".join("?" for _ in message_columns)})',
+            [message[column] for column in message_columns],
+        )
+
+
 def expand_realistic_copy(source, uploads):
     """Expand the minimal fixture to the size and domains reported by Atlas."""
     db = sqlite3.connect(source)
@@ -220,6 +240,57 @@ class AtlasCopyCoordinatorTests(unittest.TestCase):
         self.assertEqual(result["upload_bytes"], len(payload))
         self.assertEqual(result["upload_limit_bytes"], coordinator.core.MAX_UPLOAD_BYTES)
         self.assertEqual(hashlib.sha256(upload.read_bytes()).hexdigest(), hashlib.sha256(payload).hexdigest())
+
+    def test_explicit_partial_copy_quarantines_only_chat_local_anomalies(self):
+        db = sqlite3.connect(self.source)
+        for chat_id in ("c2", "c3", "c4"):
+            add_chat_copy(db, chat_id)
+        db.execute('UPDATE "chat" SET current_message_id="a" WHERE id="c1"')
+        db.execute('DELETE FROM "chat_message" WHERE id="c2-b"')
+        db.execute(
+            'CREATE TABLE chat_file(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,chat_id TEXT NOT NULL,file_id TEXT NOT NULL,message_id TEXT,created_at BIGINT NOT NULL,updated_at BIGINT NOT NULL)'
+        )
+        db.execute(
+            'INSERT INTO chat_file VALUES ("link-c3","u1","c3","f1","q",10,11)'
+        )
+        db.commit()
+        db.close()
+        source_before = self.source.read_bytes()
+
+        result = self._run(
+            "convert",
+            "quarantined-chats",
+            allow_partial_copy=True,
+        )
+
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["status"], "converted_partial_copy_only")
+        self.assertEqual(result["excluded_chat_count"], 3)
+        self.assertEqual(
+            {(item["chat_id"], item["code"]) for item in result["excluded_chats"]},
+            {
+                ("c1", "chat_selected_branch_mismatch"),
+                ("c2", "chat_message_set_mismatch"),
+                ("c3", "private_chat_file_reference_invalid_or_ambiguous"),
+            },
+        )
+        target = self.root / "quarantined-chats-target" / "webui.db"
+        target_db = sqlite3.connect(target)
+        try:
+            self.assertEqual(
+                target_db.execute('SELECT id FROM "chat" ORDER BY id').fetchall(),
+                [("c4",)],
+            )
+            self.assertEqual(target_db.execute('PRAGMA integrity_check').fetchone(), ("ok",))
+        finally:
+            target_db.close()
+        self.assertEqual(self.source.read_bytes(), source_before)
+        core_report = json.loads(
+            (self.root / "quarantined-chats-workspace" / "core-convert.json").read_text()
+        )
+        self.assertFalse(core_report["fatal"])
+        self.assertEqual(core_report["imported_counts"]["chat"], 1)
+        self.assertTrue(Path(core_report["archive"]["path"], "source.sqlite").is_file())
 
     def test_convert_merges_exact_note_values_and_pins_after_core_import(self):
         source_before, template_before = self.source.read_bytes(), self.template.read_bytes()

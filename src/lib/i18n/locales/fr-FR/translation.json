@@ -1,4 +1,5 @@
 {
+	"The server connection did not recover. Please retry.": "La connexion au serveur n’a pas été rétablie. Veuillez réessayer.",
 	"-1 for no limit, or a positive integer for a specific limit": "-1 pour aucune limite, ou un entier positif pour une limite spécifique",
 	"'s', 'm', 'h', 'd', 'w' or '-1' for no expiration.": " 's', 'm', 'h', 'd', 'w' ou '-1' pour une durée illimitée.",
 	"(e.g. `sh webui.sh --api --api-auth username_password`)": "(par ex. `sh webui.sh --api --api-auth username_password`)",

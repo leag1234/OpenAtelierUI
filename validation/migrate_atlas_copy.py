@@ -346,6 +346,12 @@ def run(mode, source_db, uploads_root, template_path, workspace_dir, target_dir=
             "core_fatal_blocker_count": sum(
                 1 for item in core_report.get("blockers", []) if item.get("fatal")
             ),
+            "excluded_chat_count": len({
+                item.get("chat_id")
+                for item in core_report.get("excluded_chats", [])
+                if isinstance(item, dict) and isinstance(item.get("chat_id"), str)
+            }),
+            "excluded_chats": core_report.get("excluded_chats", []),
             "target_created": False,
             "database_bytes": database_bytes, "upload_bytes": upload_bytes,
             "input_bytes": database_bytes + upload_bytes,

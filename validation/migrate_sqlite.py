@@ -1275,6 +1275,30 @@ def _block(
         report["fatal"] = True
 
 
+def _excluded_chat_ids(report: dict) -> set[str]:
+    return {
+        item.get("chat_id")
+        for item in report.get("excluded_chats", [])
+        if isinstance(item, dict) and isinstance(item.get("chat_id"), str)
+    }
+
+
+def _exclude_chat(report: dict, chat_id, code: str, count: int = 1) -> None:
+    if not isinstance(chat_id, str) or not chat_id:
+        _block(report, code, count, fatal=True, detail="chat-local failure could not be attributed safely")
+        return
+    item = {"chat_id": chat_id, "code": code, "count": int(count)}
+    if item not in report.setdefault("excluded_chats", []):
+        report["excluded_chats"].append(item)
+    _block(
+        report,
+        code,
+        count,
+        diagnostic={"chat_id": chat_id},
+        detail="conversation is retained in the exact source archive and omitted from explicit partial copy",
+    )
+
+
 def _api_key_config_is_eligible(connection: sqlite3.Connection) -> bool:
     if "config" not in _tables(connection):
         return False
@@ -1503,7 +1527,13 @@ def _source_file_rows(connection: sqlite3.Connection, uploads_root: str | Path, 
     return resolved
 
 
-def _validate_chat(connection: sqlite3.Connection, report: dict, *, include_private_chat_metadata: bool = False) -> None:
+def _validate_chat(
+    connection: sqlite3.Connection,
+    report: dict,
+    *,
+    include_private_chat_metadata: bool = False,
+    allow_chat_quarantine: bool = False,
+) -> None:
     tables = set(_tables(connection))
     if "chat" not in tables or "chat_message" not in tables:
         return
@@ -1522,6 +1552,8 @@ def _validate_chat(connection: sqlite3.Connection, report: dict, *, include_priv
     seen = set()
     for chat in rows:
         chat_id = chat["id"]
+        if chat_id in _excluded_chat_ids(report):
+            continue
         if chat_id in seen:
             _block(report, "duplicate_chat_id", 1, fatal=True)
         seen.add(chat_id)
@@ -1540,6 +1572,9 @@ def _validate_chat(connection: sqlite3.Connection, report: dict, *, include_priv
         if not empty_chat and (current is None or current not in nodes):
             _block(report, "invalid_selected_chat_branch", 1, fatal=True)
         if not _is_empty(chat.get("current_message_id")) and chat.get("current_message_id") != current:
+            if allow_chat_quarantine:
+                _exclude_chat(report, chat_id, "chat_selected_branch_mismatch")
+                continue
             _block(report, "chat_selected_branch_mismatch", 1, fatal=True)
         parent_edges = {}
         invalid_graph = False
@@ -1585,7 +1620,11 @@ def _validate_chat(connection: sqlite3.Connection, report: dict, *, include_priv
                 _block(report, "duplicate_normalized_message", 1, fatal=True)
             normalized_ids[node_id] = message
         if set(normalized_ids) != set(nodes):
-            _block(report, "chat_message_set_mismatch", abs(len(normalized_ids) - len(nodes)) or 1, fatal=True)
+            mismatch_count = abs(len(normalized_ids) - len(nodes)) or 1
+            if allow_chat_quarantine:
+                _exclude_chat(report, chat_id, "chat_message_set_mismatch", mismatch_count)
+                continue
+            _block(report, "chat_message_set_mismatch", mismatch_count, fatal=True)
         for node_id, node in nodes.items():
             message = normalized_ids.get(node_id)
             if not message:
@@ -1694,7 +1733,13 @@ def _resolve_chat_preview_ids(payload: dict, nodes: dict, allow_derived: bool) -
     return resolved
 
 
-def _validate_chat_file_links(connection: sqlite3.Connection, report: dict, file_rows: list[dict]) -> None:
+def _validate_chat_file_links(
+    connection: sqlite3.Connection,
+    report: dict,
+    file_rows: list[dict],
+    *,
+    allow_chat_quarantine: bool = False,
+) -> None:
     """Validate selected chat-file joins against private graph descriptors and file owners."""
     tables = set(_tables(connection))
     if "chat_file" not in tables: return
@@ -1712,15 +1757,19 @@ def _validate_chat_file_links(connection: sqlite3.Connection, report: dict, file
     links = connection.execute('SELECT * FROM "chat_file" ORDER BY id').fetchall() if rows_count else []
     link_ids, linked = set(), set()
     valid = True
+    invalid_chat_id = None
     upload_by_id = {row["id"]: row for row in file_rows}
     known_files = set(upload_by_id)
     for row in links:
         link_id, owner, chat_id, file_id, message_id = (row[k] for k in ("id", "user_id", "chat_id", "file_id", "message_id"))
+        if chat_id in _excluded_chat_ids(report):
+            continue
         if (not _safe_chat_file_id(link_id) or not _safe_chat_file_id(owner)
                 or not _safe_chat_file_id(chat_id) or not _safe_chat_file_id(file_id)
                 or not _safe_chat_file_id(message_id)
                 or link_id in link_ids or type(row["created_at"]) is not int or row["created_at"] < 0
                 or type(row["updated_at"]) is not int or row["updated_at"] < 0):
+            invalid_chat_id = chat_id if chat_id in chats else None
             valid = False
             break
         link_ids.add(link_id)
@@ -1728,19 +1777,23 @@ def _validate_chat_file_links(connection: sqlite3.Connection, report: dict, file
         if (not isinstance(owner, str) or not chat or chat["user_id"] != owner
                 or not file_row or file_id not in known_files or file_row["user_id"] != owner
                 or not isinstance(message_id, str)):
+            invalid_chat_id = chat_id if chat_id in chats else None
             valid = False
             break
         try:
             payload = json.loads(chat["chat"]) if isinstance(chat["chat"], str) else chat["chat"]
             node = payload["history"]["messages"][message_id]
         except (ValueError, TypeError, KeyError):
+            invalid_chat_id = chat_id if chat_id in chats else None
             valid = False
             break
         if not isinstance(node, dict) or node.get("role") != "user" or (chat_id, message_id, file_id) in linked:
+            invalid_chat_id = chat_id
             valid = False
             break
         descriptors = node.get("files")
         if not isinstance(descriptors, list) or len(descriptors) > 64:
+            invalid_chat_id = chat_id
             valid = False
             break
         matches = []
@@ -1752,17 +1805,21 @@ def _validate_chat_file_links(connection: sqlite3.Connection, report: dict, file
                     and descriptor.get("id") == file_id):
                 matches.append(nested)
         if len(matches) != 1 or matches[0].get("user_id") != owner or matches[0].get("filename") != file_row["filename"]:
+            invalid_chat_id = chat_id
             valid = False
             break
         actual_hash = upload_by_id[file_id]["sha256"]
         if ((file_row["hash"] is not None and file_row["hash"] != actual_hash)
                 or (matches[0].get("hash") is not None and matches[0].get("hash") != actual_hash)
                 or (matches[0].get("path") is not None and matches[0].get("path") != file_row["path"])):
+            invalid_chat_id = chat_id
             valid = False
             break
         linked.add((chat_id, message_id, file_id))
     if valid:
         for chat_id, chat in chats.items():
+            if chat_id in _excluded_chat_ids(report):
+                continue
             try:
                 payload = json.loads(chat["chat"]) if isinstance(chat["chat"], str) else chat["chat"]
                 nodes = payload["history"]["messages"]
@@ -1775,6 +1832,7 @@ def _validate_chat_file_links(connection: sqlite3.Connection, report: dict, file
                     nested = descriptor.get("file") if isinstance(descriptor, dict) else None
                     file_id = nested.get("id") if isinstance(nested, dict) else None
                     if file_id is not None and (chat_id, message_id, file_id) not in linked:
+                        invalid_chat_id = chat_id
                         valid = False
                         break
                 if not valid:
@@ -1782,16 +1840,25 @@ def _validate_chat_file_links(connection: sqlite3.Connection, report: dict, file
             if not valid:
                 break
     if not valid:
+        if allow_chat_quarantine and invalid_chat_id is not None:
+            _exclude_chat(report, invalid_chat_id, "private_chat_file_reference_invalid_or_ambiguous")
+            return _validate_chat_file_links(
+                connection,
+                report,
+                file_rows,
+                allow_chat_quarantine=True,
+            )
         _block(report, "private_chat_file_reference_invalid_or_ambiguous", 1, fatal=True)
         return
-    if links:
+    valid_links = [row for row in links if row["chat_id"] not in _excluded_chat_ids(report)]
+    if valid_links:
         report["chat_file_mapping"] = {
             "enabled": True,
-            "validated_link_count": len(links),
+            "validated_link_count": len(valid_links),
             "target_representation": "same-owner embedded chat graph plus imported file row",
             "source_join_row_ids_and_timestamps": "retained in exact source archive",
         }
-        _block(report, "chat_file_join_metadata_archived_only", len(links),
+        _block(report, "chat_file_join_metadata_archived_only", len(valid_links),
                detail="validated file references remain embedded in copied private chat graphs; source join-row identifiers and timestamps remain archive-only")
 
 
@@ -1913,6 +1980,7 @@ def _private_chat_metadata_overrides(
     report: dict,
     *,
     archive_unsupported_domains: bool = False,
+    excluded_chat_ids: set[str] | None = None,
 ) -> dict[str, dict[str, str]]:
     """Prepare only same-owner private chat JSON and the namespaced read marker."""
     profiles = {}
@@ -1922,6 +1990,8 @@ def _private_chat_metadata_overrides(
     overrides: dict[str, dict[str, str]] = {}
     for chat in (dict(row) for row in connection.execute('SELECT * FROM "chat" ORDER BY id')):
         chat_id = chat.get("id")
+        if chat_id in (excluded_chat_ids or set()):
+            continue
         owner_id = chat.get("user_id")
         clear_share = chat.get("share_id") is not None
         clear_folder = False
@@ -2743,6 +2813,7 @@ def _inspect_source(
         "cutover_eligible": True,
         "fatal": False,
         "blockers": [],
+        "excluded_chats": [],
         "source": {"sha256": source_hash, "bytes": source.stat().st_size},
         "target_template": {"sha256": template_hash, "bytes": template.stat().st_size},
         "table_counts": {},
@@ -2967,14 +3038,25 @@ def _inspect_source(
                 report["function_history"] = {"opt_in": True, "prepared": False, "revision_count": 0, "resource_count": 0}
         file_rows = _source_file_rows(connection, upload_root, report) if valid_required.get("file") else []
         report["uploads"] = [{key: row[key] for key in ("id", "filename", "bytes", "sha256")} for row in file_rows]
+        _validate_chat(
+            connection,
+            report,
+            include_private_chat_metadata=include_private_chat_metadata,
+            allow_chat_quarantine=archive_unsupported_domains,
+        )
         if include_private_chat_metadata:
-            _validate_chat_file_links(connection, report, file_rows)
-        _validate_chat(connection, report, include_private_chat_metadata=include_private_chat_metadata)
+            _validate_chat_file_links(
+                connection,
+                report,
+                file_rows,
+                allow_chat_quarantine=archive_unsupported_domains,
+            )
         private_chat_overrides = (
             _private_chat_metadata_overrides(
                 connection,
                 report,
                 archive_unsupported_domains=archive_unsupported_domains,
+                excluded_chat_ids=_excluded_chat_ids(report),
             )
             if (include_private_chat_metadata and not report["fatal"] and valid_required.get("chat")
                     and valid_required.get("chat_message") and valid_required.get("user"))
@@ -3284,8 +3366,19 @@ def preview(
     return report
 
 
-def _insert_rows(source: sqlite3.Connection, target: sqlite3.Connection, table: str, mapping: dict[str, str | None], overrides: dict[str, dict] | None = None) -> int:
-    source_rows = [dict(row) for row in source.execute(f'SELECT * FROM "{table}" ORDER BY id')]
+def _insert_rows(
+    source: sqlite3.Connection,
+    target: sqlite3.Connection,
+    table: str,
+    mapping: dict[str, str | None],
+    overrides: dict[str, dict] | None = None,
+    excluded_ids: set[str] | None = None,
+) -> int:
+    source_rows = [
+        dict(row)
+        for row in source.execute(f'SELECT * FROM "{table}" ORDER BY id')
+        if row["id"] not in (excluded_ids or set())
+    ]
     target_columns = _columns(target, table)
     for row in source_rows:
         values = {}
@@ -3332,6 +3425,7 @@ def _copy_domains(
     include_user_profile_fields: bool = False,
     api_key_overrides: dict[str, str] | None = None,
     archive_unsupported_domains: bool = False,
+    excluded_chat_ids: set[str] | None = None,
 ) -> dict:
     counts = {}
     counts["auth"] = _insert_rows(source, target, "auth", {"id": "id", "email": "email", "password": "password", "active": "active"})
@@ -3382,7 +3476,8 @@ def _copy_domains(
     }, {"chat": copied_chat or {chat_id: value["chat"] for chat_id, value in (private_chat_overrides or {}).items()},
         "meta": {chat_id: value["meta"] for chat_id, value in (private_chat_overrides or {}).items()},
         "share_id": {chat_id: value["share_id"] for chat_id, value in (private_chat_overrides or {}).items()},
-        "folder_id": {chat_id: value["folder_id"] for chat_id, value in (private_chat_overrides or {}).items()}})
+        "folder_id": {chat_id: value["folder_id"] for chat_id, value in (private_chat_overrides or {}).items()}},
+        excluded_ids=excluded_chat_ids)
     counts["file"] = _insert_rows(source, target, "file", {
         "id": "id", "user_id": "user_id", "filename": "filename", "meta": "meta", "created_at": "created_at",
         "hash": "hash", "data": "data", "updated_at": "updated_at", "path": None, "access_control": None,
@@ -3552,6 +3647,7 @@ def convert(
                 include_user_profile_fields=include_user_profile_fields,
                 api_key_overrides=api_key_overrides,
                 archive_unsupported_domains=archive_unsupported_domains,
+                excluded_chat_ids=_excluded_chat_ids(report),
             )
             if failpoint:
                 failpoint("after_rows_before_commit")

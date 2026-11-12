@@ -68,7 +68,7 @@ def socket_user_function():
 
     class RequestStub:
         def __init__(self, scope):
-            if scope.get("type") != "http" or "app" not in scope:
+            if scope.get("type") != "http":
                 raise AssertionError(scope)
             self.scope = scope
 
@@ -159,7 +159,10 @@ class TemporaryChatResumeTests(unittest.TestCase):
         self.assertEqual(result["request"].scope["type"], "http")
         self.assertEqual(result["request"].scope["state"], {"marker": "kept"})
         self.assertEqual(result["credentials"]["credentials"], "synthetic-token")
-        self.assertIsNone(authenticate("synthetic-token", {"type": "websocket"}))
+        relay_result = authenticate("synthetic-token", {"type": "websocket"})
+        self.assertNotIn("app", relay_result["request"].scope)
+        self.assertEqual(relay_result["request"].scope["path"], "/ws/socket.io")
+        self.assertEqual(relay_result["credentials"]["credentials"], "synthetic-token")
         self.assertIsNone(authenticate("sk-synthetic", {"type": "websocket", "app": app}))
 
 
