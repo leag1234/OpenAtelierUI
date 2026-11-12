@@ -19,6 +19,7 @@
 	export let item = null;
 	export let edit = false;
 	export let small = false;
+	export let legacyCompact = false;
 
 	export let name: string;
 	export let type: string;
@@ -41,9 +42,9 @@
 
 
 <button
-	class="relative inline-flex max-w-full p-1.5 {className} items-center gap-1 {colorClassName} {small
-			? 'rounded-xl'
-			: 'rounded-2xl'} text-left"
+	class="relative max-w-full {className} items-center {colorClassName} {legacyCompact
+		? 'group flex h-8 gap-1.5 rounded-xl px-2.5 text-[0.8125rem] leading-5'
+		: `inline-flex gap-1 p-1.5 ${small ? 'rounded-xl' : 'rounded-2xl'}`} text-left"
 	type="button"
 	on:click={async () => {
 			if (item?.file?.data?.content) {
@@ -59,7 +60,29 @@
 			dispatch('click');
 	}}
 >
-	{#if !small}
+	{#if legacyCompact}
+		<div class="shrink-0 text-gray-500 dark:text-gray-400" aria-hidden="true">
+			{#if !loading}
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					viewBox="0 0 24 24"
+					fill="currentColor"
+					class="size-3.5"
+				>
+					<path
+						fill-rule="evenodd"
+						d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5H5.625ZM7.5 15a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5A.75.75 0 0 1 7.5 15Zm.75 2.25a.75.75 0 0 0 0 1.5H12a.75.75 0 0 0 0-1.5H8.25Z"
+						clip-rule="evenodd"
+					/>
+					<path
+						d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279 9.768 9.768 0 0 0-6.963-6.963Z"
+					/>
+				</svg>
+			{:else}
+				<Spinner className="size-3.5" />
+			{/if}
+		</div>
+	{:else if !small}
 		<div class="p-3 bg-black/20 dark:bg-white/10 text-white rounded-xl">
 			{#if !loading}
 				<svg
@@ -83,7 +106,32 @@
 		</div>
 	{/if}
 
-	{#if !small}
+	{#if legacyCompact}
+		<Tooltip
+			content={decodeString(name)}
+			className="flex min-w-0 flex-1 overflow-hidden"
+			placement="top-start"
+		>
+			<div class="flex min-w-0 flex-1 items-center overflow-hidden">
+				<div class="flex min-w-0 flex-1 items-center justify-between dark:text-gray-100">
+					<div class="min-w-0 flex-1 truncate pr-1 font-normal">{decodeString(name)}</div>
+					{#if size !== undefined && size !== null}
+						<div
+							class="max-w-[35%] shrink-0 truncate text-[0.6875rem] capitalize text-gray-500"
+						>
+							{formatFileSize(size)}
+						</div>
+					{:else}
+						<div
+							class="max-w-[35%] shrink-0 truncate text-[0.6875rem] capitalize text-gray-500"
+						>
+							{type}
+						</div>
+					{/if}
+				</div>
+			</div>
+		</Tooltip>
+	{:else if !small}
 		<div class="flex min-w-0 flex-1 flex-col justify-center -space-y-0.5 px-2.5">
 			<div class="flex items-center gap-2 mb-1 min-w-0 {dismissible ? 'pr-5' : ''}">
 				<div class="dark:text-gray-100 text-sm font-medium truncate flex-1">

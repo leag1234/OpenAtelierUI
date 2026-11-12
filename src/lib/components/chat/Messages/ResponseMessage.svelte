@@ -28,7 +28,7 @@
 		removeDetails,
 		removeAllDetails
 	} from '$lib/utils';
-	import { WEBUI_BASE_URL } from '$lib/constants';
+	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 	import { statusDescription, statusSearchQuery, statusSearchUrls } from '$lib/utils/chatStatus.js';
 
 	import Name from './Name.svelte';
@@ -49,6 +49,7 @@
 	import ContentRenderer from './ContentRenderer.svelte';
 	import { KokoroWorker } from '$lib/workers/KokoroWorker';
 	import FileItem from '$lib/components/common/FileItem.svelte';
+	$: v0113Compatibility = $config?.compatibility_profile !== 'native';
 
 	interface MessageType {
 		id: string;
@@ -589,15 +590,23 @@
 		id="message-{message.id}"
 		dir={$settings.chatDirection}
 	>
-		<div class={`hidden shrink-0 ltr:mr-3 rtl:ml-3 lg:flex`}>
+		<div
+			class={v0113Compatibility
+				? 'hidden shrink-0 ltr:mr-2 rtl:ml-2 @lg:flex mt-0.5'
+				: 'hidden shrink-0 ltr:mr-3 rtl:ml-3 lg:flex'}
+		>
 			<ProfileImage
-				src={model?.info?.meta?.profile_image_url ??
-					($i18n.language === 'dg-DG' ? `/doge.png` : `${WEBUI_BASE_URL}/static/favicon.png`)}
-				className={'size-8'}
+				src={v0113Compatibility
+					? `${WEBUI_API_BASE_URL}/models/model/profile/image?id=${model?.id}&lang=${$i18n.language}`
+					: (model?.info?.meta?.profile_image_url ??
+						($i18n.language === 'dg-DG'
+							? `/doge.png`
+							: `${WEBUI_BASE_URL}/static/favicon.png`))}
+				className={v0113Compatibility ? 'size-7 assistant-message-profile-image' : 'size-8'}
 			/>
 		</div>
 
-		<div class="flex-auto w-0 pl-1">
+		<div class="flex-auto w-0 pl-1 {v0113Compatibility ? 'relative' : ''}">
 			<Name>
 				<Tooltip content={responseName} placement="top-start">
 					<span id="response-message-{message.id}" class="line-clamp-1 text-black dark:text-white">
@@ -871,7 +880,9 @@
 					>
 						{#if message.timestamp}
 							<time
-								class="message-timestamp hover-reveal block mt-1 text-xs text-gray-500"
+								class="message-timestamp hover-reveal {v0113Compatibility
+									? 'hidden @lg:block ml-1 shrink-0 whitespace-nowrap text-[0.6875rem] tabular-nums text-gray-400 dark:text-gray-600 select-none'
+									: 'block mt-1 text-xs text-gray-500'}"
 								datetime={new Date(message.timestamp * 1000).toISOString()}
 							>
 								{formatDate(

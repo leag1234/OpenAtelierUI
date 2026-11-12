@@ -90,7 +90,8 @@ class Round16V0113ProfileTests(unittest.TestCase):
         markdown = source.index('class="markdown-prose"')
         self.assertLess(outer, assistant)
         self.assertLess(assistant, markdown)
-        self.assertIn('class={`hidden shrink-0 ltr:mr-3 rtl:ml-3 lg:flex`}', source)
+        self.assertIn("'hidden shrink-0 ltr:mr-2 rtl:ml-2 @lg:flex mt-0.5'", source)
+        self.assertIn("'hidden shrink-0 ltr:mr-3 rtl:ml-3 lg:flex'", source)
         self.assertIn('id="response-message-{message.id}"', source)
 
     def test_message_reveal_hooks_apply_to_timestamp_and_actions(self):

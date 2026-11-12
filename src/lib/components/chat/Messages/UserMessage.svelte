@@ -3,7 +3,7 @@
 	import { toast } from 'svelte-sonner';
 	import { tick, getContext, onMount } from 'svelte';
 
-	import { models, settings } from '$lib/stores';
+	import { config, models, settings } from '$lib/stores';
 	import { user as _user } from '$lib/stores';
 	import { copyToClipboard as _copyToClipboard, formatDate } from '$lib/utils';
 
@@ -19,6 +19,7 @@
 
 	const i18n = getContext('i18n');
 	dayjs.extend(localizedFormat);
+	$: v0113Compatibility = $config?.compatibility_profile !== 'native';
 
 	export let user;
 
@@ -128,7 +129,7 @@
 			</div>
 		{/if}
 
-		<div class="chat-{message.role} w-full min-w-full markdown-prose">
+		<div class="chat-{message.role} w-full min-w-full {v0113Compatibility ? '' : 'markdown-prose'}">
 			{#if message.files}
 				<div class="mt-2.5 mb-1 w-full flex flex-col justify-end overflow-x-auto gap-1 flex-wrap">
 					{#each message.files as file}
@@ -224,7 +225,14 @@
 										}`
 									: ' w-full'}"
 							>
-								{#if message.content}
+								{#if message.content && v0113Compatibility}
+									<div
+										class="whitespace-pre-wrap text-[0.9375rem]"
+										dir={$settings?.chatDirection ?? 'auto'}
+									>
+										{message.content}
+									</div>
+								{:else if message.content}
 									<Markdown id={message.id} content={message.content} />
 								{/if}
 							</div>
@@ -237,7 +245,9 @@
 						>
 							{#if message.timestamp}
 								<time
-									class="message-timestamp hover-reveal block mt-1 text-xs text-gray-500"
+									class="message-timestamp hover-reveal {v0113Compatibility
+										? 'hidden @lg:block mr-1 shrink-0 whitespace-nowrap text-[0.6875rem] tabular-nums text-gray-400 dark:text-gray-600 select-none'
+										: 'block mt-1 text-xs text-gray-500'}"
 									datetime={new Date(message.timestamp * 1000).toISOString()}
 								>
 									{formatDate(

@@ -57,6 +57,7 @@
 	import ModelSelector from './ModelSelector.svelte';
 
 	const i18n = getContext('i18n');
+	$: v0113Compatibility = $config?.compatibility_profile !== 'native';
 
 	export let transparentBackground = false;
 
@@ -600,6 +601,8 @@
 													loading={file.status === 'uploading'}
 													dismissible={true}
 													edit={true}
+													small={v0113Compatibility}
+													legacyCompact={v0113Compatibility}
 													on:dismiss={async () => {
 															const detached = detachFileForRemoval(files, fileIdx);
 															files = detached.files;

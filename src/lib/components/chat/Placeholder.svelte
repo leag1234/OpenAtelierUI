@@ -85,6 +85,7 @@
 	}
 
 	$: models = selectedModels.map((id) => $_models.find((m) => m.id === id));
+	$: v0113Compatibility = $config?.compatibility_profile !== 'native';
 
 	onMount(() => {});
 </script>
@@ -106,7 +107,11 @@
 		class="w-full text-3xl text-gray-800 dark:text-gray-100 text-center flex items-center gap-4 font-primary"
 	>
 		<div class="w-full flex flex-col justify-center items-center">
-			<div class="flex flex-row justify-center gap-3 @sm:gap-3.5 w-fit px-5">
+			<div
+				class="flex flex-row items-center justify-center gap-3 @sm:gap-3.5 w-fit px-5 {v0113Compatibility
+					? 'whitespace-nowrap'
+					: ''}"
+			>
 				<div class="flex shrink-0 justify-center">
 					<div class="flex -space-x-4 mb-0.5" in:fade={{ duration: 100 }}>
 						{#each models as model, modelIdx}
@@ -139,8 +144,11 @@
 					</div>
 				</div>
 
-				<div class="text-2xl" in:fade={{ duration: 100 }}>
-					<span class="line-clamp-1">{#if models[selectedModelIdx]?.name}
+				<div
+					class="text-2xl {v0113Compatibility ? 'line-clamp-1 flex items-center whitespace-nowrap' : ''}"
+					in:fade={{ duration: 100 }}
+				>
+					<span class="line-clamp-1 whitespace-nowrap">{#if models[selectedModelIdx]?.name}
 						{models[selectedModelIdx]?.name}
 					{:else}
 						{$i18n.t('Hello, {{name}}', { name: $user?.name })}
