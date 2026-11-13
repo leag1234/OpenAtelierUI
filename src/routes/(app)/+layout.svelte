@@ -251,7 +251,15 @@
 	</div>
 {/if}
 
-<div class="app relative">
+<a
+	href="#main-content"
+	class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[9999] focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-gray-900 focus:shadow-lg dark:focus:bg-gray-800 dark:focus:text-gray-100"
+	>{$i18n.t('Skip to main content')}</a
+>
+
+<div class="flex h-dvh w-full overflow-hidden">
+	<div class="min-w-0 flex-1">
+		<div class="app relative">
 	<div
 		class=" text-gray-700 dark:text-gray-100 bg-white dark:bg-gray-900 h-screen max-h-[100dvh] overflow-auto flex flex-row justify-end"
 	>
@@ -314,14 +322,18 @@
 		<Sidebar />
 
 		{#if loaded}
-			<a href="#main-content" class="sr-only left-0 top-0 focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:rounded-lg focus:bg-white focus:p-3 focus:text-black">{$i18n.t('Skip to main content')}</a>
-			<main id="main-content" tabindex="-1" class="contents"><slot /></main>
+			<main class="contents">
+				<div id="main-content" tabindex="-1" class="sr-only left-0 top-0"></div>
+				<slot />
+			</main>
 		{:else}
 			<div class="w-full flex-1 h-full flex items-center justify-center">
 				<Spinner />
 			</div>
 		{/if}
 	</div>
+</div>
+</div>
 </div>
 
 <style>

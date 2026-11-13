@@ -90,7 +90,11 @@
 	onMount(() => {});
 </script>
 
-<div class="m-auto w-full max-w-6xl px-2 @2xl:px-20 translate-y-6 py-24 text-center">
+<div
+	class={v0113Compatibility
+		? 'm-auto w-full max-w-6xl px-2 @2xl:px-20 translate-y-6 py-24 text-center'
+		: 'm-auto w-full max-w-[58rem] px-1 md:@3xl:px-20 translate-y-6 py-24 text-center'}
+>
 	{#if $temporaryChatEnabled}
 		<Tooltip
 			content={$i18n.t('This chat won’t appear in history and your messages will not be saved.')}
@@ -108,9 +112,9 @@
 	>
 		<div class="w-full flex flex-col justify-center items-center">
 			<div
-				class="flex flex-row items-center justify-center gap-3 @sm:gap-3.5 w-fit px-5 {v0113Compatibility
-					? 'whitespace-nowrap'
-					: ''}"
+				class={v0113Compatibility
+					? 'flex flex-row items-center justify-center gap-3 @sm:gap-3.5 w-fit px-5 whitespace-nowrap'
+					: 'flex flex-row justify-center gap-2.5 @sm:gap-3 w-fit px-5 max-w-xl'}
 			>
 				<div class="flex shrink-0 justify-center">
 					<div class="flex -space-x-4 mb-0.5" in:fade={{ duration: 100 }}>
@@ -133,7 +137,9 @@
 											($i18n.language === 'dg-DG'
 												? `/doge.png`
 												: `${WEBUI_BASE_URL}/static/favicon.png`)}
-										class=" size-9 @sm:size-10 rounded-full border-[1px] border-gray-100 dark:border-none"
+										class={v0113Compatibility
+											? 'size-9 @sm:size-10 rounded-full border-[1px] border-gray-100 dark:border-none'
+											: 'size-9 @sm:size-10 rounded-2xl'}
 										alt=""
 										aria-hidden="true"
 										draggable="false"
@@ -144,16 +150,23 @@
 					</div>
 				</div>
 
-				<div
-					class="text-2xl {v0113Compatibility ? 'line-clamp-1 flex items-center whitespace-nowrap' : ''}"
-					in:fade={{ duration: 100 }}
-				>
-					<span class="line-clamp-1 whitespace-nowrap">{#if models[selectedModelIdx]?.name}
-						{models[selectedModelIdx]?.name}
-					{:else}
-						{$i18n.t('Hello, {{name}}', { name: $user?.name })}
-					{/if}</span>
-				</div>
+				{#if v0113Compatibility}
+					<div class="text-2xl line-clamp-1 flex items-center whitespace-nowrap" in:fade={{ duration: 100 }}>
+						<span class="line-clamp-1 whitespace-nowrap">{#if models[selectedModelIdx]?.name}
+							{models[selectedModelIdx]?.name}
+						{:else}
+							{$i18n.t('Hello, {{name}}', { name: $user?.name })}
+						{/if}</span>
+					</div>
+				{:else}
+					<h2 class="text-2xl @sm:text-2xl line-clamp-1 flex items-center" in:fade={{ duration: 100 }}>
+						{#if models[selectedModelIdx]?.name}
+							{models[selectedModelIdx]?.name}
+						{:else}
+							{$i18n.t('Hello, {{name}}', { name: $user?.name })}
+						{/if}
+					</h2>
+				{/if}
 			</div>
 
 			<div class="flex mt-1 mb-2">
@@ -215,7 +228,10 @@
 			</div>
 		</div>
 	</div>
-	<div class="mx-auto max-w-2xl font-primary" in:fade={{ duration: 200, delay: 200 }}>
+	<div
+		class={v0113Compatibility ? 'mx-auto max-w-2xl font-primary' : 'mx-auto max-w-2xl mt-2'}
+		in:fade={{ duration: 200, delay: 200 }}
+	>
 		<div class="mx-5">
 			<Suggestions
 				suggestionPrompts={atSelectedModel?.info?.meta?.suggestion_prompts ??

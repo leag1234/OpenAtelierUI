@@ -2343,6 +2343,7 @@
 
 			<ChatControls
 				bind:this={controlPaneComponent}
+				title={$chatTitle || $i18n.t('New Chat')}
 				bind:history
 				bind:chatFiles
 				bind:params

@@ -4,7 +4,15 @@
 	import { Pane, PaneResizer } from 'paneforge';
 
 	import { onDestroy, onMount, tick } from 'svelte';
-	import { mobile, showControls, showCallOverlay, showOverview, showArtifacts } from '$lib/stores';
+	import {
+		config,
+		mobile,
+		showControls,
+		showCallOverlay,
+		showOverview,
+		showArtifacts,
+		temporaryChatEnabled
+	} from '$lib/stores';
 
 	import Modal from '../common/Modal.svelte';
 	import Controls from './Controls/Controls.svelte';
@@ -17,6 +25,7 @@
 
 	export let history;
 	export let models = [];
+	export let title = 'New Chat';
 
 	export let chatId = null;
 
@@ -133,7 +142,80 @@
 	$: if (!chatId) {
 		closeHandler();
 	}
+	$: latestCompatibility = $config?.compatibility_profile === 'native';
 </script>
+
+{#if latestCompatibility}
+	<div class="contents">
+		<div
+			role="presentation"
+			id="controls-container"
+			class="h-full w-full min-h-0 flex flex-col absolute inset-0 pointer-events-none"
+			style="--chat-tabs-dark-background: var(--color-gray-900); left: 48px; width: calc(100% - 48px);"
+		>
+			<div class="relative flex-1 min-h-0 min-w-0">
+				<button
+					type="button"
+					class="absolute right-2 top-1 z-20 flex size-7 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-50/40 dark:text-gray-400 dark:hover:bg-gray-800/40 disabled:opacity-30 pointer-events-auto"
+					aria-label="Split screen"
+					aria-pressed="false"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" class="size-4.5" stroke-width="1">
+						<rect x="4" y="4" width="16" height="16" rx="1.5"></rect>
+						<path d="M12 20V4"></path>
+					</svg>
+				</button>
+				<div
+					role="presentation"
+					class="absolute min-h-0 min-w-0 pointer-events-none flex flex-col overflow-hidden"
+					data-panel-group="default"
+					style="position: absolute; left: 0%; top: calc(100% * 0 + 0px * var(--app-text-scale, 1)); width: 100%; height: calc(100% * 1 - 0px * var(--app-text-scale, 1));"
+				>
+					<div
+						data-panel-tab-bar=""
+						class="flex h-9 items-center px-1.5 pr-10 gap-1 shrink-0 pointer-events-auto select-none col-start-1 row-start-1 min-w-0 z-10"
+					>
+						<div class="flex items-center gap-0.5 flex-1 min-w-0 py-0.5">
+							<div role="tablist" tabindex="-1" class="panel-tab-strip flex items-center gap-0.5 min-w-0 overflow-x-auto" aria-label="Tabs">
+								<div role="presentation" data-panel-tab="main-chat" class="panel-tab flex cursor-pointer items-center gap-1.5 ps-2.5 pe-2 h-7 rounded-lg text-sm font-normal whitespace-nowrap shrink-0 transition bg-gray-100/40 dark:bg-gray-800/25 text-gray-700 dark:text-gray-200">
+									<button role="tab" class="flex h-full items-center gap-1.5 min-w-0" id="chat-panel-main-chat" aria-controls="chat-panel-main-chat-view" aria-selected="true" tabindex="0" {title} aria-label={title}>
+										<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" stroke-width="1.5" class="shrink-0">
+											<path d="M8 10L12 10L16 10"></path>
+											<path d="M8 14L10 14L12 14"></path>
+											<path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 13.8214 2.48697 15.5291 3.33782 17L2.5 21.5L7 20.6622C8.47087 21.513 10.1786 22 12 22Z"></path>
+										</svg>
+										<span class="max-w-30 overflow-hidden text-ellipsis">{title}</span>
+									</button>
+								</div>
+							</div>
+							<span style="display: contents; cursor: pointer;">
+								<button type="button" class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-100 shrink-0" aria-label="New tab" aria-haspopup="true" aria-expanded="false">
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" stroke-width="1.5" class="shrink-0">
+										<path d="M6 12H12M18 12H12M12 12V6M12 12V18"></path>
+									</svg>
+								</button>
+							</span>
+						</div>
+						<div class="flex shrink-0 items-center gap-2">
+							<div class="flex">
+								<button
+									id="temporary-chat-button"
+									class="flex size-6 cursor-pointer items-center justify-center rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200"
+									aria-label="Temporary Chat"
+									on:click={() => temporaryChatEnabled.set(!$temporaryChatEnabled)}
+								>
+									<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="size-4">
+										<path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 13.8214 2.48697 15.5291 3.33782 17L2.5 21.5L7 20.6622C8.47087 21.513 10.1786 22 12 22Z" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2.5 3.5"></path>
+									</svg>
+								</button>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <SvelteFlowProvider>
 	{#if !largeScreen}

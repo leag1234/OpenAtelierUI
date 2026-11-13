@@ -48,7 +48,45 @@
 
 <ShareChatModal bind:show={showShareChatModal} chatId={$chatId} />
 
-<nav class="sticky top-0 z-30 w-full py-1.5 -mb-8 flex flex-col items-center drag-region">
+<nav
+	class={v0113Compatibility
+		? 'sticky top-0 z-30 w-full py-1.5 -mb-8 flex flex-col items-center drag-region'
+		: 'sticky top-0 z-30 w-full pb-0.5 flex flex-col items-center drag-region'}
+>
+	{#if !v0113Compatibility}
+		<div class="flex items-center w-full pl-1.5 pr-1 hidden">
+			<div
+				id="navbar-bg-gradient-to-b"
+				class="invisible bg-linear-to-b via-40% to-97% from-white/90 via-white/50 to-transparent dark:from-gray-900/90 dark:via-gray-900/50 dark:to-transparent pointer-events-none absolute inset-0 -bottom-10 z-[-1]"
+			></div>
+			<div class="flex max-w-full w-full mx-auto bg-transparent">
+				<div class="flex items-center w-full max-w-full">
+					<div class="flex-1 min-w-0 overflow-hidden max-w-full md:mt-0.5 md:py-0.5 pl-1">
+						<h1 class="sr-only">{title}</h1>
+						<div class="pointer-events-none invisible flex max-w-full min-w-0 items-center gap-2">
+							<div class="min-w-0 truncate md:py-1 text-left text-[0.9375rem] font-normal text-gray-700 dark:text-gray-300">
+								{title}
+							</div>
+						</div>
+					</div>
+					<div class="lg:mr-1 flex flex-none items-center gap-2 self-center">
+						<div class="flex">
+							<button
+								class="flex size-6 cursor-pointer items-center justify-center rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200"
+								aria-label={$i18n.t('Tabs')}
+								aria-expanded="false"
+							>
+								<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" class="size-4.5" stroke-width="1">
+									<rect x="4" y="4" width="16" height="16" rx="1.5"></rect>
+									<path d="M12 20V4"></path>
+								</svg>
+							</button>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	{:else}
 	<div class="flex items-center w-full px-1.5">
 		<div
 			class=" bg-linear-to-b via-50% from-white via-white to-transparent dark:from-gray-900 dark:via-gray-900 dark:to-transparent pointer-events-none absolute inset-0 -bottom-7 z-[-1]"
@@ -216,6 +254,7 @@
 			</div>
 		</div>
 	</div>
+	{/if}
 
 	{#if !history.currentId && !$chatId && ($banners.length > 0 || ($config?.license_metadata?.type ?? null) === 'trial' || (($config?.license_metadata?.seats ?? null) !== null && $config?.user_count > $config?.license_metadata?.seats))}
 		<div class=" w-full z-30 mt-5">
