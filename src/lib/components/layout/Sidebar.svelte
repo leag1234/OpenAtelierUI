@@ -508,13 +508,19 @@
 	<CurrentSidebarShadow
 		webuiName={$WEBUI_NAME}
 		expanded={true}
+		mobile={$mobile}
 		onCreateFolder={() => createFolder()}
 		folderItems={folders}
 	/>
-	<div class="relative flex items-center justify-center group border-r border-gray-50 dark:border-gray-850/30 hover:border-gray-200 dark:hover:border-gray-800 transition z-20 bg-transparent p-0 appearance-none">
-		<div class="absolute -left-1.5 -right-1.5 -top-0 -bottom-0 z-20 cursor-col-resize bg-transparent"></div>
-	</div>
+	{#if !$mobile}
+		<div class="relative flex items-center justify-center group border-r border-gray-50 dark:border-gray-850/30 hover:border-gray-200 dark:hover:border-gray-800 transition z-20 bg-transparent p-0 appearance-none">
+			<div class="absolute -left-1.5 -right-1.5 -top-0 -bottom-0 z-20 cursor-col-resize bg-transparent"></div>
+		</div>
+	{/if}
 {:else}
+{#if latestCompatibility && $mobile && !$showSidebar}
+	<button id="sidebar-new-chat-button" class="hidden"></button>
+{/if}
 {#if !$mobile || $showSidebar}
 {#if !$showSidebar && !$mobile && latestCompatibility}
 	<button type="button" class="hidden" aria-hidden="true" tabindex="-1"></button>

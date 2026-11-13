@@ -42,7 +42,7 @@ class CurrentMessageStructureTests(unittest.TestCase):
         self.assertIn('aria-label="Explain"', TOOLBAR)
 
     def test_current_controls_have_close_action_without_duplicate_temporary_button(self) -> None:
-        current_block = CONTROLS.split("{#if latestCompatibility}", 1)[1].split(
+        current_block = CONTROLS.split("{:else if latestCompatibility}", 1)[1].split(
             "<SvelteFlowProvider>", 1
         )[0]
         self.assertIn('id="chat-context-menu-button"', current_block)
@@ -51,7 +51,11 @@ class CurrentMessageStructureTests(unittest.TestCase):
 
     def test_current_streaming_button_and_composer_tail_match_current_shape(self) -> None:
         self.assertIn("rounded-full p-[0.3125rem]", INPUT)
-        self.assertIn('{#if !v0113Compatibility}<div class="mb-0.5"></div>{/if}', INPUT)
+        self.assertIn(
+            '{#if !v0113Compatibility && history?.currentId}<div class="mb-0.5"></div>{/if}',
+            INPUT,
+        )
+        self.assertIn("{#if v0113Compatibility || atSelectedModel !== undefined", INPUT)
 
 
 if __name__ == "__main__":

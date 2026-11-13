@@ -51,9 +51,79 @@
 <nav
 	class={v0113Compatibility
 		? 'sticky top-0 z-30 w-full py-1.5 -mb-8 flex flex-col items-center drag-region'
-		: 'sticky top-0 z-30 w-full pb-0.5 flex flex-col items-center drag-region'}
+		: $mobile
+			? 'sticky top-0 z-30 w-full pt-1.5 pb-1 -mb-12 flex flex-col items-center drag-region'
+			: 'sticky top-0 z-30 w-full pb-0.5 flex flex-col items-center drag-region'}
 >
 	{#if !v0113Compatibility}
+		{#if $mobile}
+		<div class="flex items-center w-full px-1.5">
+			<div
+				id="navbar-bg-gradient-to-b"
+				class="{history.currentId ? 'visible' : 'invisible'} bg-linear-to-b via-40% to-97% from-white/90 via-white/50 to-transparent dark:from-gray-900/90 dark:via-gray-900/50 dark:to-transparent pointer-events-none absolute inset-0 -bottom-10 z-[-1]"
+			></div>
+			<div class=" flex max-w-full w-full mx-auto bg-transparent">
+				<div class="flex items-center w-full max-w-full">
+					{#if !$showSidebar}<div class="mr-1 flex flex-none items-center self-start">
+						<div class="flex">
+							<button
+								id="sidebar-toggle-button"
+								class="flex cursor-pointer rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200"
+								aria-label={$i18n.t('Open Sidebar')}
+								on:click={() => showSidebar.set(true)}
+							>
+								<div class="self-center p-1.5">
+									<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" class="size-4">
+										<path d="M19 21L5 21C3.89543 21 3 20.1046 3 19L3 5C3 3.89543 3.89543 3 5 3L19 3C20.1046 3 21 3.89543 21 5L21 19C21 20.1046 20.1046 21 19 21Z" />
+										<path d="M9.5 21V3" />
+										<path d="M5.5 10L7.25 12L5.5 14" />
+									</svg>
+								</div>
+							</button>
+						</div>
+					</div>{/if}
+					<div class="flex-1 min-w-0 overflow-hidden max-w-full md:mt-0.5 md:py-0.5 pl-1 {$showSidebar ? 'ml-1' : ''}">
+						{#if history.currentId}
+							<div class="flex max-w-full min-w-0 items-center gap-2 mr-2">
+								<h1 class="min-w-0 truncate md:py-1 text-left text-[0.9375rem] font-normal text-gray-700 dark:text-gray-300">{title}</h1>
+								<button id="delete-chat-button" class="hidden" aria-label={$i18n.t('Delete')}>
+									<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="size-4.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM12.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM18.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" /></svg>
+								</button>
+							</div>
+						{:else}
+							<h1 class="sr-only">{title}</h1>
+							<div class="pointer-events-none invisible flex max-w-full min-w-0 items-center gap-2">
+								<div class="min-w-0 truncate md:py-1 text-left text-[0.9375rem] font-normal text-gray-700 dark:text-gray-300">{title}</div>
+							</div>
+						{/if}
+					</div>
+					<div class="lg:mr-1 flex flex-none items-center gap-2 self-center">
+						{#if history.currentId}
+							<div class="flex">
+								<button type="button" class="flex size-6 {$showSidebar ? 'md:hidden' : ''} cursor-pointer items-center justify-center rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200" aria-label={$i18n.t('New Chat')} on:click={initNewChat}>
+									<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="size-4"><path d="M9 12H12M15 12H12M12 12V9M12 12V15" stroke-linecap="round" stroke-linejoin="round" /><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 13.8214 2.48697 15.5291 3.33782 17L2.5 21.5L7 20.6622C8.47087 21.513 10.1786 22 12 22Z" stroke-linecap="round" stroke-linejoin="round" /></svg>
+								</button>
+							</div>
+							<span style="display: contents; cursor: pointer;"><Menu let:builder {chat} {shareEnabled} shareHandler={() => { showShareChatModal = !showShareChatModal; }} downloadHandler={() => { showDownloadChatModal = !showDownloadChatModal; }}>
+									<button {...builder} use:builder.action id="chat-context-menu-button" class="flex shrink-0 cursor-pointer items-center justify-center size-6 rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200" aria-label={$i18n.t('Chat actions')}>
+										<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="size-4.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM12.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM18.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" /></svg>
+									</button>
+								</Menu></span>
+						{:else}
+							<div class="flex"><button type="button" id="temporary-chat-button" class="flex size-6 cursor-pointer items-center justify-center rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200" aria-label={$i18n.t('Temporary Chat')} on:click={() => temporaryChatEnabled.set(!$temporaryChatEnabled)}>
+								<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="size-4"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 13.8214 2.48697 15.5291 3.33782 17L2.5 21.5L7 20.6622C8.47087 21.513 10.1786 22 12 22Z" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2.5 3.5" /></svg>
+							</button></div>
+						{/if}
+						<div class="flex">
+							<button type="button" class="flex size-6 cursor-pointer items-center justify-center rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200" aria-label={$i18n.t('Tabs')} aria-expanded="false">
+								<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" class="size-4.5" stroke-width="1"><rect x="4" y="4" width="16" height="16" rx="1.5"></rect><path d="M12 20V4"></path></svg>
+							</button>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+		{:else}
 		<div class="flex items-center w-full pl-1.5 pr-1 hidden">
 			<div
 				id="navbar-bg-gradient-to-b"
@@ -90,6 +160,7 @@
 				</div>
 			</div>
 		</div>
+		{/if}
 		<div class="absolute top-full left-0 right-0 h-fit"></div>
 	{:else}
 	<div class="flex items-center w-full px-1.5">

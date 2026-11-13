@@ -5,6 +5,7 @@
 
 	export let webuiName = 'OpenAtelierUI';
 	export let expanded = false;
+	export let mobile = false;
 	export let onCreateFolder = () => {};
 	export let folderItems: Record<string, any> = {};
 
@@ -38,12 +39,12 @@
 	aria-label="Chat history"
 	aria-hidden={expanded ? undefined : 'true'}
 	inert={expanded ? undefined : true}
-	style:width={expanded ? 'var(--sidebar-width)' : '0px'}
+	style:width={expanded ? (mobile ? '350px' : 'var(--sidebar-width)') : '0px'}
 	class="h-screen max-h-[100dvh] min-h-screen select-none bg-gray-50 dark:bg-gray-950 z-50 {expanded ? '' : 'pointer-events-none'} shrink-0 text-gray-700 dark:text-gray-300 text-[0.8125rem] leading-5 fixed top-0 left-0 overflow-x-hidden"
 >
 	<div class="my-auto flex flex-col justify-between h-screen max-h-[100dvh] w-[var(--sidebar-width)] overflow-x-hidden scrollbar-hidden z-50 border-e border-gray-50 dark:border-gray-850/30">
-		<div class="sidebar px-1 pt-0.5 pb-0.5 flex shrink-0 justify-between space-x-1 text-gray-600 dark:text-gray-400 sticky top-0 z-10">
-			<a href="/" tabindex={expanded ? 0 : -1} class="flex items-center rounded-xl size-8.5 shrink-0 justify-center hover:bg-gray-100 dark:hover:bg-gray-900 transition no-drag-region">
+		<div class="sidebar {mobile ? 'px-0.75 pt-1 pb-1 -mb-2' : 'px-1 pt-0.5 pb-0.5'} flex shrink-0 justify-between space-x-1 text-gray-600 dark:text-gray-400 sticky top-0 z-10">
+			<a href="/" tabindex={expanded ? 0 : -1} class="flex items-center rounded-xl size-8.5 {mobile ? 'h-full' : 'shrink-0'} justify-center hover:bg-gray-100 dark:hover:bg-gray-900 transition no-drag-region">
 				<img class="sidebar-new-chat-icon size-5 rounded-full" alt="" src="/static/favicon.png" />
 			</a>
 			<a href="/" tabindex={expanded ? 0 : -1} class="flex min-w-0 flex-1 px-0.5">
@@ -89,7 +90,7 @@
 			</div>
 		</section>
 
-		<div class="relative flex flex-col flex-1 overflow-y-auto scrollbar-hidden space-y-1.5 pb-2.5">
+		<div class="relative flex flex-col flex-1 overflow-y-auto scrollbar-hidden space-y-1.5 {mobile ? 'pt-1.5' : ''} pb-2.5">
 			<div class="pb-1">
 				<div class="px-1 flex justify-center text-gray-700 dark:text-gray-300">
 					<a id="sidebar-new-chat-button" href="/" tabindex={expanded ? 0 : -1} class="group grow flex items-center space-x-2 rounded-xl px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none">
@@ -167,7 +168,7 @@
 															: 'hover:bg-gray-100 dark:hover:bg-gray-900 group-hover:bg-gray-100 dark:group-hover:bg-gray-900'} whitespace-nowrap text-ellipsis transition"
 													>
 														<a
-															class="flex min-w-0 flex-1 -my-1.5 py-1.5 items-center"
+																	class="flex min-w-0 flex-1 {mobile ? '' : '-my-1.5 py-1.5'} items-center"
 															href="/c/{chat.id}"
 															aria-current={$chatId === chat.id ? 'page' : undefined}
 															draggable="false"

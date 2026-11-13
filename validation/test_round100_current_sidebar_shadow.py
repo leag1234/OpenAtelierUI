@@ -22,7 +22,7 @@ class CurrentSidebarShadowTests(unittest.TestCase):
     def test_shadow_remains_inert_when_not_expanded(self) -> None:
         self.assertIn("aria-hidden={expanded ? undefined : 'true'}", SHADOW)
         self.assertIn("inert={expanded ? undefined : true}", SHADOW)
-        self.assertIn("expanded ? 'var(--sidebar-width)' : '0px'", SHADOW)
+        self.assertIn("expanded ? (mobile ? '350px' : 'var(--sidebar-width)') : '0px'", SHADOW)
         self.assertIn("pointer-events-none", SHADOW)
 
     def test_observed_current_sections_are_present(self) -> None:

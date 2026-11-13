@@ -160,11 +160,11 @@
 					</div>
 				{:else}
 					<h2 class="text-2xl @sm:text-2xl line-clamp-1 flex items-center" in:fade={{ duration: 100 }}>
-						{#if models[selectedModelIdx]?.name}
-							{models[selectedModelIdx]?.name}
-						{:else}
-							{$i18n.t('Hello, {{name}}', { name: $user?.name })}
-						{/if}
+						<span class="flex items-center"><span class="line-clamp-1">{#if models[selectedModelIdx]?.name}
+								{models[selectedModelIdx]?.name}
+							{:else}
+								{$i18n.t('Hello, {{name}}', { name: $user?.name })}
+							{/if}</span></span>
 					</h2>
 				{/if}
 			</div>

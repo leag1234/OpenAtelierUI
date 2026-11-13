@@ -416,6 +416,7 @@
 					{/if}
 				</div>
 
+				{#if v0113Compatibility || atSelectedModel !== undefined || selectedToolIds.length > 0 || webSearchEnabled || ($settings?.webSearch ?? false) === 'always' || imageGenerationEnabled || codeInterpreterEnabled}
 				<div class="w-full relative">
 					{#if atSelectedModel !== undefined || selectedToolIds.length > 0 || webSearchEnabled || ($settings?.webSearch ?? false) === 'always' || imageGenerationEnabled || codeInterpreterEnabled}
 						<div
@@ -453,6 +454,9 @@
 						</div>
 					{/if}
 
+				</div>
+				{/if}
+
 					<Commands
 						bind:this={commandsElement}
 						bind:prompt
@@ -471,7 +475,6 @@
 							chatInputElement?.focus();
 						}}
 					/>
-				</div>
 			</div>
 		</div>
 
@@ -1401,7 +1404,7 @@
 									</div>
 								</div>
 							</div>
-							{#if !v0113Compatibility}<div class="mb-0.5"></div>{/if}
+							{#if !v0113Compatibility && history?.currentId}<div class="mb-0.5"></div>{/if}
 						</form>
 					{/if}
 				</div>

@@ -137,8 +137,8 @@ class BrowserContractSourceTests(unittest.TestCase):
         self.assertEqual(sources.count("<UserMenu"), 6)
         # Six established trigger builders, including the native compact rail,
         # plus the two saved-chat context menu triggers.
-        self.assertEqual(sources.count("let:builder"), 8)
-        self.assertEqual(sources.count("use:builder.action"), 8)
+        self.assertEqual(sources.count("let:builder"), 9)
+        self.assertEqual(sources.count("use:builder.action"), 9)
         self.assertEqual(sources.count('aria-haspopup="menu"'), 6)
         stable = ROOT / "static/static/openatelierui/i18n.js"
         legacy = ROOT / "static/_app/immutable/chunks/DKxluP3e.js"

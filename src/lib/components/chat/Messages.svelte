@@ -389,7 +389,7 @@
 	};
 </script>
 
-<div class={nativeCompatibility ? 'h-full flex pt-4' : className}>
+<div class={nativeCompatibility ? ($mobile ? 'h-full flex pt-18' : 'h-full flex pt-4') : className}>
 	{#if Object.keys(history?.messages ?? {}).length == 0}
 		<ChatPlaceholder
 			modelIds={selectedModels}
