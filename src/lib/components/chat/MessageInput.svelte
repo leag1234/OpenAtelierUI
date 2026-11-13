@@ -382,7 +382,9 @@
 			<div
 				class="flex flex-col px-3 {($settings?.widescreenMode ?? null)
 					? 'max-w-full'
-					: 'max-w-6xl'} w-full"
+					: v0113Compatibility
+						? 'max-w-6xl'
+						: 'max-w-[58rem]'} w-full"
 			>
 				<div class="relative">
 					{#if autoScroll === false && history?.currentId}

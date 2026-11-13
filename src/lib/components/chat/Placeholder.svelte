@@ -108,7 +108,7 @@
 	{/if}
 
 	<div
-		class="w-full text-3xl text-gray-800 dark:text-gray-100 text-center flex items-center gap-4 font-primary"
+		class="w-full text-3xl text-gray-800 dark:text-gray-100 text-center flex items-center gap-4 {v0113Compatibility ? 'font-primary' : ''}"
 	>
 		<div class="w-full flex flex-col justify-center items-center">
 			<div

@@ -137,6 +137,7 @@
 	let selectedModels = [''];
 	let atSelectedModel: Model | undefined;
 	let selectedModelIds = [];
+	$: nativeCompatibility = $config?.compatibility_profile === 'native';
 	$: selectedModelIds = atSelectedModel !== undefined ? [atSelectedModel.id] : selectedModels;
 
 	let selectedToolIds = [];
@@ -2168,7 +2169,7 @@
 <div
 	class="h-screen max-h-[100dvh] transition-width duration-200 ease-in-out {$showSidebar
 		? '  md:max-w-[calc(100%-260px)]'
-		: ' '} w-full max-w-full flex flex-col"
+		: ' '} w-full max-w-full {nativeCompatibility ? 'min-w-0' : ''} flex flex-col"
 	id="chat-container"
 >
 	{#if !loading}
@@ -2185,9 +2186,14 @@
 			/>
 		{/if}
 
-		<PaneGroup direction="horizontal" class="w-full h-full">
-			<Pane defaultSize={50} class="h-full flex relative max-w-full flex-col">
-				<div id="chat-pane" class="flex h-full min-h-0 w-full min-w-0 flex-col">
+		<PaneGroup direction="horizontal" class={nativeCompatibility ? 'w-full h-full flex flex-col' : 'w-full h-full'}>
+			<Pane defaultSize={50} class={nativeCompatibility
+				? 'relative w-full h-full min-h-0 flex'
+				: 'h-full flex relative max-w-full flex-col'}>
+				<div id="chat-pane" class={nativeCompatibility
+					? 'h-full flex relative max-w-full min-w-0 min-h-0 flex-1 flex-col col-start-1 row-start-2'
+					: 'flex h-full min-h-0 w-full min-w-0 flex-col'}>
+					{#if nativeCompatibility}<button class="hidden" aria-hidden="true" tabindex="-1"></button>{/if}
 				<Navbar
 					bind:this={navbarElement}
 					chat={{
@@ -2209,7 +2215,9 @@
 					{initNewChat}
 				/>
 
-				<div class="flex flex-col flex-auto z-10 w-full @container">
+				<div class={nativeCompatibility
+					? 'flex flex-col flex-auto z-10 w-full @container overflow-auto'
+					: 'flex flex-col flex-auto z-10 w-full @container'}>
 					{#if $settings?.landingPageMode === 'chat' || createMessagesList(history, history.currentId).length > 0}
 						<div
 							class=" pb-2.5 flex flex-col justify-between w-full flex-auto overflow-auto h-0 max-w-full z-10 scrollbar-hidden"
@@ -2294,7 +2302,8 @@
 							</div>
 						</div>
 					{:else}
-						<div class="overflow-auto w-full h-full flex items-center">
+						{#if nativeCompatibility}<div class="sr-only"></div>{/if}
+						<div class={nativeCompatibility ? 'flex items-center h-full' : 'overflow-auto w-full h-full flex items-center'}>
 							<Placeholder
 								{history}
 								bind:selectedModels

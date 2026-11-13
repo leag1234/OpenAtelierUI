@@ -52,6 +52,7 @@
 
 	export let className = 'w-[32rem]';
 	export let triggerClassName = 'text-lg';
+	export let nativeCompact = false;
 
 	let tagsContainerElement;
 
@@ -323,20 +324,32 @@
 	closeFocus={false}
 >
 	<DropdownMenu.Trigger
-		class="relative w-full font-primary"
+		class={nativeCompact
+			? 'focus-ring relative w-full outline-hidden focus:outline-hidden'
+			: 'relative w-full font-primary'}
 		aria-label={placeholder}
 		id="model-selector-{id}-button"
 	>
-		<div
-			class="flex w-full text-left px-0.5 outline-hidden bg-transparent truncate {triggerClassName} justify-between font-medium placeholder-gray-400 focus:outline-hidden"
-		>
-			{#if selectedModel}
-				{selectedModel.label}
-			{:else}
-				{placeholder}
-			{/if}
-			<ChevronDown className=" self-center ml-2 size-3" strokeWidth="2.5" />
-		</div>
+		{#if nativeCompact}
+			<div
+				class="flex w-full min-w-0 text-left px-0.5 bg-transparent items-center gap-1.5 rounded-lg pl-2 pr-1.5 py-1 text-[0.8125rem] font-normal text-gray-600 transition-colors duration-100 hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-300 dark:hover:bg-gray-800/40 dark:hover:text-gray-200 justify-between placeholder-gray-400"
+			>
+				<span class="min-w-0 flex-1 truncate">{selectedModel ? selectedModel.label : placeholder}</span>
+				<ChevronDown className="ml-1 size-2.5 shrink-0 self-center" strokeWidth="2.5" />
+			</div>
+			<span></span>
+		{:else}
+			<div
+				class="flex w-full text-left px-0.5 outline-hidden bg-transparent truncate {triggerClassName} justify-between font-medium placeholder-gray-400 focus:outline-hidden"
+			>
+				{#if selectedModel}
+					{selectedModel.label}
+				{:else}
+					{placeholder}
+				{/if}
+				<ChevronDown className=" self-center ml-2 size-3" strokeWidth="2.5" />
+			</div>
+		{/if}
 	</DropdownMenu.Trigger>
 
 	<DropdownMenu.Content

@@ -119,7 +119,7 @@
 	<div class="h-36 w-full">
 		<div role="list" aria-labelledby="suggestions-heading" class="max-h-36 overflow-auto scrollbar-none items-start {className}">
 			{#if filteredPrompts.length > 0}
-				{#each filteredPrompts as prompt, idx (prompt.id || prompt.content)}
+				{#each filteredPrompts.slice(0, 6) as prompt, idx (prompt.id || prompt.content)}
 					<div role="listitem" class="contents">
 						<button
 							class="waterfall flex flex-col flex-1 shrink-0 w-full justify-between px-2.5 py-1.5 rounded-lg bg-transparent transition-colors hover:text-gray-950 dark:hover:text-white group"

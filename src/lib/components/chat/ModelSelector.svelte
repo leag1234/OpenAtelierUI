@@ -30,14 +30,30 @@
 			$models.map((m) => m.id).includes(model) ? model : ''
 		);
 	}
+	$: nativeCompatibility = $config?.compatibility_profile === 'native';
 </script>
 
-<div class="flex flex-col w-full items-start">
+<div class={nativeCompatibility
+	? 'flex min-w-0 max-w-full flex-col items-start'
+	: 'flex flex-col w-full items-start'}>
 	{#each selectedModels as selectedModel, selectedModelIdx}
-		<div class="flex w-full max-w-fit">
-			<div class="overflow-hidden w-full">
-				<div class="mr-1 max-w-full">
-					<Selector
+		<div class={nativeCompatibility ? 'flex min-w-0 max-w-full' : 'flex w-full max-w-fit'}>
+			<div class={nativeCompatibility ? 'min-w-0 max-w-full overflow-hidden' : 'overflow-hidden w-full'}>
+				<div class={nativeCompatibility ? 'min-w-0 max-w-full' : 'mr-1 max-w-full'}>
+					{#if nativeCompatibility}
+						<div class="relative flex w-full">
+							<Selector
+								id={`${selectedModelIdx}`}
+								placeholder={$i18n.t('Select a model')}
+								items={$models.map((model) => ({ value: model.id, label: model.name, model }))}
+								showTemporaryChatControl={false}
+								onSetDefault={selectedModelIdx === 0 ? saveDefaultModel : null}
+								nativeCompact={true}
+								bind:value={selectedModel}
+							/>
+						</div>
+					{:else}
+						<Selector
 						id={`${selectedModelIdx}`}
 						placeholder={$i18n.t('Select a model')}
 						items={$models.map((model) => ({
@@ -49,17 +65,16 @@
 						onSetDefault={selectedModelIdx === 0 ? saveDefaultModel : null}
 						bind:value={selectedModel}
 					/>
+					{/if}
 				</div>
 			</div>
 
 			{#if $user?.role === 'admin' || ($user?.permissions?.chat?.multiple_models ?? true)}
 				{#if selectedModelIdx === 0}
-					<div
-						class="  self-center mx-1 disabled:text-gray-600 disabled:hover:text-gray-600 -translate-y-[0.5px]"
-					>
+					{#if nativeCompatibility}
 						<Tooltip content={$i18n.t('Add Model')}>
 							<button
-								class=" "
+								class="mr-2 flex shrink-0 items-center justify-center text-gray-500 transition-colors hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
 								{disabled}
 								on:click={() => {
 									selectedModels = [...selectedModels, ''];
@@ -78,7 +93,26 @@
 								</svg>
 							</button>
 						</Tooltip>
-					</div>
+					{:else}
+						<div
+							class="  self-center mx-1 disabled:text-gray-600 disabled:hover:text-gray-600 -translate-y-[0.5px]"
+						>
+							<Tooltip content={$i18n.t('Add Model')}>
+								<button
+									class=" "
+									{disabled}
+									on:click={() => {
+										selectedModels = [...selectedModels, ''];
+									}}
+									aria-label={$i18n.t('Add Model')}
+								>
+									<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-3.5">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m6-6H6" />
+									</svg>
+								</button>
+							</Tooltip>
+						</div>
+					{/if}
 				{:else}
 					<div
 						class="  self-center mx-1 disabled:text-gray-600 disabled:hover:text-gray-600 -translate-y-[0.5px]"
