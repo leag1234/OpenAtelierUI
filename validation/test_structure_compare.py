@@ -51,6 +51,33 @@ class StructureCompareTests(unittest.TestCase):
             ),
         )
 
+    def test_body_scope_ignores_generated_head_asset_graph(self) -> None:
+        left = (
+            '<html><head><link class="asset-a"><script class="chunk-a"></script></head>'
+            '<body><main class="page"></main></body></html>'
+        )
+        right = (
+            '<html><head><link class="asset-b"><link class="asset-c"></head>'
+            '<body><main class="page"></main></body></html>'
+        )
+        result = compare_html(left, right, scope="body")
+        self.assertTrue(result.passed)
+        self.assertEqual(result.percentage, 100.0)
+        self.assertEqual(result.left_count, 2)
+        self.assertEqual(result.right_count, 2)
+
+    def test_body_scope_keeps_every_body_ui_class_difference(self) -> None:
+        result = compare_html(
+            '<html><head></head><body class="theme"><main class="page"><p class="answer"></p></main></body></html>',
+            '<html><head></head><body class="theme"><main class="page"><p class="reply"></p></main></body></html>',
+            scope="body",
+        )
+        self.assertFalse(result.passed)
+        self.assertEqual(result.left_count, 3)
+        self.assertEqual(result.right_count, 3)
+        self.assertEqual(result.opcodes[0]["left_preview"], ["p.answer"])
+        self.assertEqual(result.opcodes[0]["right_preview"], ["p.reply"])
+
     def test_identical_documents_pass_at_one_hundred_percent(self) -> None:
         html = '<main class="page"><p class="answer">A</p></main>'
         result = compare_html(html, html)

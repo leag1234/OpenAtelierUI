@@ -56,15 +56,22 @@ def normalize_classes(raw: str | None) -> tuple[str, ...]:
 
 
 class _StructureParser(HTMLParser):
-    def __init__(self, excluded_classes: frozenset[str]) -> None:
+    def __init__(self, excluded_classes: frozenset[str], scope: str) -> None:
         super().__init__(convert_charrefs=True)
         self.excluded_classes = excluded_classes
+        self.scope = scope
         self.signatures: list[ElementSignature] = []
         self._skip_depth = 0
+        self._in_scope = scope == "document"
 
     def handle_starttag(
         self, tag: str, attrs: list[tuple[str, str | None]]
     ) -> None:
+        normalized_tag = tag.lower()
+        if self.scope == "body" and normalized_tag == "body":
+            self._in_scope = True
+        if not self._in_scope:
+            return
         attributes = dict(attrs)
         classes = normalize_classes(attributes.get("class"))
         should_skip = bool(self.excluded_classes.intersection(classes))
@@ -74,12 +81,12 @@ class _StructureParser(HTMLParser):
         if should_skip:
             self._skip_depth = 1
             return
-        self.signatures.append(ElementSignature(tag.lower(), classes))
+        self.signatures.append(ElementSignature(normalized_tag, classes))
 
     def handle_startendtag(
         self, tag: str, attrs: list[tuple[str, str | None]]
     ) -> None:
-        if self._skip_depth:
+        if not self._in_scope or self._skip_depth:
             return
         attributes = dict(attrs)
         classes = normalize_classes(attributes.get("class"))
@@ -90,12 +97,16 @@ class _StructureParser(HTMLParser):
     def handle_endtag(self, tag: str) -> None:
         if self._skip_depth:
             self._skip_depth -= 1
+        if self.scope == "body" and tag.lower() == "body":
+            self._in_scope = False
 
 
 def signatures_from_html(
-    html: str, *, excluded_classes: Iterable[str] = ()
+    html: str, *, excluded_classes: Iterable[str] = (), scope: str = "document"
 ) -> tuple[ElementSignature, ...]:
-    parser = _StructureParser(frozenset(excluded_classes))
+    if scope not in {"document", "body"}:
+        raise ValueError("scope must be 'document' or 'body'")
+    parser = _StructureParser(frozenset(excluded_classes), scope)
     parser.feed(html)
     parser.close()
     if parser._skip_depth:
@@ -156,11 +167,16 @@ def compare_html(
     right_html: str,
     *,
     excluded_classes: Iterable[str] = (),
+    scope: str = "document",
     threshold: float = 99.0,
     reference_floor: float | None = None,
 ) -> Comparison:
-    left = signatures_from_html(left_html, excluded_classes=excluded_classes)
-    right = signatures_from_html(right_html, excluded_classes=excluded_classes)
+    left = signatures_from_html(
+        left_html, excluded_classes=excluded_classes, scope=scope
+    )
+    right = signatures_from_html(
+        right_html, excluded_classes=excluded_classes, scope=scope
+    )
     return compare_signatures(
         left,
         right,
@@ -178,6 +194,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--threshold", type=float, default=99.0)
     parser.add_argument("--reference-floor", type=float)
     parser.add_argument("--exclude-class", action="append", default=[])
+    parser.add_argument(
+        "--scope",
+        choices=("document", "body"),
+        default="document",
+        help="Compare the full document or only the rendered body hierarchy.",
+    )
     parser.add_argument("--output", type=Path)
     return parser.parse_args()
 
@@ -188,6 +210,7 @@ def main() -> int:
         args.left.read_text(encoding="utf-8"),
         args.right.read_text(encoding="utf-8"),
         excluded_classes=args.exclude_class,
+        scope=args.scope,
         threshold=args.threshold,
         reference_floor=args.reference_floor,
     )
