@@ -108,7 +108,7 @@ class LatestChatTabBarTests(unittest.TestCase):
         self.assertIn('id="temporary-chat-button"', self.source)
 
     def test_tab_bar_does_not_render_beneath_the_collapsed_rail(self) -> None:
-        self.assertIn('left: 48px; width: calc(100% - 48px);', self.source)
+        self.assertIn('left: 42px; width: calc(100% - 42px);', self.source)
 
     def test_empty_chat_title_has_a_readable_fallback(self) -> None:
         source = CHAT.read_text(encoding="utf-8")

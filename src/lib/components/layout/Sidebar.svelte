@@ -85,6 +85,7 @@
 	let showPinnedChat = true;
 
 	let showCreateChannel = false;
+	$: latestCompatibility = $config?.compatibility_profile === 'native';
 
 	// Pagination variables
 	let chatListLoading = false;
@@ -502,9 +503,116 @@
 
 {#if !$mobile || $showSidebar}
 <div id="sidebar" data-state={sidebarStateMarker($showSidebar)}
-    class="relative shrink-0 h-screen max-h-[100dvh] {$showSidebar ? 'w-[260px]' : 'w-12'}"
-    style={$showSidebar ? `width:${sidebarWidth}px` : 'width:48px !important'}>
+	role={!$showSidebar && !$mobile && latestCompatibility ? 'navigation' : undefined}
+	aria-label={!$showSidebar && !$mobile && latestCompatibility ? $i18n.t('Chat history') : undefined}
+	class={$showSidebar
+		? 'relative shrink-0 h-screen max-h-[100dvh] w-[260px]'
+		: latestCompatibility
+			? 'w-[calc(42px*var(--app-text-scale,1))] shrink-0 pt-0.5 pb-1 px-1 flex flex-col justify-between text-gray-700 dark:text-gray-300 hover:bg-gray-50/30 dark:hover:bg-gray-800/30 h-full z-10 transition-all border-e-[0.5px] border-gray-50 dark:border-gray-850/30'
+			: 'relative shrink-0 h-screen max-h-[100dvh] w-12'}
+	style={$showSidebar ? `width:${sidebarWidth}px` : latestCompatibility ? undefined : 'width:48px !important'}>
 {#if !$showSidebar && !$mobile}
+	{#if latestCompatibility}
+		<div role="presentation" class="flex flex-col flex-1 cursor-[e-resize]">
+			<div class="pb-0.5">
+				<div class="flex">
+					<button
+						id="sidebar-open-button"
+						type="button"
+						class="flex size-8.5 shrink-0 items-center justify-center transition group cursor-[e-resize]"
+						aria-label={$i18n.t('Open Sidebar')}
+						on:click={() => showSidebar.set(true)}
+					>
+						<div class="self-center relative flex size-[calc(30px*var(--app-text-scale,1))] items-center justify-center rounded-lg transition group-hover:bg-gray-100 dark:group-hover:bg-gray-900">
+							<img class="sidebar-new-chat-icon size-5 rounded-full group-hover:hidden" alt="" src="{WEBUI_BASE_URL}/static/favicon.png" />
+							<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" class="size-4 hidden group-hover:flex">
+								<path d="M19 21L5 21C3.89543 21 3 20.1046 3 19L3 5C3 3.89543 3.89543 3 5 3L19 3C20.1046 3 21 3.89543 21 5L21 19C21 20.1046 20.1046 21 19 21Z" />
+								<path d="M9.5 21V3" />
+								<path d="M5.5 10L7.25 12L5.5 14" />
+							</svg>
+						</div>
+					</button>
+				</div>
+			</div>
+
+			<div class="-gap-0.5">
+				<div class="flex">
+					<a
+						href="/"
+						draggable="false"
+						class="cursor-pointer flex size-8 items-center justify-center transition group"
+						aria-label={$i18n.t('New Chat')}
+						on:click={() => {
+							selectedChatId = null;
+							chatId.set('');
+						}}
+					>
+						<div class="self-center flex size-[calc(30px*var(--app-text-scale,1))] items-center justify-center rounded-lg transition group-hover:bg-gray-100 dark:group-hover:bg-gray-900">
+							<PencilSquare className="size-4" strokeWidth="1.5" />
+						</div>
+					</a>
+				</div>
+
+				<div class="flex">
+					<button
+						type="button"
+						draggable="false"
+						class="cursor-pointer flex size-8 items-center justify-center transition group"
+						aria-label={$i18n.t('Search')}
+						on:click={async () => {
+							showSidebar.set(true);
+							await tick();
+							document.querySelector('#chat-search input')?.focus();
+						}}
+					>
+						<div class="self-center flex size-[calc(30px*var(--app-text-scale,1))] items-center justify-center rounded-lg transition group-hover:bg-gray-100 dark:group-hover:bg-gray-900">
+							<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="size-4" stroke-width="1.5">
+								<path d="M17 17L21 21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+								<path d="M3 11C3 15.4183 6.58172 19 11 19C13.213 19 15.2161 18.1015 16.6644 16.6493C18.1077 15.2022 19 13.2053 19 11C19 6.58172 15.4183 3 11 3C6.58172 3 3 6.58172 3 11Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+							</svg>
+						</div>
+					</button>
+				</div>
+
+				{#if $config?.features?.openatelier_private_notes}
+					<div class="flex">
+						<a href="/notes" draggable="false" class="cursor-pointer flex size-8 items-center justify-center transition group" aria-label={$i18n.t('Notes')}>
+							<div class="self-center flex size-[calc(30px*var(--app-text-scale,1))] items-center justify-center rounded-lg transition group-hover:bg-gray-100 dark:group-hover:bg-gray-900">
+								<Document className="size-4" />
+							</div>
+						</a>
+					</div>
+				{/if}
+
+				{#if $user?.role === 'admin' || $user?.permissions?.workspace?.models || $user?.permissions?.workspace?.knowledge || $user?.permissions?.workspace?.prompts || $user?.permissions?.workspace?.tools}
+					<div class="flex">
+						<a href="/workspace" draggable="false" class="cursor-pointer flex size-8 items-center justify-center transition group" aria-label={$i18n.t('Workspace')}>
+							<div class="self-center flex size-[calc(30px*var(--app-text-scale,1))] items-center justify-center rounded-lg transition group-hover:bg-gray-100 dark:group-hover:bg-gray-900">
+								<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="size-4" stroke-width="1.5">
+									<path d="M13.9922 17H16.9922M19.9922 17H16.9922M16.9922 17V14M16.9922 17V20" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+									<path d="M4 9.4V4.6C4 4.26863 4.26863 4 4.6 4H9.4C9.73137 4 10 4.26863 10 4.6V9.4C10 9.73137 9.73137 10 9.4 10H4.6C4.26863 10 4 9.73137 4 9.4Z" stroke="currentColor" />
+									<path d="M4 19.4V14.6C4 14.2686 4.26863 14 4.6 14H9.4C9.73137 14 10 14.2686 10 14.6V19.4C10 19.7314 9.73137 20 9.4 20H4.6C4.26863 20 4 19.7314 4 19.4Z" stroke="currentColor" />
+									<path d="M14 9.4V4.6C14 4.26863 14.2686 4 14.6 4H19.4C19.7314 4 20 4.26863 20 4.6V9.4C20 9.73137 19.7314 10 19.4 10H14.6C14.2686 10 14 9.73137 14 9.4Z" stroke="currentColor" />
+								</svg>
+							</div>
+						</a>
+					</div>
+				{/if}
+			</div>
+		</div>
+
+		{#if $user !== undefined && $user !== null}
+			<div class="flex justify-center items-center">
+				<UserMenu role={$user?.role} className="max-w-[240px]" let:builder>
+					<button {...builder} use:builder.action type="button" class="cursor-pointer flex size-8.5 items-center justify-center transition group" aria-haspopup="menu" aria-label={$i18n.t('User menu')}>
+						<div class="self-center relative flex size-[calc(30px*var(--app-text-scale,1))] items-center justify-center rounded-lg transition group-hover:bg-gray-100 dark:group-hover:bg-gray-900">
+							<img src={$user?.profile_image_url} class="size-5.5 object-cover rounded-full" alt={$i18n.t('Open User Profile Menu')} />
+						</div>
+					</button>
+				</UserMenu>
+			</div>
+		{/if}
+	{:else}
 	<nav
 		id="collapsed-navigation-rail"
 		aria-label={$i18n.t('Primary navigation')}
@@ -583,6 +691,7 @@
 			</UserMenu>
 		{/if}
 	</nav>
+	{/if}
 {/if}
 
 {#if $showSidebar}

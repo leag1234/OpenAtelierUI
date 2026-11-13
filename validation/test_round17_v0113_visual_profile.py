@@ -40,7 +40,10 @@ class Round17V0113VisualProfileTests(unittest.TestCase):
             "$: v0113Compatibility = $config?.compatibility_profile !== 'native';",
             source,
         )
-        self.assertIn("'line-clamp-1 flex items-center whitespace-nowrap'", source)
+        self.assertIn(
+            '<div class="text-2xl line-clamp-1 flex items-center whitespace-nowrap"',
+            source,
+        )
         self.assertIn('class="line-clamp-1 whitespace-nowrap"', source)
 
     def test_phone_assistant_contract_removes_extra_gutter_and_timestamp(self):

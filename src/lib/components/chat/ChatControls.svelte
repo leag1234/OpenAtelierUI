@@ -151,7 +151,7 @@
 			role="presentation"
 			id="controls-container"
 			class="h-full w-full min-h-0 flex flex-col absolute inset-0 pointer-events-none"
-			style="--chat-tabs-dark-background: var(--color-gray-900); left: 48px; width: calc(100% - 48px);"
+			style="--chat-tabs-dark-background: var(--color-gray-900); left: 42px; width: calc(100% - 42px);"
 		>
 			<div class="relative flex-1 min-h-0 min-w-0">
 				<button
