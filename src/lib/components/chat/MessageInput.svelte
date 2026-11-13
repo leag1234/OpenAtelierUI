@@ -377,7 +377,7 @@
 />
 
 {#if loaded}
-	<div class="w-full font-primary">
+	<div class={v0113Compatibility ? 'w-full font-primary' : 'w-full'}>
 		<div class=" mx-auto inset-x-0 bg-transparent flex justify-center">
 			<div
 				class="flex flex-col px-3 {($settings?.widescreenMode ?? null)
@@ -472,13 +472,13 @@
 			</div>
 		</div>
 
-		<div class="w-full min-w-0 bg-transparent">
+		<div class={v0113Compatibility ? 'w-full min-w-0 bg-transparent' : 'bg-transparent'}>
 			<div
-				class="{($settings?.widescreenMode ?? null)
-					? 'max-w-full'
-					: 'max-w-[640px]'} px-2.5 mx-auto inset-x-0"
+				class={v0113Compatibility
+					? `${($settings?.widescreenMode ?? null) ? 'max-w-full' : 'max-w-[640px]'} px-2.5 mx-auto inset-x-0`
+					: `${($settings?.widescreenMode ?? null) ? 'max-w-full' : 'max-w-[58rem]'} px-2 mx-auto inset-x-0`}
 			>
-				<div class="w-full min-w-0 flex-1 max-w-none" style="max-width: none !important">
+				<div class={v0113Compatibility ? 'w-full min-w-0 flex-1 max-w-none' : ''} style={v0113Compatibility ? 'max-width: none !important' : undefined}>
 					<input
 						bind:this={filesInputElement}
 						bind:files={inputFiles}
@@ -522,15 +522,21 @@
 						/>
 					{:else}
 						<form
-							class="w-full flex flex-col items-stretch gap-1.5"
+							class={v0113Compatibility ? 'w-full flex flex-col items-stretch gap-1.5' : 'w-full flex flex-col gap-1.5'}
 							on:submit|preventDefault={() => {
 								// check if selectedModels support image input
 								dispatch('submit', prompt);
 							}}
 						>
+							{#if !v0113Compatibility}
+								<button type="button" class="hidden" id="generate-message-pair-button" aria-label={$i18n.t('Generate message pair')}></button>
+							{/if}
 							<div
 								id="message-input-container"
-								class="flex-1 flex flex-col relative w-full shadow-lg rounded-3xl border border-gray-50 dark:border-gray-850 hover:border-gray-100 focus-within:border-gray-100 hover:dark:border-gray-800 focus-within:dark:border-gray-800 transition px-1 bg-white/90 dark:bg-gray-400/5 dark:text-gray-100"
+								data-composer-id={!v0113Compatibility ? 'chat-input' : undefined}
+								class={v0113Compatibility
+									? 'flex-1 flex flex-col relative w-full shadow-lg rounded-3xl border border-gray-50 dark:border-gray-850 hover:border-gray-100 focus-within:border-gray-100 hover:dark:border-gray-800 focus-within:dark:border-gray-800 transition px-1 bg-white/90 dark:bg-gray-400/5 dark:text-gray-100'
+									: 'flex-1 flex flex-col relative w-full shadow-lg rounded-3xl border border-gray-100/50 dark:border-gray-850/50 hover:border-gray-200 focus-within:border-gray-100 hover:dark:border-gray-800 focus-within:dark:border-gray-800 transition px-0.5 bg-white/5 dark:bg-gray-500/5 backdrop-blur-sm dark:text-gray-100'}
 								dir={$settings?.chatDirection ?? 'auto'}
 							>
 								{#if files.length > 0}
@@ -624,10 +630,12 @@
 									</div>
 								{/if}
 
-								<div class="relative px-2.5">
+								<div class={v0113Compatibility ? 'relative px-2.5' : 'px-2 relative'}>
 									{#if $settings?.richTextInput ?? true}
 										<div
-											class="scrollbar-hidden text-left bg-transparent dark:text-gray-100 outline-hidden w-full pt-3 px-1 resize-none h-fit max-h-80 overflow-auto"
+											class={v0113Compatibility
+												? 'scrollbar-hidden text-left bg-transparent dark:text-gray-100 outline-hidden w-full pt-3 px-1 resize-none h-fit max-h-80 overflow-auto'
+												: 'scrollbar-hidden rtl:text-right ltr:text-left bg-transparent dark:text-gray-100 outline-hidden w-full pb-0.5 px-1 resize-none h-fit max-h-96 overflow-auto pt-2'}
 											id="chat-input-container"
 										>
 											<RichTextInput
@@ -636,6 +644,10 @@
 												id="chat-input"
 												ariaLabel={$i18n.t('Send a Message')}
 												messageInput={true}
+												containerClassName={v0113Compatibility
+													? 'relative w-full min-w-full h-full min-h-fit'
+													: 'relative w-full min-w-full input-prose min-h-fit h-full'}
+												className={v0113Compatibility ? 'input-prose' : ''}
 												shiftEnter={!($settings?.ctrlEnterToSend ?? false) &&
 													(!$mobile ||
 														!(
@@ -1058,8 +1070,8 @@
 									{/if}
 								</div>
 
-								<div class=" flex justify-between mt-1 mb-2.5 mx-0.5 max-w-full" dir="ltr">
-									<div class="ml-1 self-end flex items-center flex-1 max-w-[80%] gap-0.5">
+								<div class={v0113Compatibility ? ' flex justify-between mt-1 mb-2.5 mx-0.5 max-w-full' : ' flex justify-between mt-0.5 mb-2 mx-0.5 max-w-full'} dir="ltr">
+									<div class={v0113Compatibility ? 'ml-1 self-end flex items-center flex-1 max-w-[80%] gap-0.5' : 'ml-1 self-end flex items-center'}>
 										<InputMenu let:builder
 											onAttach={(mode) => attachmentMode = mode}
 											bind:selectedToolIds
@@ -1114,7 +1126,9 @@
 												{...builder}
 												use:builder.action
 												id="input-menu-button"
-												class="bg-transparent hover:bg-gray-100 text-gray-800 dark:text-white dark:hover:bg-gray-800 transition rounded-full p-1.5 outline-hidden focus:outline-hidden"
+											class={v0113Compatibility
+												? 'bg-transparent hover:bg-gray-100 text-gray-800 dark:text-white dark:hover:bg-gray-800 transition rounded-full p-1.5 outline-hidden focus:outline-hidden'
+												: 'bg-transparent hover:bg-gray-100/40 text-gray-700 dark:text-white dark:hover:bg-gray-800/40 rounded-full size-[1.875rem] flex justify-center items-center outline-hidden focus:outline-hidden shrink-0'}
 												type="button"
 												aria-label={$i18n.t('More')}
 											>
@@ -1131,6 +1145,11 @@
 											</button>
 										</InputMenu>
 
+										{#if !v0113Compatibility}
+											<div aria-hidden="true" class="flex self-center w-[0.0625rem] h-4 mx-1 bg-gray-200/50 dark:bg-gray-800/50 shrink-0"></div>
+										{/if}
+
+										{#if v0113Compatibility}
 										<div class="flex gap-1 items-center overflow-x-auto scrollbar-none flex-1">
 											{#if integrationsAvailable}
 												<Tooltip
@@ -1153,15 +1172,39 @@
 
 											<!-- Built-in features are selected from the Integrations surface above. -->
 										</div>
+										{/if}
 									</div>
 
-									<div class="self-end flex items-center space-x-1 mr-1 shrink-0 min-w-0">
+									{#if !v0113Compatibility}
+										<div class="flex flex-1 items-center min-w-0 overflow-x-auto scrollbar-none">
+											<div class="ml-1 flex gap-1.5 shrink-0"></div>
+										</div>
+									{/if}
+
+									<div class={v0113Compatibility ? 'self-end flex items-center space-x-1 mr-1 shrink-0 min-w-0' : 'self-end flex space-x-1 mr-1 min-w-0 gap-[0.03125rem]'}>
+										{#if !v0113Compatibility}
+											<div class="flex min-w-0 max-w-[10rem] items-center sm:max-w-[13rem]">
+												<ModelSelector bind:selectedModels showSetDefault={false} />
+											</div>
+											<button
+												type="button"
+												class="mr-2 flex shrink-0 items-center justify-center text-gray-500 transition-colors hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+												aria-label={$i18n.t('Model controls')}
+												on:click={() => showControls.set(!$showControls)}
+											>
+												<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24" class="size-4" stroke-width="1.5">
+													<path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
+												</svg>
+											</button>
+										{/if}
 
 										{#if (!history?.currentId || history.messages[history.currentId]?.done == true) && ($_user?.role === 'admin' || ($_user?.permissions?.chat?.stt ?? true))}
 											<Tooltip content={$i18n.t('Record voice')}>
 												<button
 													id="voice-input-button"
-													class=" text-gray-600 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200 transition rounded-full p-1.5 mr-0.5 self-center"
+												class={v0113Compatibility
+													? ' text-gray-600 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200 transition rounded-full p-1.5 mr-0.5 self-center'
+													: ' text-gray-600 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200 transition rounded-full p-1.5 self-center mr-0.5'}
 													type="button"
 													on:click={async () => {
 														try {
@@ -1233,9 +1276,11 @@
 											</div>
 										{:else if prompt === '' && files.length === 0 && ($_user?.role === 'admin' || ($_user?.permissions?.chat?.call ?? true))}
 											<div class=" flex items-center">
-												<Tooltip content={$i18n.t('Call')}>
+												<Tooltip content={v0113Compatibility ? $i18n.t('Call') : $i18n.t('Voice mode')}>
 													<button
-														class=" bg-black text-white hover:bg-gray-900 dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full p-1.5 self-center"
+														class={v0113Compatibility
+															? ' bg-black text-white hover:bg-gray-900 dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full p-1.5 self-center'
+															: ' bg-black text-white hover:bg-gray-900 dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full p-[0.3125rem] self-center'}
 														type="button"
 														on:click={async () => {
 															if (selectedModels.length > 1) {
@@ -1287,9 +1332,19 @@
 																);
 															}
 														}}
-														aria-label={$i18n.t('Call')}
+														aria-label={v0113Compatibility ? $i18n.t('Call') : $i18n.t('Voice mode')}
 													>
-														<Headphone className="size-5" />
+														{#if v0113Compatibility}
+															<Headphone className="size-5" />
+														{:else}
+															<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" class="size-5">
+																<path d="M12 4L12 20" stroke-linecap="round" stroke-linejoin="round" />
+																<path d="M8 9L8 15" stroke-linecap="round" stroke-linejoin="round" />
+																<path d="M20 10L20 14" stroke-linecap="round" stroke-linejoin="round" />
+																<path d="M4 10L4 14" stroke-linecap="round" stroke-linejoin="round" />
+																<path d="M16 7L16 17" stroke-linecap="round" stroke-linejoin="round" />
+															</svg>
+														{/if}
 													</button>
 												</Tooltip>
 											</div>

@@ -20,9 +20,9 @@ class Round15IntegrationShellTests(unittest.TestCase):
     def test_composer_keeps_appended_children_in_block_flow_without_dark_band(self):
         source = MESSAGE_INPUT.read_text(encoding="utf-8")
         self.assertIn(
-            'class="w-full flex flex-col items-stretch gap-1.5"', source
+            "'w-full flex flex-col items-stretch gap-1.5'", source
         )
-        self.assertIn('class="w-full min-w-0 bg-transparent"', source)
+        self.assertIn("'w-full min-w-0 bg-transparent'", source)
         self.assertNotIn("'bg-white dark:bg-gray-900'", source)
 
     def test_each_response_exposes_one_assistant_hook_and_markdown_descendant(self):

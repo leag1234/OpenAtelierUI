@@ -34,6 +34,7 @@
 	const lowlight = createLowlight(all);
 
 	export let className = 'input-prose';
+	export let containerClassName = 'relative w-full min-w-full h-full min-h-fit';
 	export let placeholder = 'Type here...';
 	export let ariaLabel = '';
 	export let value = '';
@@ -393,4 +394,4 @@
 	}
 </script>
 
-<div bind:this={element} class="relative w-full min-w-full h-full min-h-fit {className}" />
+<div bind:this={element} class="{containerClassName} {className}" />
