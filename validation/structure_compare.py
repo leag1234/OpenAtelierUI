@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from collections import Counter
 from dataclasses import asdict, dataclass
 from difflib import SequenceMatcher
 from html.parser import HTMLParser
@@ -18,6 +19,40 @@ from typing import Iterable, Sequence
 
 
 SVELTE_HASH_RE = re.compile(r"^svelte-[A-Za-z0-9_-]+$")
+UUID_RE = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    re.IGNORECASE,
+)
+VOID_TAGS = frozenset(
+    {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
+)
+HIDDEN_VOICE_VISUALIZER_CLASSES = frozenset(
+    {
+        "bg-indigo-300/10",
+        "dark:bg-indigo-500/10",
+        "rounded-full",
+        "flex",
+        "justify-between",
+        "p-2.5",
+        "w-full",
+        "max-w-full",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -29,6 +64,29 @@ class ElementSignature:
         if not self.classes:
             return self.tag
         return f"{self.tag}." + ".".join(self.classes)
+
+
+@dataclass(frozen=True)
+class ContractSignature:
+    """One rendered element's externally observable integration contract."""
+
+    tag: str
+    classes: tuple[str, ...]
+    identifier: str
+    attribute_names: tuple[str, ...]
+    parent: tuple[str, tuple[str, ...]] | None
+
+    def render(self) -> str:
+        rendered = self.tag
+        if self.classes:
+            rendered += "." + ".".join(self.classes)
+        if self.identifier:
+            rendered += f"#{self.identifier}"
+        if self.attribute_names:
+            rendered += " [" + " ".join(self.attribute_names) + "]"
+        if self.parent:
+            rendered += f" < {self.parent[0]}"
+        return rendered
 
 
 @dataclass(frozen=True)
@@ -53,6 +111,18 @@ def normalize_classes(raw: str | None) -> tuple[str, ...]:
         for token in raw.split()
         if token and SVELTE_HASH_RE.fullmatch(token) is None
     )
+
+
+def normalize_contract_classes(raw: str | None) -> tuple[str, ...]:
+    """Treat a class attribute as a set for the whole-element contract."""
+
+    return tuple(sorted(normalize_identifier(token) for token in normalize_classes(raw)))
+
+
+def normalize_identifier(raw: str | None) -> str:
+    """Mask only run-specific UUIDs while retaining stable identifier text."""
+
+    return UUID_RE.sub("<id>", raw or "")
 
 
 class _StructureParser(HTMLParser):
@@ -101,6 +171,95 @@ class _StructureParser(HTMLParser):
             self._in_scope = False
 
 
+class _ContractParser(HTMLParser):
+    """Parse ids, attribute names and immediate parents as well as tags/classes."""
+
+    def __init__(
+        self,
+        excluded_classes: frozenset[str],
+        scope: str,
+        *,
+        exclude_hidden_voice_visualizer: bool,
+    ) -> None:
+        super().__init__(convert_charrefs=True)
+        self.excluded_classes = excluded_classes
+        self.scope = scope
+        self.exclude_hidden_voice_visualizer = exclude_hidden_voice_visualizer
+        self.signatures: list[ContractSignature] = []
+        self._stack: list[tuple[str, tuple[str, ...]]] = []
+        self._skip_depth = 0
+        self._in_scope = scope == "document"
+
+    def _is_excluded(self, classes: tuple[str, ...]) -> bool:
+        if self.excluded_classes.intersection(classes):
+            return True
+        return (
+            self.exclude_hidden_voice_visualizer
+            and frozenset(classes) == HIDDEN_VOICE_VISUALIZER_CLASSES
+        )
+
+    def _signature(
+        self, tag: str, attrs: list[tuple[str, str | None]]
+    ) -> ContractSignature:
+        attributes = dict(attrs)
+        classes = normalize_contract_classes(attributes.get("class"))
+        names = tuple(
+            sorted(name for name, _value in attrs if name not in {"class", "style"})
+        )
+        return ContractSignature(
+            tag=tag,
+            classes=classes,
+            identifier=normalize_identifier(attributes.get("id")),
+            attribute_names=names,
+            parent=self._stack[-1] if self._stack else None,
+        )
+
+    def handle_starttag(
+        self, tag: str, attrs: list[tuple[str, str | None]]
+    ) -> None:
+        normalized_tag = tag.lower()
+        if self.scope == "body" and normalized_tag == "body":
+            self._in_scope = True
+        if not self._in_scope:
+            return
+        if self._skip_depth:
+            if normalized_tag not in VOID_TAGS:
+                self._skip_depth += 1
+            return
+        classes = normalize_contract_classes(dict(attrs).get("class"))
+        if self._is_excluded(classes):
+            if normalized_tag not in VOID_TAGS:
+                self._skip_depth = 1
+            return
+        signature = self._signature(normalized_tag, attrs)
+        self.signatures.append(signature)
+        if normalized_tag not in VOID_TAGS:
+            self._stack.append((normalized_tag, classes))
+
+    def handle_startendtag(
+        self, tag: str, attrs: list[tuple[str, str | None]]
+    ) -> None:
+        if not self._in_scope or self._skip_depth:
+            return
+        classes = normalize_contract_classes(dict(attrs).get("class"))
+        if self._is_excluded(classes):
+            return
+        self.signatures.append(self._signature(tag.lower(), attrs))
+
+    def handle_endtag(self, tag: str) -> None:
+        normalized_tag = tag.lower()
+        if self._skip_depth and normalized_tag not in VOID_TAGS:
+            self._skip_depth -= 1
+            return
+        if self._in_scope and normalized_tag not in VOID_TAGS:
+            for index in range(len(self._stack) - 1, -1, -1):
+                if self._stack[index][0] == normalized_tag:
+                    del self._stack[index:]
+                    break
+        if self.scope == "body" and normalized_tag == "body":
+            self._in_scope = False
+
+
 def signatures_from_html(
     html: str, *, excluded_classes: Iterable[str] = (), scope: str = "document"
 ) -> tuple[ElementSignature, ...]:
@@ -114,10 +273,31 @@ def signatures_from_html(
     return tuple(parser.signatures)
 
 
+def contract_signatures_from_html(
+    html: str,
+    *,
+    excluded_classes: Iterable[str] = (),
+    scope: str = "body",
+    exclude_hidden_voice_visualizer: bool = True,
+) -> tuple[ContractSignature, ...]:
+    if scope not in {"document", "body"}:
+        raise ValueError("scope must be 'document' or 'body'")
+    parser = _ContractParser(
+        frozenset(excluded_classes),
+        scope,
+        exclude_hidden_voice_visualizer=exclude_hidden_voice_visualizer,
+    )
+    parser.feed(html)
+    parser.close()
+    if parser._skip_depth:
+        raise ValueError("unclosed excluded subtree in rendered HTML")
+    return tuple(parser.signatures)
+
+
 def _opcode_records(
-    matcher: SequenceMatcher[ElementSignature],
-    left: Sequence[ElementSignature],
-    right: Sequence[ElementSignature],
+    matcher: SequenceMatcher,
+    left: Sequence[ElementSignature | ContractSignature],
+    right: Sequence[ElementSignature | ContractSignature],
 ) -> tuple[dict[str, object], ...]:
     records: list[dict[str, object]] = []
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
@@ -185,6 +365,67 @@ def compare_html(
     )
 
 
+def compare_contract_signatures(
+    left: Sequence[ContractSignature],
+    right: Sequence[ContractSignature],
+    *,
+    threshold: float = 99.0,
+    reference_floor: float | None = None,
+) -> Comparison:
+    """Compare the unordered whole-element contract used by the release gate."""
+
+    if not 0.0 <= threshold <= 100.0:
+        raise ValueError("threshold must be between 0 and 100")
+    if reference_floor is not None and not 0.0 <= reference_floor <= 100.0:
+        raise ValueError("reference floor must be between 0 and 100")
+    largest = max(len(left), len(right))
+    common = sum((Counter(left) & Counter(right)).values())
+    ratio = common / largest if largest else 1.0
+    percentage = ratio * 100.0
+    required = max(threshold, reference_floor or 0.0)
+    matcher = SequenceMatcher(a=left, b=right, autojunk=False)
+    return Comparison(
+        left_count=len(left),
+        right_count=len(right),
+        ratio=ratio,
+        percentage=percentage,
+        threshold=threshold,
+        reference_floor=reference_floor,
+        passed=percentage >= required,
+        opcodes=_opcode_records(matcher, left, right),
+    )
+
+
+def compare_contract_html(
+    left_html: str,
+    right_html: str,
+    *,
+    excluded_classes: Iterable[str] = (),
+    scope: str = "body",
+    exclude_hidden_voice_visualizer: bool = True,
+    threshold: float = 99.0,
+    reference_floor: float | None = None,
+) -> Comparison:
+    left = contract_signatures_from_html(
+        left_html,
+        excluded_classes=excluded_classes,
+        scope=scope,
+        exclude_hidden_voice_visualizer=exclude_hidden_voice_visualizer,
+    )
+    right = contract_signatures_from_html(
+        right_html,
+        excluded_classes=excluded_classes,
+        scope=scope,
+        exclude_hidden_voice_visualizer=exclude_hidden_voice_visualizer,
+    )
+    return compare_contract_signatures(
+        left,
+        right,
+        threshold=threshold,
+        reference_floor=reference_floor,
+    )
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Compare rendered HTML tag/class structure."
@@ -194,6 +435,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--threshold", type=float, default=99.0)
     parser.add_argument("--reference-floor", type=float)
     parser.add_argument("--exclude-class", action="append", default=[])
+    parser.add_argument(
+        "--contract",
+        action="store_true",
+        help="Gate tag/class set, stable id, attribute names and immediate parent.",
+    )
     parser.add_argument(
         "--scope",
         choices=("document", "body"),
@@ -206,7 +452,8 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = _parse_args()
-    comparison = compare_html(
+    compare = compare_contract_html if args.contract else compare_html
+    comparison = compare(
         args.left.read_text(encoding="utf-8"),
         args.right.read_text(encoding="utf-8"),
         excluded_classes=args.exclude_class,
@@ -215,6 +462,9 @@ def main() -> int:
         reference_floor=args.reference_floor,
     )
     payload = asdict(comparison)
+    payload["comparison_mode"] = (
+        "whole_element_contract" if args.contract else "ordered_tag_class"
+    )
     rendered = json.dumps(payload, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.write_text(rendered, encoding="utf-8")

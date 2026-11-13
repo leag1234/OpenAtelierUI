@@ -8,10 +8,16 @@ import unittest
 from pathlib import Path
 
 from validation.structure_compare import (
+    ContractSignature,
     ElementSignature,
+    compare_contract_html,
+    compare_contract_signatures,
     compare_html,
     compare_signatures,
+    contract_signatures_from_html,
     normalize_classes,
+    normalize_contract_classes,
+    normalize_identifier,
     signatures_from_html,
 )
 
@@ -85,6 +91,89 @@ class StructureCompareTests(unittest.TestCase):
         self.assertEqual(result.percentage, 100.0)
         self.assertEqual(result.opcodes, ())
 
+    def test_contract_normalizes_class_order_and_run_specific_uuid(self) -> None:
+        self.assertEqual(
+            normalize_contract_classes(
+                "second svelte-build message-123e4567-e89b-12d3-a456-426614174000 first"
+            ),
+            ("first", "message-<id>", "second"),
+        )
+        self.assertEqual(
+            normalize_identifier("message-123e4567-e89b-12d3-a456-426614174000"),
+            "message-<id>",
+        )
+
+    def test_contract_records_id_attributes_and_immediate_parent(self) -> None:
+        signatures = contract_signatures_from_html(
+            '<html><body><main class="page"><button id="send" class="primary action" '
+            'aria-label="Send" data-state="open" style="color:red">Go</button></main></body></html>'
+        )
+        self.assertEqual(
+            signatures[-1],
+            ContractSignature(
+                tag="button",
+                classes=("action", "primary"),
+                identifier="send",
+                attribute_names=("aria-label", "data-state", "id"),
+                parent=("main", ("page",)),
+            ),
+        )
+
+    def test_contract_fails_when_only_accessibility_attribute_differs(self) -> None:
+        left = (
+            '<html><body><main class="page"><div class="slot">'
+            '<button class="action" aria-label="Send">Go</button></div></main></body></html>'
+        )
+        right = (
+            '<html><body><main class="page"><div class="slot">'
+            '<button class="action" title="Send">Go</button></div></main></body></html>'
+        )
+        self.assertTrue(compare_html(left, right, scope="body").passed)
+        contract = compare_contract_html(left, right, scope="body")
+        self.assertFalse(contract.passed)
+        self.assertLess(contract.percentage, 99.0)
+
+    def test_contract_fails_when_immediate_parent_differs(self) -> None:
+        left = (
+            '<html><body><main class="page"><div class="slot">'
+            '<button class="action">Go</button></div><section class="other"></section>'
+            '</main></body></html>'
+        )
+        right = (
+            '<html><body><main class="page"><div class="slot"></div>'
+            '<section class="other"><button class="action">Go</button></section>'
+            '</main></body></html>'
+        )
+        contract = compare_contract_html(left, right, scope="body")
+        self.assertFalse(contract.passed)
+        self.assertLess(contract.percentage, 99.0)
+
+    def test_contract_is_a_multiset_and_ignores_sibling_order(self) -> None:
+        first = ContractSignature("p", ("first",), "", (), ("main", ()))
+        second = ContractSignature("p", ("second",), "", (), ("main", ()))
+        result = compare_contract_signatures((first, second), (second, first))
+        self.assertTrue(result.passed)
+        self.assertEqual(result.percentage, 100.0)
+
+    def test_contract_excludes_only_the_declared_hidden_voice_visualizer(self) -> None:
+        visualizer = (
+            "bg-indigo-300/10 dark:bg-indigo-500/10 rounded-full flex "
+            "justify-between p-2.5 w-full max-w-full"
+        )
+        left = (
+            f'<html><body><main><div class="{visualizer}"><span class="bar"></span></div>'
+            '<p class="answer"></p></main></body></html>'
+        )
+        right = '<html><body><main><p class="answer"></p></main></body></html>'
+        self.assertTrue(compare_contract_html(left, right, scope="body").passed)
+        included = compare_contract_html(
+            left,
+            right,
+            scope="body",
+            exclude_hidden_voice_visualizer=False,
+        )
+        self.assertFalse(included.passed)
+
     def test_changed_class_fails_and_reports_a_bounded_diff(self) -> None:
         result = compare_html(
             '<main class="page"><p class="answer">A</p></main>',
@@ -133,6 +222,39 @@ class StructureCompareTests(unittest.TestCase):
             payload = json.loads(output.read_text(encoding="utf-8"))
             self.assertFalse(payload["passed"])
             self.assertEqual(payload["threshold"], 99.0)
+            self.assertEqual(payload["comparison_mode"], "ordered_tag_class")
+
+    def test_cli_contract_mode_reports_its_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            left = root / "left.html"
+            right = root / "right.html"
+            left.write_text(
+                '<html><body><main><button id="send" aria-label="Send"></button></main></body></html>',
+                encoding="utf-8",
+            )
+            right.write_text(
+                '<html><body><main><button id="send" title="Send"></button></main></body></html>',
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(Path(__file__).with_name("structure_compare.py")),
+                    str(left),
+                    str(right),
+                    "--scope",
+                    "body",
+                    "--contract",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 1, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["comparison_mode"], "whole_element_contract")
+            self.assertFalse(payload["passed"])
 
 
 if __name__ == "__main__":
