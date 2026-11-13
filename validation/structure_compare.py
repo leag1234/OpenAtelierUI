@@ -396,6 +396,74 @@ def compare_contract_signatures(
     )
 
 
+def contract_gap_summary(
+    left: Sequence[ContractSignature], right: Sequence[ContractSignature]
+) -> dict[str, int]:
+    """Classify unmatched right-side elements without hiding exact mismatches."""
+
+    left_remaining = Counter(left) - Counter(right)
+    right_remaining = Counter(right) - Counter(left)
+    causes = {
+        "id_or_attributes_only": 0,
+        "parent_only": 0,
+        "mixed_contract": 0,
+        "missing_tag_or_class": 0,
+    }
+
+    for right_signature, count in sorted(
+        right_remaining.items(), key=lambda item: item[0].render()
+    ):
+        for _ in range(count):
+            candidates = [
+                candidate
+                for candidate, available in left_remaining.items()
+                if available
+                and candidate.tag == right_signature.tag
+                and candidate.classes == right_signature.classes
+            ]
+            if not candidates:
+                causes["missing_tag_or_class"] += 1
+                continue
+
+            def priority(candidate: ContractSignature) -> tuple[int, str]:
+                same_identity = (
+                    candidate.identifier == right_signature.identifier
+                    and candidate.attribute_names == right_signature.attribute_names
+                )
+                same_parent = candidate.parent == right_signature.parent
+                if same_parent and not same_identity:
+                    rank = 0
+                elif same_identity and not same_parent:
+                    rank = 1
+                else:
+                    rank = 2
+                return rank, candidate.render()
+
+            selected = min(candidates, key=priority)
+            left_remaining[selected] -= 1
+            same_identity = (
+                selected.identifier == right_signature.identifier
+                and selected.attribute_names == right_signature.attribute_names
+            )
+            same_parent = selected.parent == right_signature.parent
+            if same_parent and not same_identity:
+                causes["id_or_attributes_only"] += 1
+            elif same_identity and not same_parent:
+                causes["parent_only"] += 1
+            else:
+                causes["mixed_contract"] += 1
+
+    exact = sum((Counter(left) & Counter(right)).values())
+    return {
+        "exact_elements": exact,
+        "left_elements": len(left),
+        "right_elements": len(right),
+        "left_unmatched": sum((Counter(left) - Counter(right)).values()),
+        "right_unmatched": sum((Counter(right) - Counter(left)).values()),
+        **causes,
+    }
+
+
 def compare_contract_html(
     left_html: str,
     right_html: str,
@@ -452,10 +520,12 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = _parse_args()
+    left_html = args.left.read_text(encoding="utf-8")
+    right_html = args.right.read_text(encoding="utf-8")
     compare = compare_contract_html if args.contract else compare_html
     comparison = compare(
-        args.left.read_text(encoding="utf-8"),
-        args.right.read_text(encoding="utf-8"),
+        left_html,
+        right_html,
         excluded_classes=args.exclude_class,
         scope=args.scope,
         threshold=args.threshold,
@@ -465,6 +535,19 @@ def main() -> int:
     payload["comparison_mode"] = (
         "whole_element_contract" if args.contract else "ordered_tag_class"
     )
+    if args.contract:
+        payload["contract_gap_summary"] = contract_gap_summary(
+            contract_signatures_from_html(
+                left_html,
+                excluded_classes=args.exclude_class,
+                scope=args.scope,
+            ),
+            contract_signatures_from_html(
+                right_html,
+                excluded_classes=args.exclude_class,
+                scope=args.scope,
+            ),
+        )
     rendered = json.dumps(payload, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.write_text(rendered, encoding="utf-8")

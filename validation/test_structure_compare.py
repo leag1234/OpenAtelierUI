@@ -15,6 +15,7 @@ from validation.structure_compare import (
     compare_html,
     compare_signatures,
     contract_signatures_from_html,
+    contract_gap_summary,
     normalize_classes,
     normalize_contract_classes,
     normalize_identifier,
@@ -155,6 +156,26 @@ class StructureCompareTests(unittest.TestCase):
         self.assertTrue(result.passed)
         self.assertEqual(result.percentage, 100.0)
 
+    def test_contract_gap_summary_separates_attributes_parent_and_missing_class(self) -> None:
+        parent = ("main", ("page",))
+        left = (
+            ContractSignature("button", ("action",), "send", ("id",), parent),
+            ContractSignature("p", ("answer",), "", (), ("div", ("old",))),
+            ContractSignature("span", ("old",), "", (), parent),
+        )
+        right = (
+            ContractSignature(
+                "button", ("action",), "send", ("aria-label", "id"), parent
+            ),
+            ContractSignature("p", ("answer",), "", (), ("div", ("new",))),
+            ContractSignature("span", ("new",), "", (), parent),
+        )
+        summary = contract_gap_summary(left, right)
+        self.assertEqual(summary["id_or_attributes_only"], 1)
+        self.assertEqual(summary["parent_only"], 1)
+        self.assertEqual(summary["missing_tag_or_class"], 1)
+        self.assertEqual(summary["mixed_contract"], 0)
+
     def test_contract_excludes_only_the_declared_hidden_voice_visualizer(self) -> None:
         visualizer = (
             "bg-indigo-300/10 dark:bg-indigo-500/10 rounded-full flex "
@@ -254,6 +275,9 @@ class StructureCompareTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1, result.stderr)
             payload = json.loads(result.stdout)
             self.assertEqual(payload["comparison_mode"], "whole_element_contract")
+            self.assertEqual(
+                payload["contract_gap_summary"]["id_or_attributes_only"], 1
+            )
             self.assertFalse(payload["passed"])
 
 
