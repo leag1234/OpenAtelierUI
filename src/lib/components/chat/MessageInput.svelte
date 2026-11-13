@@ -47,6 +47,7 @@
 	import RichTextInput from '../common/RichTextInput.svelte';
 	import Tooltip from '../common/Tooltip.svelte';
 	import FileItem from '../common/FileItem.svelte';
+	import FileItemCurrent from '../common/FileItemCurrent.svelte';
 	import Image from '../common/Image.svelte';
 
 	import XMark from '../icons/XMark.svelte';
@@ -542,7 +543,12 @@
 								dir={$settings?.chatDirection ?? 'auto'}
 							>
 								{#if files.length > 0}
-									<div class="mx-2 mt-2.5 -mb-1 flex items-center flex-wrap gap-2">
+									<div
+										class={v0113Compatibility
+											? 'mx-2 mt-2.5 -mb-1 flex items-center flex-wrap gap-2'
+											: 'mx-2 mt-2 pb-1 flex items-center flex-wrap gap-1.5'}
+										dir={$settings?.chatDirection ?? 'auto'}
+									>
 										{#each files as file, fileIdx}
 											{#if file.type === 'image'}
 												<div class=" relative group">
@@ -601,7 +607,8 @@
 													</div>
 												</div>
 											{:else}
-												<FileItem
+												<svelte:component
+													this={v0113Compatibility ? FileItem : FileItemCurrent}
 													item={file}
 													name={file.name}
 													type={file.type}
@@ -637,7 +644,7 @@
 										<div
 											class={v0113Compatibility
 												? 'scrollbar-hidden text-left bg-transparent dark:text-gray-100 outline-hidden w-full pt-3 px-1 resize-none h-fit max-h-80 overflow-auto'
-												: 'scrollbar-hidden rtl:text-right ltr:text-left bg-transparent dark:text-gray-100 outline-hidden w-full pb-0.5 px-1 resize-none h-fit max-h-96 overflow-auto pt-2'}
+												: 'scrollbar-hidden rtl:text-right ltr:text-left bg-transparent dark:text-gray-100 outline-hidden w-full pb-0.5 px-1 resize-none h-fit max-h-96 overflow-auto'}
 											id="chat-input-container"
 										>
 											<RichTextInput
@@ -1365,9 +1372,9 @@
 													<button
 														id="send-message-button"
 														aria-label={$i18n.t('Send message')}
-														class="{!(prompt === '' && files.length === 0)
-															? 'bg-black text-white hover:bg-gray-900 dark:bg-white dark:text-black dark:hover:bg-gray-100 '
-															: 'text-white bg-gray-200 dark:text-gray-900 dark:bg-gray-700 disabled'} transition rounded-full p-1.5 self-center"
+												class="{!(prompt === '' && files.length === 0)
+													? 'bg-black text-white hover:bg-gray-900 dark:bg-white dark:text-black dark:hover:bg-gray-100 '
+													: 'text-white bg-gray-200 dark:text-gray-900 dark:bg-gray-700 disabled'} transition rounded-full {v0113Compatibility ? 'p-1.5' : 'p-[0.3125rem]'} self-center"
 														type="submit"
 														disabled={prompt === '' && files.length === 0}
 													>
