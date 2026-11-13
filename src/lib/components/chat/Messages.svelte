@@ -23,6 +23,7 @@
 	import ChatPlaceholder from './ChatPlaceholder.svelte';
 
 	const i18n = getContext('i18n');
+	$: nativeCompatibility = $config?.compatibility_profile === 'native';
 
 	export let className = 'h-full flex pt-8';
 
@@ -388,7 +389,7 @@
 	};
 </script>
 
-<div class={className}>
+<div class={nativeCompatibility ? 'h-full flex pt-4' : className}>
 	{#if Object.keys(history?.messages ?? {}).length == 0}
 		<ChatPlaceholder
 			modelIds={selectedModels}
@@ -412,6 +413,40 @@
 	{:else}
 		<div class="w-full pt-2">
 			{#key chatId}
+				{#if nativeCompatibility}
+					<section class="w-full" aria-labelledby="chat-conversation">
+						<h2 class="sr-only" id="chat-conversation">{$i18n.t('Chat Conversation')}</h2>
+						<div role="log" aria-live="polite" aria-relevant="additions" aria-atomic="false">
+							<ul>
+								{#each messages as message, messageIdx (message.id)}
+									<Message
+										{chatId}
+										bind:history
+										messageId={message.id}
+										idx={messageIdx}
+										{user}
+										{gotoMessage}
+										{showPreviousMessage}
+										{showNextMessage}
+										{updateChat}
+										{editMessage}
+										{deleteMessage}
+										{rateMessage}
+										{actionMessage}
+										{saveMessage}
+										{submitMessage}
+										{regenerateResponse}
+										{continueResponse}
+										{mergeResponses}
+										{addMessages}
+										{triggerScroll}
+										{readOnly}
+									/>
+								{/each}
+							</ul>
+						</div>
+					</section>
+				{:else}
 				<div class="w-full">
 					{#if messages.at(0)?.parentId !== null}
 						<Loader
@@ -455,7 +490,8 @@
 						/>
 					{/each}
 				</div>
-				<div class="pb-12" />
+				{/if}
+				<div class={nativeCompatibility ? 'pb-18' : 'pb-12'} />
 				{#if bottomPadding}
 					<div class="  pb-6" />
 				{/if}

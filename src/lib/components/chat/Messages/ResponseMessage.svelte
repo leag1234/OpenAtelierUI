@@ -12,7 +12,8 @@
 	const dispatch = createEventDispatcher();
 
 	import { createNewFeedback, getFeedbackById, updateFeedbackById } from '$lib/apis/evaluations';
-	import { getChatById } from '$lib/apis/chats';
+	import { cloneChatById, getChatById } from '$lib/apis/chats';
+	import { goto } from '$app/navigation';
 	import { generateTags } from '$lib/apis';
 
 	import { config, models, settings, temporaryChatEnabled, TTSWorker, user } from '$lib/stores';
@@ -164,6 +165,32 @@
 		if (res) {
 			toast.success($i18n.t('Copying to clipboard was successful!'));
 		}
+	};
+
+	const forkChat = async () => {
+		const cloned = await cloneChatById(localStorage.token, chatId).catch((error) => {
+			toast.error(`${error}`);
+			return null;
+		});
+
+		if (cloned?.id) {
+			await goto(`/c/${cloned.id}`);
+		}
+	};
+
+	const regenerateMessageHandler = () => {
+		showRateComment = false;
+		regenerateResponse(message);
+
+		(model?.actions ?? []).forEach((action) => {
+			dispatch('action', {
+				id: action.id,
+				event: {
+					id: 'regenerate-response',
+					data: { messageId: message.id }
+				}
+			});
+		});
 	};
 
 	const playAudio = (idx: number) => {
@@ -586,28 +613,24 @@
 
 {#key message.id}
 	<div
-		class="group flex w-full message-{message.id}"
+		class={v0113Compatibility ? `group flex w-full message-${message.id}` : `flex w-full message-${message.id}`}
 		id="message-{message.id}"
 		dir={$settings.chatDirection}
 	>
 		<div
 			class={v0113Compatibility
 				? 'hidden shrink-0 ltr:mr-2 rtl:ml-2 @lg:flex mt-0.5'
-				: 'hidden shrink-0 ltr:mr-3 rtl:ml-3 lg:flex'}
+				: 'shrink-0 ltr:mr-2 rtl:ml-2 hidden @lg:flex mt-0.5'}
 		>
 			<ProfileImage
-				src={v0113Compatibility
-					? `${WEBUI_API_BASE_URL}/models/model/profile/image?id=${model?.id}&lang=${$i18n.language}`
-					: (model?.info?.meta?.profile_image_url ??
-						($i18n.language === 'dg-DG'
-							? `/doge.png`
-							: `${WEBUI_BASE_URL}/static/favicon.png`))}
-				className={v0113Compatibility ? 'size-7 assistant-message-profile-image' : 'size-8'}
+				src={`${WEBUI_API_BASE_URL}/models/model/profile/image?id=${model?.id}&lang=${$i18n.language}`}
+				className="size-7 assistant-message-profile-image"
+				currentCompatibility={!v0113Compatibility}
 			/>
 		</div>
 
-		<div class="flex-auto w-0 pl-1 {v0113Compatibility ? 'relative' : ''}">
-			<Name>
+		<div class="flex-auto w-0 pl-1 relative">
+			<Name current={!v0113Compatibility}>
 				<Tooltip content={responseName} placement="top-start">
 					<span id="response-message-{message.id}" class="line-clamp-1 text-black dark:text-white">
 						{responseName}
@@ -617,7 +640,7 @@
 
 			<div>
 				<div class="chat-assistant w-full min-w-full">
-					<div class="markdown-prose">
+					<div class={v0113Compatibility ? 'markdown-prose' : ''}>
 						{#if (message?.statusHistory ?? [...(message?.status ? [message?.status] : [])]).length > 0}
 							{@const status = (
 								message?.statusHistory ?? [...(message?.status ? [message?.status] : [])]
@@ -793,10 +816,12 @@
 									<!-- unless message.error === true which is legacy error handling, where the error message is stored in message.content -->
 									<ContentRenderer
 										id={message.id}
+										currentCompatibility={!v0113Compatibility}
+										currentStreaming={!message?.done}
 										{history}
 										content={message.content}
 										sources={message.sources}
-										floatingButtons={message?.done && !readOnly}
+										floatingButtons={v0113Compatibility && message?.done === true && !readOnly}
 										save={!readOnly}
 										{model}
 										onTaskClick={async (e) => {
@@ -855,6 +880,13 @@
 											}
 										}}
 									/>
+									{#if !message?.done && !v0113Compatibility}
+										<div class="text-[0.90625rem] leading-relaxed">
+											<span
+												class="inline-block w-[0.125rem] h-3.5 bg-gray-400 dark:bg-gray-500 ml-0.5 animate-cursor-pulse align-text-bottom"
+											></span>
+										</div>
+									{/if}
 								{/if}
 
 								{#if message?.error}
@@ -876,9 +908,11 @@
 				{#if !edit}
 					<div
 						bind:this={buttonsContainerElement}
-						class="flex justify-start overflow-x-auto buttons text-gray-600 dark:text-gray-500 mt-0.5"
+						class={v0113Compatibility
+							? 'flex justify-start overflow-x-auto buttons text-gray-600 dark:text-gray-500 mt-0.5'
+							: 'flex items-center justify-start overflow-x-auto whitespace-nowrap buttons text-gray-600/80 dark:text-gray-500/70 mt-0.5 [&>*]:shrink-0'}
 					>
-						{#if message.timestamp}
+						{#if message.timestamp && v0113Compatibility}
 							<time
 								class="message-timestamp hover-reveal {v0113Compatibility
 									? 'hidden @lg:block ml-1 shrink-0 whitespace-nowrap text-[0.6875rem] tabular-nums text-gray-400 dark:text-gray-600 select-none'
@@ -993,7 +1027,9 @@
 										<Tooltip content={$i18n.t('Edit')} placement="bottom">
 											<button
 												aria-label={$i18n.t('Edit')}
-												class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
+								class={v0113Compatibility
+									? 'hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition'
+									: 'visible inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition'}
 												on:click={() => {
 													editMessageHandler();
 												}}
@@ -1004,7 +1040,7 @@
 													viewBox="0 0 24 24"
 													stroke-width="2.3"
 													stroke="currentColor"
-													class="w-4 h-4"
+													class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}
 												>
 													<path
 														stroke-linecap="round"
@@ -1020,7 +1056,9 @@
 								<Tooltip content={$i18n.t('Copy')} placement="bottom">
 									<button
 										aria-label={$i18n.t('Copy')}
-										class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition copy-response-button"
+						class={v0113Compatibility
+							? 'hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition copy-response-button'
+							: 'visible inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition copy-response-button'}
 										on:click={() => {
 											copyToClipboard(message.content);
 										}}
@@ -1031,13 +1069,16 @@
 											viewBox="0 0 24 24"
 											stroke-width="2.3"
 											stroke="currentColor"
-											class="w-4 h-4"
+											class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}
 										>
 											<path
 												stroke-linecap="round"
 												stroke-linejoin="round"
 												d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"
 											/>
+											{#if !v0113Compatibility}
+												<path stroke-linecap="round" stroke-linejoin="round" d="M9 8h10v11H9z" />
+											{/if}
 										</svg>
 									</button>
 								</Tooltip>
@@ -1047,7 +1088,9 @@
 										<button
 											id="speak-button-{message.id}"
 											aria-label={$i18n.t('Read Aloud')}
-											class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
+											class={v0113Compatibility
+												? 'hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition'
+												: 'visible inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition'}
 											on:click={() => {
 												if (!loadingSpeech) {
 													toggleSpeakMessage();
@@ -1093,7 +1136,7 @@
 													viewBox="0 0 24 24"
 													stroke-width="2.3"
 													stroke="currentColor"
-													class="w-4 h-4"
+														class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}
 												>
 													<path
 														stroke-linecap="round"
@@ -1108,13 +1151,17 @@
 													viewBox="0 0 24 24"
 													stroke-width="2.3"
 													stroke="currentColor"
-													class="w-4 h-4"
+													class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}
 												>
 													<path
 														stroke-linecap="round"
 														stroke-linejoin="round"
 														d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z"
 													/>
+												{#if !v0113Compatibility}
+													<path stroke-linecap="round" d="M16.5 8.5c1.5 2 1.5 5 0 7" />
+													<path stroke-linecap="round" d="M19.5 5.5c3 3.5 3 9.5 0 13" />
+												{/if}
 												</svg>
 											{/if}
 										</button>
@@ -1170,7 +1217,7 @@
 													viewBox="0 0 24 24"
 													stroke-width="2.3"
 													stroke="currentColor"
-													class="w-4 h-4"
+													class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}
 												>
 													<path
 														stroke-linecap="round"
@@ -1223,17 +1270,48 @@
 									</Tooltip>
 								{/if}
 
+								{#if !v0113Compatibility && !readOnly && chatId}
+									<Tooltip content={$i18n.t('Fork chat')} placement="bottom">
+										<button
+											aria-label={$i18n.t('Fork chat')}
+											class="visible inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition"
+											on:click={forkChat}
+										>
+											<svg
+												class="size-4 -scale-x-100 -scale-y-100 -rotate-90"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="1.5"
+											>
+												<path d="M7 5h.01" stroke-linecap="round" />
+												<path d="M17 5h.01" stroke-linecap="round" />
+												<path d="M7 19h.01" stroke-linecap="round" />
+												<path d="M7 5v14" stroke-linecap="round" />
+												<path d="M17 5v3c0 3-10 2-10 8v3" stroke-linecap="round" />
+											</svg>
+										</button>
+									</Tooltip>
+								{/if}
+
 								{#if !readOnly}
 									{#if !$temporaryChatEnabled && ($config?.features.enable_message_rating ?? true)}
 										<Tooltip content={$i18n.t('Good Response')} placement="bottom">
 											<button
 												aria-label={$i18n.t('Good Response')}
-												class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
+												class="{v0113Compatibility
+													? 'hover-reveal p-1.5'
+													: 'visible inline-flex size-7 shrink-0 items-center justify-center p-1.5'} hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
 													message?.annotation?.rating ?? ''
 												).toString() === '1'
 													? 'bg-gray-100 dark:bg-gray-800'
-													: ''} dark:hover:text-white hover:text-black transition disabled:cursor-progress disabled:hover:bg-transparent"
-												disabled={feedbackLoading}
+													: ''} {v0113Compatibility
+													? 'dark:hover:text-white hover:text-black'
+													: 'dark:hover:text-gray-400 hover:text-gray-600'} transition {v0113Compatibility
+													? 'disabled:cursor-progress disabled:hover:bg-transparent'
+													: 'aria-disabled:cursor-progress aria-disabled:hover:bg-transparent'}"
+												disabled={v0113Compatibility ? feedbackLoading : undefined}
+												aria-disabled={!v0113Compatibility ? feedbackLoading : undefined}
 												on:click={async () => {
 													await feedbackHandler(1);
 													window.setTimeout(() => {
@@ -1250,12 +1328,15 @@
 													viewBox="0 0 24 24"
 													stroke-linecap="round"
 													stroke-linejoin="round"
-													class="w-4 h-4"
+													class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}
 													xmlns="http://www.w3.org/2000/svg"
 												>
 													<path
 														d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"
 													/>
+													{#if !v0113Compatibility}
+														<path d="M7 21V10" />
+													{/if}
 												</svg>
 											</button>
 										</Tooltip>
@@ -1263,12 +1344,19 @@
 										<Tooltip content={$i18n.t('Bad Response')} placement="bottom">
 											<button
 												aria-label={$i18n.t('Bad Response')}
-												class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
+												class="{v0113Compatibility
+													? 'hover-reveal p-1.5'
+													: 'visible inline-flex size-7 shrink-0 items-center justify-center p-1.5'} hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
 													message?.annotation?.rating ?? ''
 												).toString() === '-1'
 													? 'bg-gray-100 dark:bg-gray-800'
-													: ''} dark:hover:text-white hover:text-black transition disabled:cursor-progress disabled:hover:bg-transparent"
-												disabled={feedbackLoading}
+													: ''} {v0113Compatibility
+													? 'dark:hover:text-white hover:text-black'
+													: 'dark:hover:text-gray-400 hover:text-gray-600'} transition {v0113Compatibility
+													? 'disabled:cursor-progress disabled:hover:bg-transparent'
+													: 'aria-disabled:cursor-progress aria-disabled:hover:bg-transparent'}"
+												disabled={v0113Compatibility ? feedbackLoading : undefined}
+												aria-disabled={!v0113Compatibility ? feedbackLoading : undefined}
 												on:click={async () => {
 													await feedbackHandler(-1);
 													window.setTimeout(() => {
@@ -1285,12 +1373,15 @@
 													viewBox="0 0 24 24"
 													stroke-linecap="round"
 													stroke-linejoin="round"
-													class="w-4 h-4"
+													class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}
 													xmlns="http://www.w3.org/2000/svg"
 												>
 													<path
 														d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"
 													/>
+													{#if !v0113Compatibility}
+														<path d="M17 3v11" />
+													{/if}
 												</svg>
 											</button>
 										</Tooltip>
@@ -1302,7 +1393,9 @@
 												type="button"
 												id="continue-response-button"
 												aria-label={$i18n.t('Continue Response')}
-												class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition continue-response-button"
+												class={v0113Compatibility
+													? 'hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition continue-response-button'
+													: 'visible inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition'}
 												on:click={() => {
 													continueResponse();
 												}}
@@ -1313,13 +1406,15 @@
 													viewBox="0 0 24 24"
 													stroke-width="2.3"
 													stroke="currentColor"
-													class="w-4 h-4"
+													class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}
 												>
-													<path
-														stroke-linecap="round"
-														stroke-linejoin="round"
-														d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
-													/>
+													{#if v0113Compatibility}
+														<path
+															stroke-linecap="round"
+															stroke-linejoin="round"
+															d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+														/>
+													{/if}
 													<path
 														stroke-linecap="round"
 														stroke-linejoin="round"
@@ -1330,44 +1425,39 @@
 										</Tooltip>
 									{/if}
 
-									<Tooltip content={$i18n.t('Regenerate')} placement="bottom">
-										<button
-											type="button"
-											aria-label={$i18n.t('Regenerate')}
-											class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition regenerate-response-button"
-											on:click={() => {
-												showRateComment = false;
-												regenerateResponse(message);
-
-												(model?.actions ?? []).forEach((action) => {
-													dispatch('action', {
-														id: action.id,
-														event: {
-															id: 'regenerate-response',
-															data: {
-																messageId: message.id
-															}
-														}
-													});
-												});
-											}}
-										>
-											<svg
-												xmlns="http://www.w3.org/2000/svg"
-												fill="none"
-												viewBox="0 0 24 24"
-												stroke-width="2.3"
-												stroke="currentColor"
-												class="w-4 h-4"
+									{#if v0113Compatibility}
+										<Tooltip content={$i18n.t('Regenerate')} placement="bottom">
+											<button
+												type="button"
+												aria-label={$i18n.t('Regenerate')}
+												class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition regenerate-response-button"
+												on:click={regenerateMessageHandler}
 											>
-												<path
-													stroke-linecap="round"
-													stroke-linejoin="round"
-													d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"
-												/>
-											</svg>
-										</button>
-									</Tooltip>
+												<svg fill="none" viewBox="0 0 24 24" stroke-width="2.3" stroke="currentColor" class="w-4 h-4">
+													<path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+												</svg>
+											</button>
+										</Tooltip>
+									{:else}
+										<button type="button" class="hidden regenerate-response-button" on:click={regenerateMessageHandler}></button>
+										<span style="display: contents; cursor: pointer;">
+											<Tooltip content={$i18n.t('Regenerate')} placement="bottom">
+												<button
+													type="button"
+													aria-label={$i18n.t('Regenerate')}
+													class="visible inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition"
+													on:click={regenerateMessageHandler}
+												>
+													<svg class="size-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+														<path d="M20 8a9 9 0 0 0-15-3" stroke-linecap="round" />
+														<path d="M5 5v4h4" stroke-linecap="round" stroke-linejoin="round" />
+														<path d="M4 16a9 9 0 0 0 15 3" stroke-linecap="round" />
+														<path d="M19 19v-4h-4" stroke-linecap="round" stroke-linejoin="round" />
+													</svg>
+												</button>
+											</Tooltip>
+										</span>
+									{/if}
 
 									{#if siblings.length > 1}
 										<Tooltip content={$i18n.t('Delete')} placement="bottom">
@@ -1428,6 +1518,19 @@
 								{/if}
 							{/if}
 						{/if}
+		{#if message.timestamp && message.done && !v0113Compatibility}
+			<div class="flex self-center">
+				<time
+								class="hover-reveal ml-1 shrink-0 whitespace-nowrap text-[0.6875rem] tabular-nums text-gray-400 dark:text-gray-600 select-none"
+					datetime={new Date(message.timestamp * 1000).toISOString()}
+				>
+					{formatDate(
+						message.timestamp * 1000,
+						$i18n.resolvedLanguage || $i18n.language
+					)}
+				</time>
+			</div>
+		{/if}
 					</div>
 
 					{#if message.done && showRateComment}

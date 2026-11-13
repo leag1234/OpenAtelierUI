@@ -22,6 +22,7 @@
 	import EllipsisVertical from '../icons/EllipsisVertical.svelte';
 	import Artifacts from './Artifacts.svelte';
 	import { min } from '@floating-ui/utils';
+	import { goto } from '$app/navigation';
 
 	export let history;
 	export let models = [];
@@ -186,6 +187,18 @@
 										</svg>
 										<span class="max-w-30 overflow-hidden text-ellipsis">{title}</span>
 									</button>
+									<span style="display: contents; cursor: pointer;">
+										<button
+											id="chat-context-menu-button"
+											class="flex shrink-0 cursor-pointer items-center justify-center size-4 rounded text-gray-400 hover:bg-gray-200 hover:text-gray-700 dark:hover:bg-white/10 dark:hover:text-white"
+											aria-label="Close tab"
+											on:click={() => goto('/')}
+										>
+											<svg aria-hidden="true" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="size-3">
+												<path stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M18 6 6 18" />
+											</svg>
+										</button>
+									</span>
 								</div>
 							</div>
 							<span style="display: contents; cursor: pointer;">
@@ -196,20 +209,7 @@
 								</button>
 							</span>
 						</div>
-						<div class="flex shrink-0 items-center gap-2">
-							<div class="flex">
-								<button
-									id="temporary-chat-button"
-									class="flex size-6 cursor-pointer items-center justify-center rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200"
-									aria-label="Temporary Chat"
-									on:click={() => temporaryChatEnabled.set(!$temporaryChatEnabled)}
-								>
-									<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="size-4">
-										<path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 13.8214 2.48697 15.5291 3.33782 17L2.5 21.5L7 20.6622C8.47087 21.513 10.1786 22 12 22Z" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2.5 3.5"></path>
-									</svg>
-								</button>
-							</div>
-						</div>
+						<div class="flex shrink-0 items-center gap-2"></div>
 					</div>
 				</div>
 			</div>

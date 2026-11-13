@@ -3,6 +3,7 @@
 
 	export let className = 'size-8';
 	export let src = `${WEBUI_BASE_URL}/static/favicon.png`;
+	export let currentCompatibility = false;
 </script>
 
 <img
@@ -15,7 +16,7 @@
 			  src.startsWith('/')
 			? src
 			: `/user.png`}
-	class=" {className} object-cover rounded-full -translate-y-[1px]"
+	class=" {className} object-cover {currentCompatibility ? 'rounded-2xl' : 'rounded-full -translate-y-[1px]'}"
 	alt="profile"
 	draggable="false"
 />

@@ -644,7 +644,7 @@
 										<div
 											class={v0113Compatibility
 												? 'scrollbar-hidden text-left bg-transparent dark:text-gray-100 outline-hidden w-full pt-3 px-1 resize-none h-fit max-h-80 overflow-auto'
-												: 'scrollbar-hidden rtl:text-right ltr:text-left bg-transparent dark:text-gray-100 outline-hidden w-full pb-0.5 px-1 resize-none h-fit max-h-96 overflow-auto'}
+												: 'scrollbar-hidden rtl:text-right ltr:text-left bg-transparent dark:text-gray-100 outline-hidden w-full pb-0.5 px-1 resize-none h-fit max-h-96 overflow-auto pt-2'}
 											id="chat-input-container"
 										>
 											<RichTextInput
@@ -1269,9 +1269,12 @@
 
 										{#if exposeResponseControls && ((taskIds && taskIds.length > 0) || (history.currentId && history.messages[history.currentId]?.done != true))}
 											<div class="flex items-center">
-													<button
-														id="stop-response-button"
-														class="bg-white hover:bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-800 transition rounded-full p-1.5"
+												<div class="flex">
+												<button
+													id="stop-response-button"
+													class={v0113Compatibility
+														? 'bg-white hover:bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-800 transition rounded-full p-1.5'
+														: 'bg-white hover:bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-800 transition rounded-full p-[0.3125rem]'}
 														aria-label={$i18n.t('Stop')}
 														title={$i18n.t('Stop')}
 														on:click={() => {
@@ -1291,6 +1294,7 @@
 															/>
 														</svg>
 													</button>
+												</div>
 											</div>
 										{:else if prompt === '' && files.length === 0 && ($_user?.role === 'admin' || ($_user?.permissions?.chat?.call ?? true))}
 											<div class=" flex items-center">
@@ -1397,6 +1401,7 @@
 									</div>
 								</div>
 							</div>
+							{#if !v0113Compatibility}<div class="mb-0.5"></div>{/if}
 						</form>
 					{/if}
 				</div>

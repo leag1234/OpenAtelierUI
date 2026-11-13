@@ -1,7 +1,23 @@
 <script lang="ts">
-	import { config, user } from '$lib/stores';
+	import { onDestroy, onMount } from 'svelte';
+	import { chatId, chats, config, user } from '$lib/stores';
 
 	export let webuiName = 'OpenAtelierUI';
+
+	let responseStreaming = false;
+	let streamObserver: MutationObserver | null = null;
+
+	const updateStreamingState = () => {
+		responseStreaming = document.querySelector('#stop-response-button') !== null;
+	};
+
+	onMount(() => {
+		updateStreamingState();
+		streamObserver = new MutationObserver(updateStreamingState);
+		streamObserver.observe(document.body, { childList: true, subtree: true });
+	});
+
+	onDestroy(() => streamObserver?.disconnect());
 </script>
 
 <div
@@ -48,6 +64,10 @@
 				<div class="flex flex-1 items-center justify-center px-4 py-6 text-gray-500 dark:text-gray-400">
 					<div class="flex justify-center text-center">
 						<svg aria-hidden="true" viewBox="0 0 24 24" class="size-4">
+							<style>
+								.spinner_ajPY { transform-origin: center; animation: spinner_AtaB 0.75s infinite linear; }
+								@keyframes spinner_AtaB { 100% { transform: rotate(360deg); } }
+							</style>
 							<path d="M12 3a9 9 0 0 1 9 9" />
 							<path class="spinner_ajPY" d="M21 12a9 9 0 0 1-9 9" />
 						</svg>
@@ -100,7 +120,105 @@
 			<div class="relative">
 				<div class="w-full">
 					<div class="w-full cursor-pointer"><div><div class="flex items-start justify-between"><div class="flex items-center justify-between h-6 w-full pl-3.5 pr-1.5 shrink-0"><h2 class="flex flex-1 h-full"><button id="sidebar-chats-button" type="button" tabindex="-1" class="group flex flex-1 h-full items-center gap-1 text-left text-xs text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400 transition-colors duration-100"><span>Chats</span><span class="flex opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-100"><svg aria-hidden="true" viewBox="0 0 24 24" class="size-[0.6875rem]"><path d="m9 18 6-6-6-6" /></svg></span></button></h2><div class="contents"><span><div class="flex"><button type="button" tabindex="-1" class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400 transition-colors duration-100"><svg aria-hidden="true" viewBox="0 0 24 24" class="size-3.5"><path d="M12 5v14" /><path d="M5 12h14" /><path d="M7 7h10" /></svg></button></div></span></div></div></div></div></div>
-					<div><div id="sidebar-chats-content" class="w-full px-1.5"><div class="flex-1 flex flex-col overflow-y-auto scrollbar-hidden"><div class="pt-1.5"><div role="list"></div></div></div></div></div>
+					<div>
+						<div id="sidebar-chats-content" class="w-full px-1.5">
+							<div class="flex-1 flex flex-col overflow-y-auto scrollbar-hidden">
+								<div class="pt-1.5">
+									<div role="list">
+										{#each $chats ?? [] as chat, index}
+											<div role="listitem">
+												{#if index === 0 || chat.time_range !== $chats[index - 1]?.time_range}
+													<h3 class="w-full pl-2.5 text-xs text-gray-500 dark:text-gray-500 font-normal pb-1">
+														{chat.time_range ?? 'Today'}
+													</h3>
+												{/if}
+												<div
+													id="sidebar-chat-group"
+													data-sidebar-chat-id={chat.id}
+													data-sidebar-chat-readonly="false"
+													class="w-full relative group"
+													draggable="true"
+												>
+													<div
+														id="sidebar-chat-item"
+														class="w-full flex justify-between rounded-xl px-2 py-1.5 {$chatId === chat.id
+															? 'bg-black/[0.035] dark:bg-white/[0.045] selected'
+															: 'hover:bg-gray-100 dark:hover:bg-gray-900 group-hover:bg-gray-100 dark:group-hover:bg-gray-900'} whitespace-nowrap text-ellipsis transition"
+													>
+														<a
+															class="flex min-w-0 flex-1 -my-1.5 py-1.5 items-center"
+															href="/c/{chat.id}"
+															aria-current={$chatId === chat.id ? 'page' : undefined}
+															draggable="false"
+														>
+															{#if responseStreaming && $chatId === chat.id}
+																<div class="shrink-0 self-center pr-2">
+																	<div class="size-3 flex items-center justify-center">
+																		<div class="flex justify-center text-center">
+																			<svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor" class="size-3">
+																				<style>
+																					.spinner_ajPY { transform-origin: center; animation: spinner_AtaB 0.75s infinite linear; }
+																					@keyframes spinner_AtaB { 100% { transform: rotate(360deg); } }
+																				</style>
+																				<path d="M12,1A11,11,0,1,0,23,12,11,11,0,0,0,12,1Zm0,19a8,8,0,1,1,8-8A8,8,0,0,1,12,20Z" opacity=".25" />
+																				<path d="M10.14,1.16a11,11,0,0,0-9,8.92A1.59,1.59,0,0,0,2.46,12,1.52,1.52,0,0,0,4.11,10.7a8,8,0,0,1,6.66-6.61A1.42,1.42,0,0,0,12,2.69h0A1.57,1.57,0,0,0,10.14,1.16Z" class="spinner_ajPY" />
+																			</svg>
+																		</div>
+																	</div>
+																</div>
+															{/if}
+															<div class="flex self-center flex-1 w-full min-w-0">
+																<div dir="auto" class="text-left self-center overflow-hidden w-full h-5 truncate {$chatId === chat.id ? 'pr-12' : ''}">
+																	{chat.title}
+																</div>
+															</div>
+															<span class="sr-only">a few seconds ago</span>
+															{#if $chatId !== chat.id}
+																<div class="shrink-0 self-center text-[0.625rem] text-gray-400 dark:text-gray-500 pl-2" aria-hidden="true">1m</div>
+															{/if}
+														</a>
+													</div>
+													<div
+														id="sidebar-chat-item-menu"
+														class="{$chatId === chat.id ? 'selected' : 'hover-reveal'} absolute right-1 inset-y-0 mr-1.5 flex items-center"
+													>
+														<div class="flex self-center z-10 items-end">
+															<span style="display: contents; cursor: pointer;">
+																<div class="flex">
+																	<button type="button" name="sidebar-chat-menu" aria-label="Chat Menu" class="flex size-5 items-center justify-center self-center dark:hover:text-white transition m-0">
+																		<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" class="size-3.5" stroke-width="2">
+																			<path d="M20 12.5C20.2761 12.5 20.5 12.2761 20.5 12C20.5 11.7239 20.2761 11.5 20 11.5C19.7239 11.5 19.5 11.7239 19.5 12C19.5 12.2761 19.7239 12.5 20 12.5Z" fill="currentColor" stroke="currentColor" />
+																			<path d="M12 12.5C12.2761 12.5 12.5 12.2761 12.5 12C12.5 11.7239 12.2761 11.5 12 11.5C11.7239 11.5 11.5 11.7239 11.5 12C11.5 12.2761 11.7239 12.5 12 12.5Z" fill="currentColor" stroke="currentColor" />
+																			<path d="M4 12.5C4.27614 12.5 4.5 12.2761 4.5 12C4.5 11.7239 4.27614 11.5 4 11.5C3.72386 11.5 3.5 11.7239 3.5 12C3.5 12.2761 3.72386 12.5 4 12.5Z" fill="currentColor" stroke="currentColor" />
+																		</svg>
+																	</button>
+																</div>
+															</span>
+														</div>
+													</div>
+												</div>
+											</div>
+										{/each}
+									</div>
+								</div>
+								<div>
+									<div class="w-full flex justify-center py-1 text-xs animate-pulse items-center gap-2">
+										<div class="flex justify-center text-center">
+											<svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor" class="size-4">
+												<style>
+													.spinner_ajPY { transform-origin: center; animation: spinner_AtaB 0.75s infinite linear; }
+													@keyframes spinner_AtaB { 100% { transform: rotate(360deg); } }
+												</style>
+												<path d="M12,1A11,11,0,1,0,23,12,11,11,0,0,0,12,1Zm0,19a8,8,0,1,1,8-8A8,8,0,0,1,12,20Z" opacity=".25" />
+												<path d="M10.14,1.16a11,11,0,0,0-9,8.92A1.59,1.59,0,0,0,2.46,12,1.52,1.52,0,0,0,4.11,10.7a8,8,0,0,1,6.66-6.61A1.42,1.42,0,0,0,12,2.69h0A1.57,1.57,0,0,0,10.14,1.16Z" class="spinner_ajPY" />
+											</svg>
+										</div>
+										<div>Loading...</div>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
 				</div>
 			</div>
 		</div>

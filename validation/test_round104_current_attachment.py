@@ -28,10 +28,8 @@ class CurrentAttachmentTests(unittest.TestCase):
         self.assertIn("on:click|stopPropagation={() => dispatch('dismiss')}", FILE_ITEM)
 
     def test_current_editor_and_send_button_keep_compact_spacing(self) -> None:
-        self.assertIn("max-h-96 overflow-auto'", INPUT)
-        self.assertNotIn("max-h-96 overflow-auto pt-2'", INPUT)
-        self.assertIn("v0113Compatibility\n", INPUT)
-        self.assertIn(": 'p-[0.3125rem]'} self-center", INPUT)
+        self.assertIn("max-h-96 overflow-auto pt-2'", INPUT)
+        self.assertIn("v0113Compatibility ? 'p-1.5' : 'p-[0.3125rem]'", INPUT)
 
     def test_legacy_attachment_component_remains_available(self) -> None:
         self.assertIn("import FileItem from '../common/FileItem.svelte';", INPUT)

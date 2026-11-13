@@ -101,6 +101,7 @@
 	import Messages from '$lib/components/chat/Messages.svelte';
 	import Navbar from '$lib/components/chat/Navbar.svelte';
 	import ChatControls from './ChatControls.svelte';
+	import CurrentSelectionToolbar from './CurrentSelectionToolbar.svelte';
 	import EventConfirmDialog from '../common/ConfirmDialog.svelte';
 	import Placeholder from './Placeholder.svelte';
 	import NotificationToast from '../NotificationToast.svelte';
@@ -2219,6 +2220,11 @@
 					? 'flex flex-col flex-auto z-10 w-full @container overflow-auto'
 					: 'flex flex-col flex-auto z-10 w-full @container'}>
 					{#if $settings?.landingPageMode === 'chat' || createMessagesList(history, history.currentId).length > 0}
+						{#if nativeCompatibility}
+							<div class="sr-only" aria-live="polite" aria-atomic="true">
+								{history.messages[history.currentId]?.done ? 'Response complete' : 'Response in progress'}
+							</div>
+						{/if}
 						<div
 							class=" pb-2.5 flex flex-col justify-between w-full flex-auto overflow-auto h-0 max-w-full z-10 scrollbar-hidden"
 							id="messages-container"
@@ -2250,7 +2256,7 @@
 							</div>
 						</div>
 
-						<div class=" pb-[1rem]">
+						<div class={nativeCompatibility ? 'pb-2 z-10' : 'pb-[1rem]'}>
 							<MessageInput
 								{history}
 								{taskIds}
@@ -2381,3 +2387,13 @@
 		</div>
 	{/if}
 </div>
+
+{#if nativeCompatibility && history.currentId && history.messages[history.currentId]?.done}
+	<CurrentSelectionToolbar
+		on:prompt={async (event) => {
+			prompt = `${event.detail.action}: ${event.detail.text}`;
+			await tick();
+			document.getElementById('chat-input')?.focus();
+		}}
+	/>
+{/if}

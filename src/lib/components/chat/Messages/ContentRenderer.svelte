@@ -16,6 +16,8 @@
 
 	export let save = false;
 	export let floatingButtons = true;
+	export let currentCompatibility = false;
+	export let currentStreaming = false;
 
 	export let onSourceClick = () => {};
 	export let onTaskClick = () => {};
@@ -116,7 +118,10 @@
 	});
 </script>
 
-<div bind:this={contentContainerElement}>
+<div
+	bind:this={contentContainerElement}
+	data-current-compatibility={currentCompatibility ? '' : undefined}
+>
 	<Markdown
 		{id}
 		{content}
@@ -154,6 +159,9 @@
 		}, [])}
 		{onSourceClick}
 		{onTaskClick}
+		className={currentCompatibility ? 'markdown-prose' : ''}
+		{currentCompatibility}
+		{currentStreaming}
 		on:update={(e) => {
 			dispatch('update', e.detail);
 		}}

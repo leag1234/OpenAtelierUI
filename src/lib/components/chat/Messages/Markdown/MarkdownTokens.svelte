@@ -18,6 +18,7 @@
 	import Collapsible from '$lib/components/common/Collapsible.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import ArrowDownTray from '$lib/components/icons/ArrowDownTray.svelte';
+	import Clipboard from '$lib/components/icons/Clipboard.svelte';
 
 	import Source from './Source.svelte';
 	import { settings } from '$lib/stores';
@@ -30,6 +31,9 @@
 	export let attributes = {};
 
 	export let save = false;
+	export let currentCompatibility = false;
+	export let currentStreaming = false;
+	export let currentCompactParagraphs = false;
 
 	export let onTaskClick: Function = () => {};
 	export let onSourceClick: Function = () => {};
@@ -93,6 +97,9 @@
 				code={token?.text ?? ''}
 				{attributes}
 				{save}
+				{currentCompatibility}
+				{currentStreaming}
+				{currentCompactParagraphs}
 				onCode={(value) => {
 					dispatch('code', value);
 				}}
@@ -108,22 +115,32 @@
 			{token.text}
 		{/if}
 	{:else if token.type === 'table'}
-		<div class="relative w-full group">
-			<div class="scrollbar-hidden relative overflow-x-auto max-w-full rounded-lg">
+		<div class={currentCompatibility ? 'relative w-full group mb-2' : 'relative w-full group'}>
+			<div
+				class={currentCompatibility
+					? 'scrollbar-hidden relative overflow-x-auto max-w-full'
+					: 'scrollbar-hidden relative overflow-x-auto max-w-full rounded-lg'}
+			>
 				<table
-					class=" w-full text-sm text-left text-gray-500 dark:text-gray-400 max-w-full rounded-xl"
+					class={currentCompatibility
+						? 'w-full text-sm text-start text-gray-500 dark:text-gray-400 max-w-full rounded-xl'
+						: ' w-full text-sm text-left text-gray-500 dark:text-gray-400 max-w-full rounded-xl'}
 				>
 					<thead
-						class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-850 dark:text-gray-400 border-none"
+						class={currentCompatibility
+							? 'text-xs text-gray-700 uppercase dark:text-gray-400 border-none'
+							: 'text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-850 dark:text-gray-400 border-none'}
 					>
 						<tr class="">
 							{#each token.header as header, headerIdx}
 								<th
 									scope="col"
-									class="px-3! py-1.5! cursor-pointer border border-gray-100 dark:border-gray-850"
+									class={currentCompatibility
+										? 'px-2.5! py-2! cursor-pointer border-b border-gray-100! dark:border-gray-800!'
+										: 'px-3! py-1.5! cursor-pointer border border-gray-100 dark:border-gray-850'}
 									style={token.align[headerIdx] ? '' : `text-align: ${token.align[headerIdx]}`}
 								>
-									<div class="gap-1.5 text-left">
+									<div class={currentCompatibility ? 'gap-1.5 text-start' : 'gap-1.5 text-left'}>
 										<div class="shrink-0 break-normal">
 											<MarkdownInlineTokens
 												id={`${id}-${tokenIdx}-header-${headerIdx}`}
@@ -138,10 +155,12 @@
 					</thead>
 					<tbody>
 						{#each token.rows as row, rowIdx}
-							<tr class="bg-white dark:bg-gray-900 dark:border-gray-850 text-xs">
+							<tr class={currentCompatibility ? 'text-xs' : 'bg-white dark:bg-gray-900 dark:border-gray-850 text-xs'}>
 								{#each row ?? [] as cell, cellIdx}
 									<td
-										class="px-3! py-1.5! text-gray-900 dark:text-white w-max border border-gray-100 dark:border-gray-850"
+										class={currentCompatibility
+											? `px-3! py-2! text-gray-900 dark:text-white w-max ${rowIdx < token.rows.length - 1 ? 'border-b border-gray-50! dark:border-gray-850!' : ''}`
+											: 'px-3! py-1.5! text-gray-900 dark:text-white w-max border border-gray-100 dark:border-gray-850'}
 										style={token.align[cellIdx] ? '' : `text-align: ${token.align[cellIdx]}`}
 									>
 										<div class="break-normal">
@@ -159,11 +178,27 @@
 				</table>
 			</div>
 
-			<div class="absolute top-1 right-1.5 z-20 flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
-				<Tooltip content={$i18n.t('Copy table')}>
-                    <button type="button" class="copy-table-button rounded-lg bg-white p-1 text-xs dark:bg-gray-850" aria-label={$i18n.t('Copy table')}
-                        on:click={() => copyToClipboard([token.header.map((cell) => cell.text).join('\t'), ...token.rows.map((row) => row.map((cell) => cell.text).join('\t'))].join('\n'))}>{$i18n.t('Copy')}</button>
-                </Tooltip>
+			<div
+				class={currentCompatibility
+					? 'absolute top-1 right-1.5 z-20 hover-reveal flex gap-0.5'
+					: 'absolute top-1 right-1.5 z-20 flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100'}
+			>
+				<Tooltip content={currentCompatibility ? $i18n.t('Copy') : $i18n.t('Copy table')}>
+					<button
+						type="button"
+						class={currentCompatibility
+							? 'p-1 rounded-lg bg-transparent transition'
+							: 'copy-table-button rounded-lg bg-white p-1 text-xs dark:bg-gray-850'}
+						aria-label={currentCompatibility ? $i18n.t('Copy') : $i18n.t('Copy table')}
+						on:click={() => copyToClipboard([token.header.map((cell) => cell.text).join('\t'), ...token.rows.map((row) => row.map((cell) => cell.text).join('\t'))].join('\n'))}
+					>
+						{#if currentCompatibility}
+							<Clipboard className=" size-3.5" strokeWidth="1.5" />
+						{:else}
+							{$i18n.t('Copy')}
+						{/if}
+					</button>
+				</Tooltip>
                 <Tooltip content={$i18n.t('Export to CSV')}>
 					<button
 						class="p-1 rounded-lg bg-transparent transition"
@@ -172,7 +207,21 @@
 							exportTableToCSVHandler(token, tokenIdx);
 						}}
 					>
-						<ArrowDownTray className=" size-3.5" strokeWidth="1.5" />
+						{#if currentCompatibility}
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								fill="none"
+								viewBox="0 0 24 24"
+								stroke="currentColor"
+								stroke-width="1.5"
+								class=" size-3.5"
+							>
+								<path stroke-linecap="round" d="M12 3v11" />
+								<path stroke-linecap="round" stroke-linejoin="round" d="m8 10 4 4 4-4M5 20h14" />
+							</svg>
+						{:else}
+							<ArrowDownTray className=" size-3.5" strokeWidth="1.5" />
+						{/if}
 					</button>
 				</Tooltip>
 			</div>
@@ -182,8 +231,15 @@
 		{#if alert}
 			<AlertRenderer {token} {alert} />
 		{:else}
-			<blockquote dir="auto">
-				<svelte:self id={`${id}-${tokenIdx}`} tokens={token.tokens} {onTaskClick} {onSourceClick} />
+		<blockquote dir="auto">
+			<svelte:self
+				id={`${id}-${tokenIdx}`}
+				tokens={token.tokens}
+				top={false}
+				{onTaskClick}
+				{onSourceClick}
+				{currentCompatibility}
+			/>
 			</blockquote>
 		{/if}
 	{:else if token.type === 'list'}
@@ -215,6 +271,9 @@
 							top={token.loose}
 							{onTaskClick}
 							{onSourceClick}
+							{currentCompatibility}
+							{currentStreaming}
+							{currentCompactParagraphs}
 						/>
 					</li>
 				{/each}
@@ -247,6 +306,9 @@
 							top={token.loose}
 							{onTaskClick}
 							{onSourceClick}
+							{currentCompatibility}
+							{currentStreaming}
+							{currentCompactParagraphs}
 						/>
 					</li>
 				{/each}
@@ -267,6 +329,9 @@
 					attributes={token?.attributes}
 					{onTaskClick}
 					{onSourceClick}
+					{currentCompatibility}
+					{currentStreaming}
+					{currentCompactParagraphs}
 				/>
 			</div>
 		</Collapsible>
@@ -290,13 +355,35 @@
 			onload="this.style.height=(this.contentWindow.document.body.scrollHeight+20)+'px';"
 		></iframe>
 	{:else if token.type === 'paragraph'}
-		<p dir="auto">
-			<MarkdownInlineTokens
-				id={`${id}-${tokenIdx}-p`}
-				tokens={token.tokens ?? []}
-				{onSourceClick}
-			/>
-		</p>
+		{#if currentCompatibility && (!top || currentStreaming || currentCompactParagraphs)}
+			<p dir="auto" class="!my-0">
+				{#if currentStreaming && token.tokens?.length === 1 && token.tokens[0]?.type === 'text'}
+					{#each token.tokens[0].text.match(/\S+\s*/g) ?? [] as part}
+						<span class="fade-in-token">{part}</span>
+					{/each}
+				{:else}
+					<MarkdownInlineTokens
+						id={`${id}-${tokenIdx}-p`}
+						tokens={token.tokens ?? []}
+						{onSourceClick}
+					/>
+				{/if}
+			</p>
+		{:else}
+			<p dir="auto">
+				{#if currentCompatibility && currentStreaming && token.tokens?.length === 1 && token.tokens[0]?.type === 'text'}
+					{#each token.tokens[0].text.match(/\S+\s*/g) ?? [] as part}
+						<span class="fade-in-token">{part}</span>
+					{/each}
+				{:else}
+					<MarkdownInlineTokens
+						id={`${id}-${tokenIdx}-p`}
+						tokens={token.tokens ?? []}
+						{onSourceClick}
+					/>
+				{/if}
+			</p>
+		{/if}
 	{:else if token.type === 'text'}
 		{#if top}
 			<p>
@@ -324,7 +411,7 @@
 			<KatexRenderer content={token.text} displayMode={token?.displayMode ?? false} />
 		{/if}
 	{:else if token.type === 'space'}
-		<div class="my-2" />
+		{#if !currentCompatibility}<div class="my-2" />{/if}
 	{:else}
 		{console.log('Unknown token', token)}
 	{/if}

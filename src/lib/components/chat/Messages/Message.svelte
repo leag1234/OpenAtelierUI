@@ -5,7 +5,7 @@
 	const dispatch = createEventDispatcher();
 	const i18n = getContext('i18n');
 
-	import { settings } from '$lib/stores';
+	import { config, settings } from '$lib/stores';
 	import { copyToClipboard } from '$lib/utils';
 
 	import MultiResponseMessages from './MultiResponseMessages.svelte';
@@ -39,12 +39,17 @@
 	export let addMessages;
 	export let triggerScroll;
 	export let readOnly = false;
+	$: nativeCompatibility = $config?.compatibility_profile === 'native';
 </script>
 
 <div
-	class="message-listitem flex flex-col justify-between px-5 mb-3 w-full {($settings?.widescreenMode ?? null)
-		? 'max-w-full'
-		: 'max-w-5xl'} mx-auto rounded-lg group"
+	class={nativeCompatibility
+		? `flex flex-col justify-between px-3.5 mb-3 w-full ${($settings?.widescreenMode ?? null)
+			? 'max-w-full'
+			: 'max-w-[58rem]'} mx-auto rounded-lg group message-listitem`
+		: `message-listitem flex flex-col justify-between px-5 mb-3 w-full ${($settings?.widescreenMode ?? null)
+			? 'max-w-full'
+			: 'max-w-5xl'} mx-auto rounded-lg group`}
 >
 	{#if history.messages[messageId]}
 		{#if history.messages[messageId].role === 'user'}

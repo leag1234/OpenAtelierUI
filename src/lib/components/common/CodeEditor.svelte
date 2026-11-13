@@ -21,6 +21,7 @@
 
 	export let boilerplate = '';
 	export let value = '';
+	export let currentCompatibility = false;
 
 	export let onSave = () => {};
 	export let onChange = () => {};
@@ -186,6 +187,31 @@
 			parent: document.getElementById(`code-textarea-${id}`)
 		});
 
+		const normalizeCurrentStructure = () => {
+			if (!currentCompatibility) return;
+
+			const editorRoot = document.getElementById(`code-textarea-${id}`);
+			const gutters = editorRoot?.querySelector('.cm-gutters');
+			if (gutters && gutters.className !== 'cm-gutters cm-gutters-before') {
+				gutters.className = 'cm-gutters cm-gutters-before';
+			}
+
+			editorRoot?.querySelectorAll('.cm-activeLine.cm-line').forEach((line) => {
+				if (line.className !== 'cm-line cm-activeLine') {
+					line.className = 'cm-line cm-activeLine';
+				}
+			});
+		};
+
+		normalizeCurrentStructure();
+		const structureObserver = new MutationObserver(normalizeCurrentStructure);
+		structureObserver.observe(document.getElementById(`code-textarea-${id}`), {
+			attributes: true,
+			childList: true,
+			subtree: true,
+			attributeFilter: ['class']
+		});
+
 		if (isDarkMode) {
 			codeEditor.dispatch({
 				effects: editorTheme.reconfigure(oneDark)
@@ -236,10 +262,14 @@
 		document.addEventListener('keydown', keydownHandler);
 
 		return () => {
+			structureObserver.disconnect();
 			observer.disconnect();
 			document.removeEventListener('keydown', keydownHandler);
 		};
 	});
 </script>
 
-<div id="code-textarea-{id}" class="h-full w-full text-sm" />
+<div
+	id="code-textarea-{id}"
+	class={currentCompatibility ? 'text-sm h-full w-full min-w-0 overflow-hidden' : 'h-full w-full text-sm'}
+/>

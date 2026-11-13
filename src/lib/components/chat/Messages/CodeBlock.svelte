@@ -28,6 +28,7 @@
 	export let save = false;
 	export let run = true;
 	export let collapsed = false;
+	export let currentCompatibility = false;
 
 	export let token;
 	export let lang = '';
@@ -406,7 +407,12 @@
 </script>
 
 <div>
-	<div class="relative {className} flex flex-col rounded-lg" dir="ltr">
+	<div
+		class={currentCompatibility
+			? 'relative flex flex-col rounded-2xl border border-gray-100/30 dark:border-gray-850/30 my-0.5 overflow-clip'
+			: `relative ${className} flex flex-col rounded-lg`}
+		dir="ltr"
+	>
 		{#if lang === 'mermaid'}
 			{#if mermaidHtml}
 				<SvgPanZoom
@@ -418,19 +424,34 @@
 				<pre class="mermaid">{code}</pre>
 			{/if}
 		{:else}
-			<div class="text-text-300 absolute pl-4 py-1.5 text-xs font-medium dark:text-white">
-				{lang}
-			</div>
+			{#if !currentCompatibility}
+				<div class="text-text-300 absolute pl-4 py-1.5 text-xs font-medium dark:text-white">
+					{lang}
+				</div>
+			{/if}
 
 			<div
-				class="sticky {stickyButtonsClassName} mb-1 py-1 pr-2.5 flex items-center justify-end z-10 text-xs text-black dark:text-white"
+				class={currentCompatibility
+					? 'sticky top-0 left-0 right-0 py-0.5 px-3.5 gap-2 flex items-center justify-end w-full z-10 text-xs text-black dark:text-white bg-white dark:bg-black'
+					: `sticky ${stickyButtonsClassName} mb-1 py-1 pr-2.5 flex items-center justify-end z-10 text-xs text-black dark:text-white`}
 			>
-				<div class="flex items-center gap-0.5 translate-y-[1px]">
+				{#if currentCompatibility}
+					<div class="flex-1 truncate">
+						<div class="flex"><span class="truncate text-ellipsis">{lang}</span></div>
+					</div>
+				{/if}
+				<div
+					class={currentCompatibility
+						? 'flex max-w-full items-center gap-0.5 shrink-0 overflow-x-auto'
+						: 'flex items-center gap-0.5 translate-y-[1px]'}
+				>
 					<button
-						class="flex gap-1 items-center bg-none border-none bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-md px-1.5 py-0.5"
+						class={currentCompatibility
+							? 'flex h-6 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-normal text-gray-600 transition-colors duration-100 hover:bg-gray-100/40 disabled:opacity-60 dark:text-gray-400 dark:hover:bg-white/5'
+							: 'flex gap-1 items-center bg-none border-none bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-md px-1.5 py-0.5'}
 						on:click={collapseCodeBlock}
 					>
-						<div>
+						<div class={currentCompatibility ? '-translate-y-[0.5px]' : ''}>
 							<ChevronUpDown className="size-3" />
 						</div>
 
@@ -446,16 +467,20 @@
 							</div>
 						{:else if run}
 							<button
-								class="flex gap-1 items-center run-code-button bg-none border-none bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-md px-1.5 py-0.5"
+								class={currentCompatibility
+									? 'run-code-button flex h-6 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-normal text-gray-600 transition-colors duration-100 hover:bg-gray-100/40 disabled:opacity-60 dark:text-gray-400 dark:hover:bg-white/5'
+									: 'flex gap-1 items-center run-code-button bg-none border-none bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-md px-1.5 py-0.5'}
 								on:click={async () => {
 									code = _code;
 									await tick();
 									executePython(code);
 								}}
 							>
-								<div>
-									<CommandLine className="size-3" />
-								</div>
+								{#if !currentCompatibility}
+									<div>
+										<CommandLine className="size-3" />
+									</div>
+								{/if}
 
 								<div>
 									{$i18n.t('Run')}
@@ -466,7 +491,9 @@
 
 					{#if save}
 						<button
-							class="save-code-button bg-none border-none bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-md px-1.5 py-0.5"
+							class={currentCompatibility
+								? 'save-code-button flex h-6 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-normal text-gray-600 transition-colors duration-100 hover:bg-gray-100/40 disabled:opacity-60 dark:text-gray-400 dark:hover:bg-white/5'
+								: 'save-code-button bg-none border-none bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-md px-1.5 py-0.5'}
 							on:click={saveCode}
 						>
 							{saved ? $i18n.t('Saved') : $i18n.t('Save')}
@@ -474,26 +501,31 @@
 					{/if}
 
 					<button
-						class="copy-code-button bg-none border-none bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-md px-1.5 py-0.5"
+						class={currentCompatibility
+							? 'copy-code-button flex h-6 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-normal text-gray-600 transition-colors duration-100 hover:bg-gray-100/40 disabled:opacity-60 dark:text-gray-400 dark:hover:bg-white/5'
+							: 'copy-code-button bg-none border-none bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-md px-1.5 py-0.5'}
 						on:click={copyCode}>{copied ? $i18n.t('Copied') : $i18n.t('Copy')}</button
 					>
 				</div>
 			</div>
 
 			<div
-				class="language-{lang} rounded-t-lg -mt-8 {editorClassName
+				class="language-{lang} {currentCompatibility ? 'rounded-t-2xl' : 'rounded-t-lg'} -mt-8 {editorClassName
 					? editorClassName
 					: executing || stdout || stderr || result
 						? ''
-						: 'rounded-b-lg'} overflow-hidden"
+						: currentCompatibility
+							? 'rounded-b-2xl'
+							: 'rounded-b-lg'} overflow-hidden"
 			>
-				<div class=" pt-7 bg-gray-50 dark:bg-gray-850"></div>
+				<div class={currentCompatibility ? 'pt-6.5 bg-white dark:bg-black' : ' pt-7 bg-gray-50 dark:bg-gray-850'}></div>
 
 				{#if !collapsed}
 					<CodeEditor
 						value={code}
 						{id}
 						{lang}
+						{currentCompatibility}
 						onSave={() => {
 							saveCode();
 						}}
@@ -517,7 +549,9 @@
 			{#if !collapsed}
 				<div
 					id="plt-canvas-{id}"
-					class="bg-gray-50 dark:bg-[#202123] dark:text-white max-w-full overflow-x-auto scrollbar-hidden"
+					class={currentCompatibility
+						? 'bg-gray-50 dark:bg-black dark:text-white max-w-full overflow-x-auto scrollbar-hidden'
+						: 'bg-gray-50 dark:bg-[#202123] dark:text-white max-w-full overflow-x-auto scrollbar-hidden'}
 				/>
 
 				{#if executing || stdout || stderr || result || files}

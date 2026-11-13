@@ -15,6 +15,10 @@
 	export let content;
 	export let model = null;
 	export let save = false;
+	export let className = '';
+	export let currentCompatibility = false;
+	export let currentStreaming = false;
+	export let currentCompactParagraphs = false;
 
 	export let sourceIds = [];
 
@@ -40,17 +44,33 @@
 </script>
 
 {#key id}
-	<MarkdownTokens
-		{tokens}
-		{id}
-		{save}
-		{onTaskClick}
-		{onSourceClick}
-		on:update={(e) => {
-			dispatch('update', e.detail);
-		}}
-		on:code={(e) => {
-			dispatch('code', e.detail);
-		}}
-	/>
+	{#if className}
+		<div class={className}>
+			<MarkdownTokens
+				{tokens}
+				{id}
+				{save}
+				{onTaskClick}
+				{onSourceClick}
+				{currentCompatibility}
+				{currentStreaming}
+				{currentCompactParagraphs}
+				on:update={(e) => dispatch('update', e.detail)}
+				on:code={(e) => dispatch('code', e.detail)}
+			/>
+		</div>
+	{:else}
+		<MarkdownTokens
+			{tokens}
+			{id}
+			{save}
+			{onTaskClick}
+			{onSourceClick}
+			{currentCompatibility}
+			{currentStreaming}
+			{currentCompactParagraphs}
+			on:update={(e) => dispatch('update', e.detail)}
+			on:code={(e) => dispatch('code', e.detail)}
+		/>
+	{/if}
 {/key}

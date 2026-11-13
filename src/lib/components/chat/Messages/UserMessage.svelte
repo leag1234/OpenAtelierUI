@@ -101,7 +101,11 @@
 	}}
 />
 
-<div class="group flex w-full user-message" dir={$settings.chatDirection} id="message-{message.id}">
+<div
+	class={v0113Compatibility ? 'group flex w-full user-message' : 'flex w-full user-message group'}
+	dir={$settings.chatDirection}
+	id="message-{message.id}"
+>
 	{#if !($settings?.chatBubble ?? true)}
 		<div class={`shrink-0 ltr:mr-3 rtl:ml-3`}>
 			<ProfileImage
@@ -129,7 +133,7 @@
 			</div>
 		{/if}
 
-		<div class="chat-{message.role} w-full min-w-full {v0113Compatibility ? '' : 'markdown-prose'}">
+		<div class="chat-{message.role} w-full min-w-full">
 			{#if message.files}
 				<div class="mt-2.5 mb-1 w-full flex flex-col justify-end overflow-x-auto gap-1 flex-wrap">
 					{#each message.files as file}
@@ -219,8 +223,8 @@
 					<div class="w-full">
 						<div class="flex {($settings?.chatBubble ?? true) ? 'justify-end pb-1' : 'w-full'}">
 							<div
-								class="rounded-3xl {($settings?.chatBubble ?? true)
-									? `max-w-[90%] px-5 py-2  bg-gray-50 dark:bg-gray-850 ${
+							class="rounded-3xl {($settings?.chatBubble ?? true)
+									? `${v0113Compatibility ? 'max-w-[90%] px-5 py-2' : 'max-w-[90%] px-4 py-1.5'} bg-gray-50 dark:bg-gray-850 ${
 											message.files ? 'rounded-tr-lg' : ''
 										}`
 									: ' w-full'}"
@@ -233,28 +237,47 @@
 										{message.content}
 									</div>
 								{:else if message.content}
-									<Markdown id={message.id} content={message.content} />
+									<div class="markdown-prose">
+										<Markdown
+											id={message.id}
+											content={message.content}
+											currentCompatibility
+										currentCompactParagraphs
+										/>
+									</div>
 								{/if}
 							</div>
 						</div>
 
 						<div
-							class=" flex {($settings?.chatBubble ?? true)
-								? 'justify-end'
-								: ''}  text-gray-600 dark:text-gray-500"
+							class={v0113Compatibility
+								? ` flex ${($settings?.chatBubble ?? true) ? 'justify-end' : ''}  text-gray-600 dark:text-gray-500`
+								: `flex items-center ${($settings?.chatBubble ?? true) ? 'justify-end' : ''} text-gray-600/80 dark:text-gray-500/70`}
 						>
 							{#if message.timestamp}
-								<time
-									class="message-timestamp hover-reveal {v0113Compatibility
-										? 'hidden @lg:block mr-1 shrink-0 whitespace-nowrap text-[0.6875rem] tabular-nums text-gray-400 dark:text-gray-600 select-none'
-										: 'block mt-1 text-xs text-gray-500'}"
+								{#if v0113Compatibility}
+									<time
+										class="message-timestamp hover-reveal hidden @lg:block mr-1 shrink-0 whitespace-nowrap text-[0.6875rem] tabular-nums text-gray-400 dark:text-gray-600 select-none"
+										datetime={new Date(message.timestamp * 1000).toISOString()}
+									>
+										{formatDate(
+											message.timestamp * 1000,
+											$i18n.resolvedLanguage || $i18n.language
+										)}
+									</time>
+								{:else}
+									<div class="flex self-center mr-1">
+										<time
+											class="hover-reveal mr-1 text-[0.6875rem] tabular-nums text-gray-400 dark:text-gray-600 select-none"
 									datetime={new Date(message.timestamp * 1000).toISOString()}
 								>
 									{formatDate(
 										message.timestamp * 1000,
 										$i18n.resolvedLanguage || $i18n.language
 									)}
-								</time>
+										</time>
+									</div>
+								{/if}
 							{/if}
 							{#if !($settings?.chatBubble ?? true)}
 								{#if siblings.length > 1}
@@ -357,7 +380,9 @@
 							{#if !readOnly}
 								<Tooltip content={$i18n.t('Edit')} placement="bottom">
 									<button
-										class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition edit-user-message-button"
+										class={v0113Compatibility
+											? 'hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition edit-user-message-button'
+											: 'hover-reveal inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition edit-user-message-button'}
 										aria-label={$i18n.t('Edit')}
 										on:click={() => {
 											editMessageHandler();
@@ -369,7 +394,7 @@
 											viewBox="0 0 24 24"
 											stroke-width="2.3"
 											stroke="currentColor"
-											class="w-4 h-4"
+											class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}
 										>
 											<path
 												stroke-linecap="round"
@@ -383,7 +408,9 @@
 
 							<Tooltip content={$i18n.t('Copy')} placement="bottom">
 								<button
-									class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
+									class={v0113Compatibility
+										? 'hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition'
+										: 'hover-reveal inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition'}
 									aria-label={$i18n.t('Copy')}
 									on:click={() => {
 										copyToClipboard(message.content);
@@ -395,13 +422,16 @@
 										viewBox="0 0 24 24"
 										stroke-width="2.3"
 										stroke="currentColor"
-										class="w-4 h-4"
+										class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}
 									>
 										<path
 											stroke-linecap="round"
 											stroke-linejoin="round"
 											d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"
 										/>
+										{#if !v0113Compatibility}
+											<path stroke-linecap="round" stroke-linejoin="round" d="M9 8h10v11H9z" />
+										{/if}
 									</svg>
 								</button>
 							</Tooltip>

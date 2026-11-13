@@ -49,8 +49,8 @@ class Round17V0113VisualProfileTests(unittest.TestCase):
     def test_phone_assistant_contract_removes_extra_gutter_and_timestamp(self):
         source = RESPONSE.read_text(encoding="utf-8")
         self.assertIn("'hidden shrink-0 ltr:mr-2 rtl:ml-2 @lg:flex mt-0.5'", source)
-        self.assertIn("'size-7 assistant-message-profile-image'", source)
-        self.assertIn('class="flex-auto w-0 pl-1 {v0113Compatibility', source)
+        self.assertIn('className="size-7 assistant-message-profile-image"', source)
+        self.assertIn('class="flex-auto w-0 pl-1 relative"', source)
         self.assertIn("`${WEBUI_API_BASE_URL}/models/model/profile/image", source)
         self.assertIn("'hidden @lg:block ml-1 shrink-0 whitespace-nowrap", source)
 
@@ -63,15 +63,15 @@ class Round17V0113VisualProfileTests(unittest.TestCase):
         self.assertIn("{#if message.content && v0113Compatibility}", source)
         self.assertIn('class="whitespace-pre-wrap text-[0.9375rem]"', source)
         self.assertIn("{:else if message.content}", source)
-        self.assertIn("'hidden @lg:block mr-1 shrink-0 whitespace-nowrap", source)
+        self.assertIn("message-timestamp hover-reveal hidden @lg:block mr-1", source)
 
     def test_native_branches_remain_explicit(self):
         response = RESPONSE.read_text(encoding="utf-8")
         user = USER_MESSAGE.read_text(encoding="utf-8")
         file_item = FILE_ITEM.read_text(encoding="utf-8")
-        self.assertIn("'hidden shrink-0 ltr:mr-3 rtl:ml-3 lg:flex'", response)
+        self.assertIn("'shrink-0 ltr:mr-2 rtl:ml-2 hidden @lg:flex mt-0.5'", response)
         self.assertIn("'block mt-1 text-xs text-gray-500'", response)
-        self.assertIn("'block mt-1 text-xs text-gray-500'", user)
+        self.assertIn('class="flex self-center mr-1"', user)
         self.assertIn("{:else if !small}", file_item)
 
 
