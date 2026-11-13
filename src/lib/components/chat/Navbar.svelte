@@ -61,7 +61,7 @@
 			></div>
 			<div class="flex max-w-full w-full mx-auto bg-transparent">
 				<div class="flex items-center w-full max-w-full">
-					<div class="flex-1 min-w-0 overflow-hidden max-w-full md:mt-0.5 md:py-0.5 pl-1">
+					<div class="flex-1 min-w-0 overflow-hidden max-w-full md:mt-0.5 md:py-0.5 pl-1 {$showSidebar ? 'ml-1' : ''}">
 						<div class="flex max-w-full min-w-0 items-center gap-2 mr-2">
 							<h1 class="min-w-0 truncate md:py-1 text-left text-[0.9375rem] font-normal text-gray-700 dark:text-gray-300">
 								{title}

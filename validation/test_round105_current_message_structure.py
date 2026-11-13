@@ -23,7 +23,8 @@ TOOLBAR = (
 
 class CurrentMessageStructureTests(unittest.TestCase):
     def test_sidebar_shadow_uses_live_chat_state(self) -> None:
-        self.assertIn("{#each $chats ?? [] as chat, index}", SIDEBAR)
+        self.assertIn("$: visibleChats = ($chats ?? []).filter", SIDEBAR)
+        self.assertIn("{#each visibleChats as chat, index}", SIDEBAR)
         self.assertIn("$chatId === chat.id", SIDEBAR)
         self.assertIn("#stop-response-button", SIDEBAR)
         self.assertIn('role="listitem"', SIDEBAR)

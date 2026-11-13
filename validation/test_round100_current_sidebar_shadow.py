@@ -19,10 +19,10 @@ class CurrentSidebarShadowTests(unittest.TestCase):
         self.assertIn("latestCompatibility && !$showSidebar && !$mobile", SIDEBAR)
         self.assertIn("<CurrentSidebarShadow webuiName={$WEBUI_NAME} />", SIDEBAR)
 
-    def test_shadow_is_inert_and_noninteractive(self) -> None:
-        self.assertIn('aria-hidden="true"', SHADOW)
-        self.assertIn("\tinert", SHADOW)
-        self.assertIn('style:width="0px"', SHADOW)
+    def test_shadow_remains_inert_when_not_expanded(self) -> None:
+        self.assertIn("aria-hidden={expanded ? undefined : 'true'}", SHADOW)
+        self.assertIn("inert={expanded ? undefined : true}", SHADOW)
+        self.assertIn("expanded ? 'var(--sidebar-width)' : '0px'", SHADOW)
         self.assertIn("pointer-events-none", SHADOW)
 
     def test_observed_current_sections_are_present(self) -> None:

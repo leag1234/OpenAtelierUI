@@ -645,7 +645,7 @@
 							{@const status = (
 								message?.statusHistory ?? [...(message?.status ? [message?.status] : [])]
 							).at(-1)}
-							{#if !status?.hidden}
+							{#if !status?.hidden && !(!v0113Compatibility && status?.action === 'response_stopped')}
 								<div class="status-description flex items-center gap-2 py-0.5">
 									{#if status?.done === false}
 										<div class="">
@@ -818,6 +818,8 @@
 										id={message.id}
 										currentCompatibility={!v0113Compatibility}
 										currentStreaming={!message?.done}
+										currentCompactParagraphs={!v0113Compatibility &&
+											(message?.statusHistory ?? []).at(-1)?.action === 'response_stopped'}
 										{history}
 										content={message.content}
 										sources={message.sources}

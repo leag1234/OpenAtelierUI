@@ -18,6 +18,7 @@
 	export let floatingButtons = true;
 	export let currentCompatibility = false;
 	export let currentStreaming = false;
+	export let currentCompactParagraphs = false;
 
 	export let onSourceClick = () => {};
 	export let onTaskClick = () => {};
@@ -162,6 +163,7 @@
 		className={currentCompatibility ? 'markdown-prose' : ''}
 		{currentCompatibility}
 		{currentStreaming}
+		{currentCompactParagraphs}
 		on:update={(e) => {
 			dispatch('update', e.detail);
 		}}

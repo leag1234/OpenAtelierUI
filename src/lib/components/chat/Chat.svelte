@@ -1873,12 +1873,25 @@
 	const persistStoppedChat = async (targetChatId, stoppedHistory) => {
 		if (!chatResultMatchesCurrent(targetChatId, $chatId)) return;
 		const historySnapshot = JSON.parse(JSON.stringify(stoppedHistory));
+		const firstUserMessage = Object.values(historySnapshot.messages ?? {}).find(
+			(message) => message?.role === 'user' && typeof message?.content === 'string'
+		);
+		const interruptedTitle =
+			nativeCompatibility && (!$chatTitle || $chatTitle === $i18n.t('New Chat'))
+				? firstUserMessage?.content?.replace(/\s+/g, ' ').trim()
+				: null;
+		if (interruptedTitle) await chatTitle.set(interruptedTitle);
 		try {
 			await updateChatById(localStorage.token, targetChatId, {
 				models: [...selectedModels], history: historySnapshot,
 				messages: createMessagesList(historySnapshot, historySnapshot.currentId),
-				params: JSON.parse(JSON.stringify(params || {})), files: JSON.parse(JSON.stringify(chatFiles || []))
+				params: JSON.parse(JSON.stringify(params || {})), files: JSON.parse(JSON.stringify(chatFiles || [])),
+				...(interruptedTitle ? { title: interruptedTitle } : {})
 			});
+			if (interruptedTitle) {
+				currentChatPage.set(1);
+				await chats.set(await getChatList(localStorage.token, $currentChatPage));
+			}
 		} catch (error) {
 			if (chatResultMatchesCurrent(targetChatId, $chatId)) {
 				toast.error('The response stopped, but its status could not be saved.');
@@ -2169,7 +2182,9 @@
 
 <div
 	class="h-screen max-h-[100dvh] transition-width duration-200 ease-in-out {$showSidebar
-		? '  md:max-w-[calc(100%-260px)]'
+		? nativeCompatibility
+			? '  md:max-w-[calc(100%-var(--sidebar-width))]'
+			: '  md:max-w-[calc(100%-260px)]'
 		: ' '} w-full max-w-full {nativeCompatibility ? 'min-w-0' : ''} flex flex-col"
 	id="chat-container"
 >

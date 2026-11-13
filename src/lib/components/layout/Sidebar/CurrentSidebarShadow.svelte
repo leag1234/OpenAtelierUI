@@ -1,11 +1,23 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
-	import { chatId, chats, config, user } from '$lib/stores';
+	import { onDestroy, onMount, tick } from 'svelte';
+	import { chatId, chats, config, showSidebar, user } from '$lib/stores';
+	import UserMenu from './UserMenu.svelte';
 
 	export let webuiName = 'OpenAtelierUI';
+	export let expanded = false;
+	export let onCreateFolder = () => {};
+	export let folderItems: Record<string, any> = {};
 
 	let responseStreaming = false;
+	let foldersExpanded = false;
+	let searchOpen = false;
+	let searchQuery = '';
+	let searchInput: HTMLInputElement | null = null;
+	let visibleChats: any[] = [];
 	let streamObserver: MutationObserver | null = null;
+	$: visibleChats = ($chats ?? []).filter((chat) =>
+		searchQuery ? chat.title?.toLowerCase().includes(searchQuery.toLowerCase()) : true
+	);
 
 	const updateStreamingState = () => {
 		responseStreaming = document.querySelector('#stop-response-button') !== null;
@@ -21,36 +33,37 @@
 </script>
 
 <div
+	id={expanded ? 'sidebar' : undefined}
 	role="navigation"
 	aria-label="Chat history"
-	aria-hidden="true"
-	inert
-	style:width="0px"
-	class="h-screen max-h-[100dvh] min-h-screen select-none bg-gray-50 dark:bg-gray-950 z-50 pointer-events-none shrink-0 text-gray-700 dark:text-gray-300 text-[0.8125rem] leading-5 fixed top-0 left-0 overflow-x-hidden"
+	aria-hidden={expanded ? undefined : 'true'}
+	inert={expanded ? undefined : true}
+	style:width={expanded ? 'var(--sidebar-width)' : '0px'}
+	class="h-screen max-h-[100dvh] min-h-screen select-none bg-gray-50 dark:bg-gray-950 z-50 {expanded ? '' : 'pointer-events-none'} shrink-0 text-gray-700 dark:text-gray-300 text-[0.8125rem] leading-5 fixed top-0 left-0 overflow-x-hidden"
 >
 	<div class="my-auto flex flex-col justify-between h-screen max-h-[100dvh] w-[var(--sidebar-width)] overflow-x-hidden scrollbar-hidden z-50 border-e border-gray-50 dark:border-gray-850/30">
 		<div class="sidebar px-1 pt-0.5 pb-0.5 flex shrink-0 justify-between space-x-1 text-gray-600 dark:text-gray-400 sticky top-0 z-10">
-			<a href="/" tabindex="-1" class="flex items-center rounded-xl size-8.5 shrink-0 justify-center hover:bg-gray-100 dark:hover:bg-gray-900 transition no-drag-region">
+			<a href="/" tabindex={expanded ? 0 : -1} class="flex items-center rounded-xl size-8.5 shrink-0 justify-center hover:bg-gray-100 dark:hover:bg-gray-900 transition no-drag-region">
 				<img class="sidebar-new-chat-icon size-5 rounded-full" alt="" src="/static/favicon.png" />
 			</a>
-			<a href="/" tabindex="-1" class="flex min-w-0 flex-1 px-0.5">
+			<a href="/" tabindex={expanded ? 0 : -1} class="flex min-w-0 flex-1 px-0.5">
 				<div id="sidebar-webui-name" class="self-center truncate font-normal text-gray-700 dark:text-gray-200">{webuiName}</div>
 			</a>
 			<div class="flex shrink-0 items-center gap-px">
 				<div class="flex">
-					<button type="button" tabindex="-1" class="flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg text-gray-600 dark:text-gray-400 transition hover:bg-gray-100 dark:hover:bg-gray-900">
+					<button type="button" tabindex={expanded ? 0 : -1} class="flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg text-gray-600 dark:text-gray-400 transition hover:bg-gray-100 dark:hover:bg-gray-900">
 						<span class="relative flex size-4 items-center justify-center">
-							<svg aria-hidden="true" viewBox="0 0 24 24" class="size-4"><path d="M12 3v18M3 12h18" /></svg>
+						<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="size-4"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" /></svg>
 						</span>
 					</button>
 				</div>
 				<div class="flex">
-					<button type="button" tabindex="-1" class="flex size-[1.875rem] justify-center items-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition cursor-[w-resize]">
+					<button type="button" tabindex={expanded ? 0 : -1} aria-label="Close Sidebar" on:click={() => showSidebar.set(false)} class="flex size-[1.875rem] justify-center items-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition cursor-[w-resize]">
 						<div class="self-center">
-							<svg aria-hidden="true" viewBox="0 0 24 24" class="size-4">
-								<path d="M4 4h16v16H4z" />
-								<path d="M9 4v16" />
-								<path d="m6 10 2 2-2 2" />
+							<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" class="size-4">
+								<path d="M19 21L5 21C3.89543 21 3 20.1046 3 19L3 5C3 3.89543 3.89543 3 5 3L19 3C20.1046 3 21 3.89543 21 5L21 19C21 20.1046 20.1046 21 19 21Z" />
+								<path d="M9.5 21V3" />
+								<path d="M5.5 10L7.25 12L5.5 14" />
 							</svg>
 						</div>
 					</button>
@@ -59,7 +72,7 @@
 			<div class="invisible sidebar-bg-gradient-to-b bg-linear-to-b from-gray-50 dark:from-gray-950 to-transparent from-50% pointer-events-none absolute inset-0 -z-10 -mb-6"></div>
 		</div>
 
-		<section id="sidebar-notifications" class="flex min-h-0 flex-1 flex-col pt-2.5">
+		<section id="sidebar-notifications" class="flex min-h-0 flex-1 flex-col pt-2.5" aria-label="Notifications" style="display: none;">
 			<div class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1.5 pb-3 flex flex-col">
 				<div class="flex flex-1 items-center justify-center px-4 py-6 text-gray-500 dark:text-gray-400">
 					<div class="flex justify-center text-center">
@@ -79,33 +92,36 @@
 		<div class="relative flex flex-col flex-1 overflow-y-auto scrollbar-hidden space-y-1.5 pb-2.5">
 			<div class="pb-1">
 				<div class="px-1 flex justify-center text-gray-700 dark:text-gray-300">
-					<a id="sidebar-new-chat-button" href="/" tabindex="-1" class="group grow flex items-center space-x-2 rounded-xl px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none">
-						<div class="self-center flex size-4 shrink-0 items-center justify-center"><svg aria-hidden="true" viewBox="0 0 24 24" class="size-4"><path d="M12 20h9" /></svg></div>
+					<a id="sidebar-new-chat-button" href="/" tabindex={expanded ? 0 : -1} class="group grow flex items-center space-x-2 rounded-xl px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none">
+						<div class="self-center flex size-4 shrink-0 items-center justify-center"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="size-4" stroke-width="1.5"><path d="M14.3632 5.65156L15.8431 4.17157C16.6242 3.39052 17.8905 3.39052 18.6716 4.17157L20.0858 5.58579C20.8668 6.36683 20.8668 7.63316 20.0858 8.41421L18.6058 9.8942M14.3632 5.65156L4.74749 15.2672C4.41542 15.5993 4.21079 16.0376 4.16947 16.5054L3.92738 19.2459C3.87261 19.8659 4.39148 20.3848 5.0115 20.33L7.75191 20.0879C8.21972 20.0466 8.65806 19.8419 8.99013 19.5099L18.6058 9.8942M14.3632 5.65156L18.6058 9.8942" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" /></svg></div>
 						<div class="flex flex-1 self-center translate-y-[0.5px]"><div class="self-center text-[0.8125rem] leading-5">New Chat</div></div>
 						<span class="hidden md:inline-flex items-center self-center hover-reveal"><span class="inline-flex min-h-[1.125rem] shrink-0 items-center justify-center rounded-full bg-gray-100 px-[0.3125rem] py-0.5 text-[0.625rem] font-medium leading-none text-gray-500 dark:bg-white/6 dark:text-gray-400">N</span></span>
 					</a>
 				</div>
 				<div class="px-1 flex justify-center text-gray-700 dark:text-gray-300">
-					<button id="sidebar-search-button" type="button" tabindex="-1" class="group grow flex items-center space-x-2 rounded-xl px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none">
-						<div class="self-center flex size-4 shrink-0 items-center justify-center"><svg aria-hidden="true" viewBox="0 0 24 24" class="size-4"><path d="m17 17 4 4" /><path d="M3 11a8 8 0 1 1 16 0 8 8 0 0 1-16 0" /></svg></div>
+					<button id="sidebar-search-button" type="button" tabindex={expanded ? 0 : -1} aria-expanded={searchOpen} on:click={async () => { searchOpen = !searchOpen; await tick(); searchInput?.focus(); }} class="group grow flex items-center space-x-2 rounded-xl px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none">
+						<div class="self-center flex size-4 shrink-0 items-center justify-center"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="size-4" stroke-width="1.5"><path d="M17 17L21 21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" /><path d="M3 11C3 15.4183 6.58172 19 11 19C13.213 19 15.2161 18.1015 16.6644 16.6493C18.1077 15.2022 19 13.2053 19 11C19 6.58172 15.4183 3 11 3C6.58172 3 3 6.58172 3 11Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" /></svg></div>
 						<div class="flex flex-1 self-center translate-y-[0.5px]"><div class="self-center text-[0.8125rem] leading-5">Search</div></div>
 						<span class="hidden md:inline-flex items-center self-center hover-reveal"><span class="inline-flex min-h-[1.125rem] shrink-0 items-center justify-center rounded-full bg-gray-100 px-[0.3125rem] py-0.5 text-[0.625rem] font-medium leading-none text-gray-500 dark:bg-white/6 dark:text-gray-400">S</span></span>
 					</button>
 				</div>
+				{#if searchOpen}
+					<div class="px-1 pt-1"><input bind:this={searchInput} bind:value={searchQuery} aria-label="Search chats" class="w-full rounded-xl border border-gray-200 bg-transparent px-3 py-1.5 outline-none dark:border-gray-800" on:keydown={(event) => { if (event.key === 'Escape') { searchQuery = ''; searchOpen = false; } }} /></div>
+				{/if}
 
 				<div id="pinned-menu-items-list">
 					{#if $config?.features?.openatelier_private_notes}
 						<div class="px-1 flex justify-center text-gray-700 dark:text-gray-300">
-							<a id="sidebar-notes-button" href="/notes" tabindex="-1" class="grow flex items-center space-x-2 rounded-xl px-2 py-1.5 transition hover:bg-gray-100 dark:hover:bg-gray-900">
-								<div class="self-center flex size-4 shrink-0 items-center justify-center"><svg aria-hidden="true" viewBox="0 0 24 24" class="size-4"><path d="M5 3h14v18H5z" /><path d="M8 7h8" /><path d="M8 11h8" /><path d="M8 15h5" /><path d="M8 19h4" /></svg></div>
+							<a id="sidebar-notes-button" href="/notes" tabindex={expanded ? 0 : -1} class="grow flex items-center space-x-2 rounded-xl px-2 py-1.5 transition hover:bg-gray-100 dark:hover:bg-gray-900">
+								<div class="self-center flex size-4 shrink-0 items-center justify-center"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="size-4"><path d="M5 3h14v18H5z" /><path d="M8 7h8" /><path d="M8 11h8" /><path d="M8 15h5" /><path d="M8 19h4" /></svg></div>
 								<div class="flex self-center translate-y-[0.5px]"><div class="self-center text-[0.8125rem] leading-5">Notes</div></div>
 							</a>
 						</div>
 					{/if}
 					{#if $user?.role === 'admin' || $user?.permissions?.workspace?.models || $user?.permissions?.workspace?.knowledge || $user?.permissions?.workspace?.prompts || $user?.permissions?.workspace?.tools}
 						<div class="px-1 flex justify-center text-gray-700 dark:text-gray-300">
-							<a id="sidebar-workspace-button" href="/workspace" tabindex="-1" class="grow flex items-center space-x-2 rounded-xl px-2 py-1.5 transition hover:bg-gray-100 dark:hover:bg-gray-900">
-								<div class="self-center flex size-4 shrink-0 items-center justify-center"><svg aria-hidden="true" viewBox="0 0 24 24" class="size-4"><path d="M4 4h6v6H4z" /><path d="M14 4h6v6h-6z" /><path d="M4 14h6v6H4z" /><path d="M17 14v6" /></svg></div>
+							<a id="sidebar-workspace-button" href="/workspace" tabindex={expanded ? 0 : -1} class="grow flex items-center space-x-2 rounded-xl px-2 py-1.5 transition hover:bg-gray-100 dark:hover:bg-gray-900">
+								<div class="self-center flex size-4 shrink-0 items-center justify-center"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="size-4"><path d="M4 4h6v6H4z" /><path d="M14 4h6v6h-6z" /><path d="M4 14h6v6H4z" /><path d="M17 14v6" /></svg></div>
 								<div class="flex self-center translate-y-[0.5px]"><div class="self-center text-[0.8125rem] leading-5">Workspace</div></div>
 							</a>
 						</div>
@@ -114,7 +130,12 @@
 			</div>
 
 			<div class="relative">
-				<div class="w-full"><div class="w-full cursor-pointer"><div><div class="flex items-start justify-between"><div class="flex items-center justify-between h-6 w-full pl-3.5 pr-1.5 shrink-0"><h2 class="flex flex-1 h-full"><button id="sidebar-folders-button" type="button" tabindex="-1" class="group flex flex-1 h-full items-center gap-1 text-left text-xs text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400 transition-colors duration-100"><span>Folders</span><span class="flex opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-100"><svg aria-hidden="true" viewBox="0 0 24 24" class="size-[0.6875rem]"><path d="m9 18 6-6-6-6" /></svg></span></button></h2><div class="contents"></div><button type="button" tabindex="-1" class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400 transition-colors duration-100"><div class="flex"><svg aria-hidden="true" viewBox="0 0 24 24" class="size-3.5"><path d="M12 5v14m-7-7h14" /></svg></div></button></div></div></div></div></div>
+				<div class="w-full"><div class="w-full cursor-pointer"><div><div class="flex items-start justify-between"><div class="flex items-center justify-between h-6 w-full pl-3.5 pr-1.5 shrink-0"><h2 class="flex flex-1 h-full"><button id="sidebar-folders-button" type="button" tabindex={expanded ? 0 : -1} aria-expanded={foldersExpanded} on:click={() => foldersExpanded = !foldersExpanded} class="group flex flex-1 h-full items-center gap-1 text-left text-xs text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400 transition-colors duration-100"><span>Folders</span><span class="flex opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-100"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="size-[0.6875rem]"><path d="m9 18 6-6-6-6" /></svg></span></button></h2><div class="contents"></div><button type="button" tabindex={expanded ? 0 : -1} aria-label="New Folder" on:click={onCreateFolder} class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400 transition-colors duration-100"><div class="flex"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="size-3.5"><path d="M12 5v14m-7-7h14" /></svg></div></button></div></div></div></div></div>
+				{#if foldersExpanded}<div><div class="w-full px-1.5">
+					{#each Object.values(folderItems).filter((folder) => folder?.parent_id == null) as folder}
+						<button type="button" class="w-full rounded-xl px-2 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-gray-900">{folder.name}</button>
+					{/each}
+				</div></div>{/if}
 			</div>
 
 			<div class="relative">
@@ -125,9 +146,9 @@
 							<div class="flex-1 flex flex-col overflow-y-auto scrollbar-hidden">
 								<div class="pt-1.5">
 									<div role="list">
-										{#each $chats ?? [] as chat, index}
+						{#each visibleChats as chat, index}
 											<div role="listitem">
-												{#if index === 0 || chat.time_range !== $chats[index - 1]?.time_range}
+								{#if index === 0 || chat.time_range !== visibleChats[index - 1]?.time_range}
 													<h3 class="w-full pl-2.5 text-xs text-gray-500 dark:text-gray-500 font-normal pb-1">
 														{chat.time_range ?? 'Today'}
 													</h3>
@@ -201,7 +222,7 @@
 										{/each}
 									</div>
 								</div>
-								<div>
+								{#if !expanded}<div>
 									<div class="w-full flex justify-center py-1 text-xs animate-pulse items-center gap-2">
 										<div class="flex justify-center text-center">
 											<svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor" class="size-4">
@@ -215,7 +236,7 @@
 										</div>
 										<div>Loading...</div>
 									</div>
-								</div>
+								</div>{/if}
 							</div>
 						</div>
 					</div>
@@ -225,7 +246,7 @@
 
 		<div class="px-1 pt-1 pb-1.5 sticky bottom-0 z-10 -mt-2 sidebar">
 			<div class="sidebar-bg-gradient-to-t bg-linear-to-t from-gray-50 dark:from-gray-950 to-transparent from-50% pointer-events-none absolute inset-0 -z-10 -mt-6"></div>
-			<div class="flex flex-col"><span><button type="button" tabindex="-1" class="flex items-center rounded-xl py-1.5 px-1.5 w-full hover:bg-gray-100 dark:hover:bg-gray-900 transition"><div class="self-center mr-3 relative flex-shrink-0"><img src={$user?.profile_image_url ?? '/static/favicon.png'} alt="" class="size-5.5 object-cover rounded-full" /><div class="absolute -bottom-0.5 -right-0.5"><span class="relative flex size-2.5"><span class="relative inline-flex size-2.5 rounded-full bg-green-500 border-2 border-white dark:border-gray-900"></span></span></div></div><div class="self-center font-normal truncate">{$user?.name ?? 'User'}</div></button></span></div>
+			<div class="flex flex-col"><span><UserMenu role={$user?.role} let:builder><button {...builder} use:builder.action type="button" tabindex={expanded ? 0 : -1} aria-haspopup="menu" class="flex items-center rounded-xl py-1.5 px-1.5 w-full hover:bg-gray-100 dark:hover:bg-gray-900 transition"><div class="self-center mr-3 relative flex-shrink-0"><img src={$user?.profile_image_url ?? '/static/favicon.png'} alt="" class="size-5.5 object-cover rounded-full" /><div class="absolute -bottom-0.5 -right-0.5"><span class="relative flex size-2.5"><span class="relative inline-flex size-2.5 rounded-full bg-green-500 border-2 border-white dark:border-gray-900"></span></span></div></div><div class="self-center font-normal truncate">{$user?.name ?? 'User'}</div></button></UserMenu></span></div>
 		</div>
 	</div>
 </div>

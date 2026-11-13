@@ -68,7 +68,7 @@
 	const BREAKPOINT = 768;
 
 	let navElement;
-    let sidebarWidth = 260;
+	let sidebarWidth = 260;
     let resizing = false;
     const setSidebarWidth = (value) => {
         sidebarWidth = Math.max(200, Math.min(360, Number(value) || 260));
@@ -393,7 +393,7 @@
 	}
 
 	onMount(async () => {
-		setSidebarWidth(localStorage.getItem('sidebar-width') || 260);
+		setSidebarWidth(localStorage.getItem('sidebar-width') || (latestCompatibility ? 245 : 260));
 		showPinnedChat = localStorage?.showPinnedChat ? localStorage.showPinnedChat === 'true' : true;
 
 		mobile.subscribe((value) => {
@@ -502,6 +502,19 @@
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 
+{#if latestCompatibility && $showSidebar}
+	<div class="fixed md:hidden z-40 top-0 right-0 left-0 bottom-0 bg-black w-full min-h-screen h-screen flex justify-center overflow-hidden overscroll-contain"></div>
+	<button type="button" class="hidden" aria-hidden="true" tabindex="-1"></button>
+	<CurrentSidebarShadow
+		webuiName={$WEBUI_NAME}
+		expanded={true}
+		onCreateFolder={() => createFolder()}
+		folderItems={folders}
+	/>
+	<div class="relative flex items-center justify-center group border-r border-gray-50 dark:border-gray-850/30 hover:border-gray-200 dark:hover:border-gray-800 transition z-20 bg-transparent p-0 appearance-none">
+		<div class="absolute -left-1.5 -right-1.5 -top-0 -bottom-0 z-20 cursor-col-resize bg-transparent"></div>
+	</div>
+{:else}
 {#if !$mobile || $showSidebar}
 {#if !$showSidebar && !$mobile && latestCompatibility}
 	<button type="button" class="hidden" aria-hidden="true" tabindex="-1"></button>
@@ -1221,6 +1234,7 @@
 
 {/if}
 </div>
+{/if}
 {/if}
 
 <style>
