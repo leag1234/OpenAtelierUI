@@ -86,6 +86,7 @@
 				</div>
 			</div>
 		</div>
+		<div class="absolute top-full left-0 right-0 h-fit"></div>
 	{:else}
 	<div class="flex items-center w-full px-1.5">
 		<div

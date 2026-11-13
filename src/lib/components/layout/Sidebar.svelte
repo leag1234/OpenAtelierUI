@@ -503,6 +503,9 @@
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 
 {#if !$mobile || $showSidebar}
+{#if !$showSidebar && !$mobile && latestCompatibility}
+	<button type="button" class="hidden" aria-hidden="true" tabindex="-1"></button>
+{/if}
 <div id="sidebar" data-state={sidebarStateMarker($showSidebar)}
 	role={!$showSidebar && !$mobile && latestCompatibility ? 'navigation' : undefined}
 	aria-label={!$showSidebar && !$mobile && latestCompatibility ? $i18n.t('Chat history') : undefined}
@@ -537,7 +540,7 @@
 			</div>
 
 			<div class="-gap-0.5">
-				<div class="flex">
+				<div><div class="flex">
 					<a
 						href="/"
 						draggable="false"
@@ -552,9 +555,9 @@
 							<PencilSquare className="size-4" strokeWidth="1.5" />
 						</div>
 					</a>
-				</div>
+				</div></div>
 
-				<div class="flex">
+				<div><div class="flex">
 					<button
 						type="button"
 						draggable="false"
@@ -573,20 +576,26 @@
 							</svg>
 						</div>
 					</button>
-				</div>
+				</div></div>
 
 				{#if $config?.features?.openatelier_private_notes}
-					<div class="flex">
+					<div><div class="flex">
 						<a href="/notes" draggable="false" class="cursor-pointer flex size-8 items-center justify-center transition group" aria-label={$i18n.t('Notes')}>
 							<div class="self-center flex size-[calc(30px*var(--app-text-scale,1))] items-center justify-center rounded-lg transition group-hover:bg-gray-100 dark:group-hover:bg-gray-900">
-								<Document className="size-4" />
+								<svg aria-hidden="true" viewBox="0 0 24 24" class="size-4">
+									<path d="M5 3h14v18H5z" />
+									<path d="M8 7h8" />
+									<path d="M8 11h8" />
+									<path d="M8 15h5" />
+									<path d="M8 19h4" />
+								</svg>
 							</div>
 						</a>
-					</div>
+					</div></div>
 				{/if}
 
 				{#if $user?.role === 'admin' || $user?.permissions?.workspace?.models || $user?.permissions?.workspace?.knowledge || $user?.permissions?.workspace?.prompts || $user?.permissions?.workspace?.tools}
-					<div class="flex">
+					<div><div class="flex">
 						<a href="/workspace" draggable="false" class="cursor-pointer flex size-8 items-center justify-center transition group" aria-label={$i18n.t('Workspace')}>
 							<div class="self-center flex size-[calc(30px*var(--app-text-scale,1))] items-center justify-center rounded-lg transition group-hover:bg-gray-100 dark:group-hover:bg-gray-900">
 								<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="size-4" stroke-width="1.5">
@@ -597,21 +606,23 @@
 								</svg>
 							</div>
 						</a>
-					</div>
+					</div></div>
 				{/if}
 			</div>
 		</div>
 
 		{#if $user !== undefined && $user !== null}
-			<div class="flex justify-center items-center">
+			<div><div><div class="flex justify-center items-center">
+				<span></span>
 				<UserMenu role={$user?.role} className="max-w-[240px]" let:builder>
 					<button {...builder} use:builder.action type="button" class="cursor-pointer flex size-8.5 items-center justify-center transition group" aria-haspopup="menu" aria-label={$i18n.t('User menu')}>
 						<div class="self-center relative flex size-[calc(30px*var(--app-text-scale,1))] items-center justify-center rounded-lg transition group-hover:bg-gray-100 dark:group-hover:bg-gray-900">
 							<img src={$user?.profile_image_url} class="size-5.5 object-cover rounded-full" alt={$i18n.t('Open User Profile Menu')} />
+							<div class="absolute -bottom-0.5 -right-0.5"><span class="relative flex size-2.5"><span class="relative inline-flex size-2.5 rounded-full bg-green-500 border-2 border-white dark:border-gray-900"></span></span></div>
 						</div>
 					</button>
 				</UserMenu>
-			</div>
+			</div></div></div>
 		{/if}
 	{:else}
 	<nav

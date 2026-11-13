@@ -228,6 +228,7 @@
 			</div>
 		</div>
 	</div>
+	{#if !v0113Compatibility}<div class="mb-0.5"></div>{/if}
 	<div
 		class={v0113Compatibility ? 'mx-auto max-w-2xl font-primary' : 'mx-auto max-w-2xl mt-2'}
 		in:fade={{ duration: 200, delay: 200 }}

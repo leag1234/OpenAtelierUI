@@ -563,7 +563,7 @@
 																		.join(', ')
 																})}
 															>
-																<svg
+													<svg
 																	xmlns="http://www.w3.org/2000/svg"
 																	viewBox="0 0 24 24"
 																	fill="currentColor"
@@ -574,7 +574,7 @@
 																		d="M9.401 3.003c1.155-2 4.043-2 5.197 0l7.355 12.748c1.154 2-.29 4.5-2.599 4.5H4.645c-2.309 0-3.752-2.5-2.598-4.5L9.4 3.003ZM12 8.25a.75.75 0 0 1 .75.75v3.75a.75.75 0 0 1-1.5 0V9a.75.75 0 0 1 .75-.75Zm0 8.25a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z"
 																		clip-rule="evenodd"
 																	/>
-																</svg>
+													</svg>
 															</Tooltip>
 														{/if}
 													</div>
@@ -587,7 +587,7 @@
 																files = files;
 															}}
 														>
-															<svg
+																<svg
 																xmlns="http://www.w3.org/2000/svg"
 																viewBox="0 0 20 20"
 																fill="currentColor"
@@ -596,7 +596,7 @@
 																<path
 																	d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"
 																/>
-															</svg>
+																</svg>
 														</button>
 													</div>
 												</div>
@@ -1188,16 +1188,18 @@
 											<div class="flex min-w-0 max-w-[10rem] items-center sm:max-w-[13rem]">
 												<ModelSelector bind:selectedModels showSetDefault={false} />
 											</div>
-											<button
-												type="button"
-												class="mr-2 flex shrink-0 items-center justify-center text-gray-500 transition-colors hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-												aria-label={$i18n.t('Model controls')}
-												on:click={() => showControls.set(!$showControls)}
-											>
-												<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24" class="size-4" stroke-width="1.5">
-													<path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
-												</svg>
-											</button>
+											<div class="flex">
+												<button
+													type="button"
+													class="mr-2 flex shrink-0 items-center justify-center text-gray-500 transition-colors hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+													aria-label={$i18n.t('Model controls')}
+													on:click={() => showControls.set(!$showControls)}
+												>
+													<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24" class="size-4" stroke-width="1.5">
+														<path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
+													</svg>
+												</button>
+											</div>
 										{/if}
 
 										{#if (!history?.currentId || history.messages[history.currentId]?.done == true) && ($_user?.role === 'admin' || ($_user?.permissions?.chat?.stt ?? true))}
@@ -1236,6 +1238,7 @@
 													}}
 													aria-label={$i18n.t('Record voice')}
 												>
+													{#if v0113Compatibility}
 													<svg
 														xmlns="http://www.w3.org/2000/svg"
 														viewBox="0 0 20 20"
@@ -1247,6 +1250,12 @@
 															d="M5.5 9.643a.75.75 0 00-1.5 0V10c0 3.06 2.29 5.585 5.25 5.954V17.5h-1.5a.75.75 0 000 1.5h4.5a.75.75 0 000-1.5h-1.5v-1.546A6.001 6.001 0 0016 10v-.357a.75.75 0 00-1.5 0V10a4.5 4.5 0 01-9 0v-.357z"
 														/>
 													</svg>
+													{:else}
+														<svg aria-hidden="true" viewBox="0 0 24 24" class="size-[1.125rem]" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+													<rect x="8" y="3" width="8" height="12" rx="4"></rect>
+													<path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+												</svg>
+													{/if}
 												</button>
 											</Tooltip>
 										{/if}

@@ -34,6 +34,7 @@
 
 	let tools = {};
 	let show = false;
+	$: nativeCompatibility = $config?.compatibility_profile === 'native';
 
 	$: if (show) {
 		init();
@@ -77,8 +78,8 @@
 	type="file"
 	accept="image/*"
 	capture="environment"
+	class="hidden"
 	on:change={handleFileChange}
-	style="display: none;"
 />
 
 <Dropdown asChild let:builder
@@ -89,11 +90,19 @@
 		}
 	}}
 >
-	<Tooltip content={$i18n.t('More')}>
-		<slot {builder} />
-	</Tooltip>
+	{#if nativeCompatibility}
+		<span style="display: contents; cursor: pointer;">
+			<Tooltip content={$i18n.t('More')}>
+				<slot {builder} />
+			</Tooltip>
+		</span>
+	{:else}
+		<Tooltip content={$i18n.t('More')}>
+			<slot {builder} />
+		</Tooltip>
+	{/if}
 
-	<div slot="content">
+	<svelte:fragment slot="content">
 		<DropdownMenu.Content
 			aria-labelledby="input-menu-button"
 			class="w-full max-w-[200px] rounded-xl px-1 py-1 border border-gray-300/30 dark:border-gray-700/50 z-50 bg-white dark:bg-gray-850 dark:text-white shadow-sm"
@@ -328,5 +337,5 @@
 				</DropdownMenu.Item>
 			{/if}
 		</DropdownMenu.Content>
-	</div>
+	</svelte:fragment>
 </Dropdown>

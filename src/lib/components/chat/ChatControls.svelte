@@ -305,7 +305,7 @@
 				showControls.set(false);
 			}}
 			collapsible={true}
-			class=" z-10 "
+			class={latestCompatibility ? '' : ' z-10 '}
 		>
 			{#if $showControls}
 				<div class="flex max-h-full min-h-full">
