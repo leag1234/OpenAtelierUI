@@ -22,7 +22,6 @@
 	import EllipsisVertical from '../icons/EllipsisVertical.svelte';
 	import Artifacts from './Artifacts.svelte';
 	import { min } from '@floating-ui/utils';
-	import { goto } from '$app/navigation';
 
 	export let history;
 	export let models = [];
@@ -191,9 +190,9 @@
 						class="flex h-9 items-center px-1.5 pr-10 gap-1 shrink-0 pointer-events-auto select-none col-start-1 row-start-1 min-w-0 z-10"
 					>
 						<div class="flex items-center gap-0.5 flex-1 min-w-0 py-0.5">
-							<div role="tablist" tabindex="-1" class="panel-tab-strip flex items-center gap-0.5 min-w-0 overflow-x-auto" aria-label="Tabs">
-								<div role="presentation" data-panel-tab="main-chat" class="panel-tab flex cursor-pointer items-center gap-1.5 ps-2.5 pe-2 h-7 rounded-lg text-sm font-normal whitespace-nowrap shrink-0 transition bg-gray-100/40 dark:bg-gray-800/25 text-gray-700 dark:text-gray-200">
-									<button role="tab" class="flex h-full items-center gap-1.5 min-w-0" id="chat-panel-main-chat" aria-controls="chat-panel-main-chat-view" aria-selected="true" tabindex="0" {title} aria-label={title}>
+							<div role="tablist" aria-label="Tabs" tabindex="-1" class="panel-tab-strip flex items-center gap-0.5 min-w-0 overflow-x-auto">
+								<div data-panel-tab="main-chat" class="panel-tab flex cursor-pointer items-center gap-1.5 ps-2.5 pe-2 h-7 rounded-lg text-sm font-normal whitespace-nowrap shrink-0 transition bg-gray-100/40 dark:bg-gray-800/25 text-gray-700 dark:text-gray-200">
+									<button role="tab" class="flex h-full items-center gap-1.5 min-w-0" id="chat-panel-main-chat" aria-controls="chat-container" aria-selected="true" tabindex="0" {title} aria-label={title}>
 										<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" stroke-width="1.5" class="shrink-0">
 											<path d="M8 10L12 10L16 10"></path>
 											<path d="M8 14L10 14L12 14"></path>
@@ -201,18 +200,6 @@
 										</svg>
 										<span class="max-w-30 overflow-hidden text-ellipsis">{title}</span>
 									</button>
-									<span style="display: contents; cursor: pointer;">
-										<button
-											id="chat-context-menu-button"
-											class="flex shrink-0 cursor-pointer items-center justify-center size-4 rounded text-gray-400 hover:bg-gray-200 hover:text-gray-700 dark:hover:bg-white/10 dark:hover:text-white"
-											aria-label="Close tab"
-											on:click={() => goto('/')}
-										>
-											<svg aria-hidden="true" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="size-3">
-												<path stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M18 6 6 18" />
-											</svg>
-										</button>
-									</span>
 								</div>
 							</div>
 							<span style="display: contents; cursor: pointer;">
@@ -223,7 +210,13 @@
 								</button>
 							</span>
 						</div>
-						<div class="flex shrink-0 items-center gap-2"></div>
+						<div class="flex shrink-0 items-center gap-2">
+							<div class="flex">
+								<button type="button" class="flex size-6 cursor-pointer items-center justify-center rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200" aria-label="Tabs" aria-expanded="false">
+									<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" class="size-4" stroke-width="1"><rect x="4" y="4" width="16" height="16" rx="1.5"></rect><path d="M12 20V4"></path></svg>
+								</button>
+							</div>
+						</div>
 					</div>
 				</div>
 			</div>

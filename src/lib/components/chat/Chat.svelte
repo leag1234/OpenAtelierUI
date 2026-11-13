@@ -134,6 +134,7 @@
 	let chatEventBindingUnsubscribers: Unsubscriber[] = [];
 	let reconnectSocket: any = null;
 	let reconnectHandler: (() => Promise<void>) | null = null;
+	let reconnectReconciliationEpoch = 0;
 
 	let selectedModels = [''];
 	let atSelectedModel: Model | undefined;
@@ -445,29 +446,61 @@
 		chatEventBinding = bindChatEventChannel(currentSocket, chatEventHandler, currentConfig);
 
 		if (reconnectSocket && reconnectHandler) reconnectSocket.off('connect', reconnectHandler);
+		reconnectReconciliationEpoch += 1;
 		reconnectSocket = currentSocket;
 		reconnectHandler = async () => {
+			const reconciliationEpoch = ++reconnectReconciliationEpoch;
 			const currentChatId = get(chatId);
-			const hasPendingReply = Object.values(history.messages).some(
-				(message) => message?.role === 'assistant' && message?.done !== true
-			);
-			if (
-				!hasPendingReply ||
-				!get(temporaryChatEnabled) ||
-				!isTemporaryChatId(currentChatId) ||
-				typeof currentSocket?.id !== 'string'
-			) return;
-			try {
-				const resumed = await resumeTemporaryChat(
-					localStorage.token,
-					currentChatId,
-					currentSocket.id
-				);
-				taskIds = mergeTaskIds(taskIds, resumed);
-			} catch (error) {
-				// A completion can finish before Socket.IO reconnects. In that case
-				// there is no active volatile task left to resume.
-				console.debug('Temporary chat resume unavailable', error);
+			const pendingReplyIds = Object.entries(history.messages)
+				.filter(([, message]) => message?.role === 'assistant' && message?.done !== true)
+				.map(([messageId]) => messageId);
+			if (!pendingReplyIds.length || typeof currentSocket?.id !== 'string') return;
+
+			if (get(temporaryChatEnabled) && isTemporaryChatId(currentChatId)) {
+				try {
+					const resumed = await resumeTemporaryChat(
+						localStorage.token,
+						currentChatId,
+						currentSocket.id
+					);
+					taskIds = mergeTaskIds(taskIds, resumed);
+				} catch (error) {
+					// A completion can finish before Socket.IO reconnects. In that case
+					// there is no active volatile task left to resume.
+					console.debug('Temporary chat resume unavailable', error);
+				}
+				return;
+			}
+
+			if (!currentChatId || isEphemeralChatId(currentChatId)) return;
+			for (let attempt = 0; attempt < 30; attempt += 1) {
+				if (
+					reconciliationEpoch !== reconnectReconciliationEpoch ||
+					get(chatId) !== currentChatId
+				) return;
+				try {
+					const activeTasks = normalizeTaskIds(
+						await getTaskIdsByChatId(localStorage.token, currentChatId)
+					);
+					taskIds = activeTasks;
+					if (!activeTasks.length) {
+						const messages = { ...history.messages };
+						for (const messageId of pendingReplyIds) {
+							const message = messages[messageId];
+							if (message?.done !== true) messages[messageId] = { ...message, done: true };
+						}
+						taskIds = null;
+						history = { ...history, messages };
+						await tick();
+						return;
+					}
+				} catch (error) {
+					// Keep the local pending state when the task inventory cannot be
+					// confirmed. This avoids offering Continue while work may still run.
+					console.debug('Saved chat task reconciliation unavailable', error);
+					return;
+				}
+				await sleep(1000);
 			}
 		};
 		currentSocket?.on('connect', reconnectHandler);
@@ -524,6 +557,7 @@
 	});
 
 	onDestroy(() => {
+		reconnectReconciliationEpoch += 1;
 		chatIdUnsubscriber?.();
 		chatEventBindingUnsubscribers.forEach((unsubscribe) => unsubscribe());
 		chatEventBinding?.cleanup();
@@ -1865,7 +1899,7 @@
 			message.done = true;
 			changed = true;
 		}
-		history = history;
+		history = { ...history, messages: { ...history.messages } };
 		if (autoScroll) scrollToBottom();
 		return changed;
 	};

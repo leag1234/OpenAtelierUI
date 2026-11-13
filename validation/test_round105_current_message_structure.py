@@ -41,12 +41,15 @@ class CurrentMessageStructureTests(unittest.TestCase):
         self.assertIn('aria-label="Ask"', TOOLBAR)
         self.assertIn('aria-label="Explain"', TOOLBAR)
 
-    def test_current_controls_have_close_action_without_duplicate_temporary_button(self) -> None:
+    def test_current_controls_match_observed_current_tab_strip(self) -> None:
         current_block = CONTROLS.split("{:else if latestCompatibility}", 1)[1].split(
             "<SvelteFlowProvider>", 1
         )[0]
-        self.assertIn('id="chat-context-menu-button"', current_block)
-        self.assertIn("on:click={() => goto('/')}", current_block)
+        self.assertIn('role="tablist" aria-label="Tabs" tabindex="-1"', current_block)
+        self.assertIn('aria-controls="chat-container"', current_block)
+        self.assertIn('aria-label="Tabs" aria-expanded="false"', current_block)
+        self.assertNotIn('aria-label="Close tab"', current_block)
+        self.assertNotIn('id="chat-context-menu-button"', current_block)
         self.assertNotIn('id="temporary-chat-button"', current_block)
 
     def test_current_streaming_button_and_composer_tail_match_current_shape(self) -> None:

@@ -105,8 +105,8 @@ class LatestChatTabBarTests(unittest.TestCase):
 
     def test_tab_controls_remain_directly_operable(self) -> None:
         self.assertIn('aria-label="New tab"', self.source)
-        self.assertIn('id="chat-context-menu-button"', self.source)
-        self.assertIn("on:click={() => goto('/')}", self.source)
+        self.assertIn('aria-label="Tabs" aria-expanded="false"', self.source)
+        self.assertIn('aria-controls="chat-container"', self.source)
 
     def test_tab_bar_does_not_render_beneath_the_collapsed_rail(self) -> None:
         self.assertIn('left: 42px; width: calc(100% - 42px);', self.source)
