@@ -49,6 +49,7 @@
 	import UserMenu from './Sidebar/UserMenu.svelte';
 	import ChatItem from './Sidebar/ChatItem.svelte';
 	import PinnedMenuItems from './Sidebar/PinnedMenuItems.svelte';
+	import CurrentSidebarShadow from './Sidebar/CurrentSidebarShadow.svelte';
 	import Spinner from '../common/Spinner.svelte';
 	import Loader from '../common/Loader.svelte';
 	import AddFilesPlaceholder from '../AddFilesPlaceholder.svelte';
@@ -692,6 +693,10 @@
 		{/if}
 	</nav>
 	{/if}
+{/if}
+
+{#if latestCompatibility && !$showSidebar && !$mobile}
+	<CurrentSidebarShadow webuiName={$WEBUI_NAME} />
 {/if}
 
 {#if $showSidebar}
