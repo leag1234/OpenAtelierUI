@@ -2240,10 +2240,16 @@
 			<Pane defaultSize={50} class={nativeCompatibility
 				? 'relative w-full h-full min-h-0 flex'
 				: 'h-full flex relative max-w-full flex-col'}>
-				<div id="chat-pane" class={nativeCompatibility
+				<div
+					id={nativeCompatibility ? 'chat-panel-main-chat-view' : 'chat-pane'}
+					data-main-chat-pane={nativeCompatibility ? '' : undefined}
+					data-panel-group={nativeCompatibility ? 'default' : undefined}
+					role={nativeCompatibility ? 'tabpanel' : undefined}
+					aria-labelledby={nativeCompatibility ? 'chat-panel-main-chat' : undefined}
+					class={nativeCompatibility
 					? 'h-full flex relative max-w-full min-w-0 min-h-0 flex-1 flex-col col-start-1 row-start-2'
-					: 'flex h-full min-h-0 w-full min-w-0 flex-col'}>
-					{#if nativeCompatibility}<button class="hidden" aria-hidden="true" tabindex="-1"></button>{/if}
+					: 'flex h-full min-h-0 w-full min-w-0 flex-col'}
+				>
 				<Navbar
 					bind:this={navbarElement}
 					chat={{
@@ -2265,9 +2271,12 @@
 					{initNewChat}
 				/>
 
-				<div class={nativeCompatibility
+				<div
+					id={nativeCompatibility ? 'chat-pane' : undefined}
+					class={nativeCompatibility
 					? 'flex flex-col flex-auto z-10 w-full @container overflow-auto'
-					: 'flex flex-col flex-auto z-10 w-full @container'}>
+					: 'flex flex-col flex-auto z-10 w-full @container'}
+				>
 					{#if $settings?.landingPageMode === 'chat' || createMessagesList(history, history.currentId).length > 0}
 						{#if nativeCompatibility}
 							<div class="sr-only" aria-live="polite" aria-atomic="true">

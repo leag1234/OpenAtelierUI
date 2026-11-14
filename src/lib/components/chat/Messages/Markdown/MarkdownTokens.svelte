@@ -122,6 +122,7 @@
 					: 'scrollbar-hidden relative overflow-x-auto max-w-full rounded-lg'}
 			>
 				<table
+					dir={currentCompatibility ? 'auto' : undefined}
 					class={currentCompatibility
 						? 'w-full text-sm text-start text-gray-500 dark:text-gray-400 max-w-full rounded-xl'
 						: ' w-full text-sm text-left text-gray-500 dark:text-gray-400 max-w-full rounded-xl'}
@@ -246,7 +247,7 @@
 		{#if token.ordered}
 			<ol start={token.start || 1} dir="auto">
 				{#each token.items as item, itemIdx}
-					<li class="text-start">
+					<li class="text-start" dir={currentCompatibility ? 'auto' : undefined}>
 						{#if item?.task}
 							<input
 								class=" translate-y-[1px] -translate-x-1"
@@ -281,7 +282,7 @@
 		{:else}
 			<ul dir="auto">
 				{#each token.items as item, itemIdx}
-					<li class="text-start">
+					<li class="text-start" dir={currentCompatibility ? 'auto' : undefined}>
 						{#if item?.task}
 							<input
 								class=" translate-y-[1px] -translate-x-1"

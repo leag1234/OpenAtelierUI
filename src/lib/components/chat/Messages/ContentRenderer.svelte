@@ -121,7 +121,6 @@
 
 <div
 	bind:this={contentContainerElement}
-	data-current-compatibility={currentCompatibility ? '' : undefined}
 >
 	<Markdown
 		{id}

@@ -7,7 +7,8 @@
 </script>
 
 <img
-	crossorigin="anonymous"
+	crossorigin={currentCompatibility ? undefined : 'anonymous'}
+	aria-hidden={currentCompatibility ? 'true' : undefined}
 	src={src === ''
 		? `${WEBUI_BASE_URL}/static/favicon.png`
 		: src.startsWith(WEBUI_BASE_URL) ||
