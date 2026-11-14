@@ -108,6 +108,11 @@ textarea::placeholder {
 	margin: 0 0 8px !important;
 }
 
+#chat-container[role='presentation'] .markdown-prose > ul {
+	margin-top: 8px !important;
+	margin-bottom: 8px !important;
+}
+
 #chat-container[role='presentation'] .markdown-prose blockquote {
 	font-size: 13px !important;
 	font-weight: 400 !important;

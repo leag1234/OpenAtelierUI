@@ -36,6 +36,13 @@ class CurrentResponsePresentationContractTests(unittest.TestCase):
                     APP_CSS,
                 )
 
+    def test_observed_top_level_list_spacing_is_restored(self) -> None:
+        selector = "#chat-container[role='presentation'] .markdown-prose > ul {"
+        start = APP_CSS.index(selector)
+        block = APP_CSS[start : APP_CSS.index("}", start)]
+        self.assertIn("margin-top: 8px !important;", block)
+        self.assertIn("margin-bottom: 8px !important;", block)
+
 
 if __name__ == "__main__":
     unittest.main()
