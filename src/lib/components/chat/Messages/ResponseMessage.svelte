@@ -632,7 +632,10 @@
 		<div class="flex-auto w-0 pl-1 relative">
 			<Name current={!v0113Compatibility}>
 				<Tooltip content={responseName} placement="top-start">
-					<span id="response-message-{message.id}" class="line-clamp-1 text-black dark:text-white">
+					<span
+						id={v0113Compatibility ? `response-message-${message.id}` : 'response-message-model-name'}
+						class="line-clamp-1 text-black dark:text-white"
+					>
 						{responseName}
 					</span>
 				</Tooltip>

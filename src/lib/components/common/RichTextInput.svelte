@@ -234,7 +234,11 @@
 				}
 			},
 			editorProps: {
-				attributes: { id, ...(ariaLabel ? { 'aria-label': ariaLabel } : {}) },
+				attributes: {
+					id,
+					...(messageInput ? { 'aria-multiline': 'true' } : {}),
+					...(ariaLabel ? { 'aria-label': ariaLabel } : {})
+				},
 				handleDOMEvents: {
 					compositionstart: (view, event) => {
 						oncompositionstart(event);
@@ -394,4 +398,4 @@
 	}
 </script>
 
-<div bind:this={element} class="{containerClassName} {className}" />
+<div bind:this={element} dir={messageInput ? 'auto' : undefined} class="{containerClassName} {className}" />

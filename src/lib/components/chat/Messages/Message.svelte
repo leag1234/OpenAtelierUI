@@ -43,6 +43,7 @@
 </script>
 
 <div
+	role="listitem"
 	class={nativeCompatibility
 		? `flex flex-col justify-between px-3.5 mb-3 w-full ${($settings?.widescreenMode ?? null)
 			? 'max-w-full'

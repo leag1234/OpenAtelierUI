@@ -2221,6 +2221,7 @@
 			: '  md:max-w-[calc(100%-260px)]'
 		: ' '} w-full max-w-full {nativeCompatibility ? 'min-w-0' : ''} flex flex-col"
 	id="chat-container"
+	role={nativeCompatibility ? 'presentation' : undefined}
 >
 	{#if !loading}
 		{#if $settings?.backgroundImageUrl ?? null}
