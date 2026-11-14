@@ -27,7 +27,7 @@ class CurrentInterruptionSidebarTests(unittest.TestCase):
         self.assertIn("expanded={true}", SIDEBAR)
         self.assertIn("id={expanded ? 'sidebar' : undefined}", CURRENT_SIDEBAR)
         self.assertIn("on:click={() => showSidebar.set(false)}", CURRENT_SIDEBAR)
-        self.assertIn('aria-label="Close Sidebar"', CURRENT_SIDEBAR)
+        self.assertIn("aria-label={$i18n.t('Close navigation')}", CURRENT_SIDEBAR)
         self.assertIn('style="display: none;"', CURRENT_SIDEBAR)
 
     def test_folders_control_has_bounded_expanded_state_and_create_action(self) -> None:
@@ -40,7 +40,7 @@ class CurrentInterruptionSidebarTests(unittest.TestCase):
     def test_search_control_filters_live_chat_rows_and_has_escape_fallback(self) -> None:
         self.assertIn("let searchOpen = false", CURRENT_SIDEBAR)
         self.assertIn("let searchQuery = ''", CURRENT_SIDEBAR)
-        self.assertIn('aria-label="Search chats"', CURRENT_SIDEBAR)
+        self.assertIn("aria-label={$i18n.t('Search Chats')}", CURRENT_SIDEBAR)
         self.assertIn("{#each visibleChats as chat, index}", CURRENT_SIDEBAR)
         self.assertIn("event.key === 'Escape'", CURRENT_SIDEBAR)
 

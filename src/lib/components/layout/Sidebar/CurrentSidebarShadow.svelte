@@ -1,7 +1,9 @@
 <script lang="ts">
-	import { onDestroy, onMount, tick } from 'svelte';
+	import { getContext, onDestroy, onMount, tick } from 'svelte';
 	import { chatId, chats, config, showSidebar, user } from '$lib/stores';
 	import UserMenu from './UserMenu.svelte';
+
+	const i18n = getContext('i18n');
 
 	export let webuiName = 'OpenAtelierUI';
 	export let expanded = false;
@@ -14,6 +16,7 @@
 	let searchOpen = false;
 	let searchQuery = '';
 	let searchInput: HTMLInputElement | null = null;
+	const contentSlotAttribute = { slot: 'content' };
 	let visibleChats: any[] = [];
 	let streamObserver: MutationObserver | null = null;
 	$: visibleChats = ($chats ?? []).filter((chat) =>
@@ -59,7 +62,7 @@
 					</button>
 				</div>
 				<div class="flex">
-					<button type="button" tabindex={expanded ? 0 : -1} aria-label="Close Sidebar" on:click={() => showSidebar.set(false)} class="flex size-[1.875rem] justify-center items-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition cursor-[w-resize]">
+					<button type="button" tabindex={expanded ? 0 : -1} aria-label={$i18n.t('Close navigation')} on:click={() => showSidebar.set(false)} class="flex size-[1.875rem] justify-center items-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition cursor-[w-resize]">
 						<div class="self-center">
 							<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" class="size-4">
 								<path d="M19 21L5 21C3.89543 21 3 20.1046 3 19L3 5C3 3.89543 3.89543 3 5 3L19 3C20.1046 3 21 3.89543 21 5L21 19C21 20.1046 20.1046 21 19 21Z" />
@@ -73,7 +76,7 @@
 			<div class="invisible sidebar-bg-gradient-to-b bg-linear-to-b from-gray-50 dark:from-gray-950 to-transparent from-50% pointer-events-none absolute inset-0 -z-10 -mb-6"></div>
 		</div>
 
-		<section id="sidebar-notifications" class="flex min-h-0 flex-1 flex-col pt-2.5" aria-label="Notifications" style="display: none;">
+		<section id="sidebar-notifications" class="flex min-h-0 flex-1 flex-col pt-2.5" aria-label={$i18n.t('Notifications')} style="display: none;">
 			<div class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1.5 pb-3 flex flex-col">
 				<div class="flex flex-1 items-center justify-center px-4 py-6 text-gray-500 dark:text-gray-400">
 					<div class="flex justify-center text-center">
@@ -93,21 +96,21 @@
 		<div class="relative flex flex-col flex-1 overflow-y-auto scrollbar-hidden space-y-1.5 {mobile ? 'pt-1.5' : ''} pb-2.5">
 			<div class="pb-1">
 				<div class="px-1 flex justify-center text-gray-700 dark:text-gray-300">
-					<a id="sidebar-new-chat-button" href="/" tabindex={expanded ? 0 : -1} class="group grow flex items-center space-x-2 rounded-xl px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none">
+					<a id="sidebar-new-chat-button" href="/" draggable="false" aria-label={$i18n.t('New Chat')} class="group grow flex items-center space-x-2 rounded-xl px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none">
 						<div class="self-center flex size-4 shrink-0 items-center justify-center"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="size-4" stroke-width="1.5"><path d="M14.3632 5.65156L15.8431 4.17157C16.6242 3.39052 17.8905 3.39052 18.6716 4.17157L20.0858 5.58579C20.8668 6.36683 20.8668 7.63316 20.0858 8.41421L18.6058 9.8942M14.3632 5.65156L4.74749 15.2672C4.41542 15.5993 4.21079 16.0376 4.16947 16.5054L3.92738 19.2459C3.87261 19.8659 4.39148 20.3848 5.0115 20.33L7.75191 20.0879C8.21972 20.0466 8.65806 19.8419 8.99013 19.5099L18.6058 9.8942M14.3632 5.65156L18.6058 9.8942" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" /></svg></div>
-						<div class="flex flex-1 self-center translate-y-[0.5px]"><div class="self-center text-[0.8125rem] leading-5">New Chat</div></div>
+						<div class="flex flex-1 self-center translate-y-[0.5px]"><div class="self-center text-[0.8125rem] leading-5">{$i18n.t('New Chat')}</div></div>
 						<span class="hidden md:inline-flex items-center self-center hover-reveal"><span class="inline-flex min-h-[1.125rem] shrink-0 items-center justify-center rounded-full bg-gray-100 px-[0.3125rem] py-0.5 text-[0.625rem] font-medium leading-none text-gray-500 dark:bg-white/6 dark:text-gray-400">N</span></span>
 					</a>
 				</div>
 				<div class="px-1 flex justify-center text-gray-700 dark:text-gray-300">
-					<button id="sidebar-search-button" type="button" tabindex={expanded ? 0 : -1} aria-expanded={searchOpen} on:click={async () => { searchOpen = !searchOpen; await tick(); searchInput?.focus(); }} class="group grow flex items-center space-x-2 rounded-xl px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none">
+					<button id="sidebar-search-button" draggable="false" aria-label={$i18n.t('Search')} on:click={async () => { searchOpen = !searchOpen; await tick(); searchInput?.focus(); }} class="group grow flex items-center space-x-2 rounded-xl px-2 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-900 transition outline-none">
 						<div class="self-center flex size-4 shrink-0 items-center justify-center"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="size-4" stroke-width="1.5"><path d="M17 17L21 21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" /><path d="M3 11C3 15.4183 6.58172 19 11 19C13.213 19 15.2161 18.1015 16.6644 16.6493C18.1077 15.2022 19 13.2053 19 11C19 6.58172 15.4183 3 11 3C6.58172 3 3 6.58172 3 11Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" /></svg></div>
-						<div class="flex flex-1 self-center translate-y-[0.5px]"><div class="self-center text-[0.8125rem] leading-5">Search</div></div>
+						<div class="flex flex-1 self-center translate-y-[0.5px]"><div class="self-center text-[0.8125rem] leading-5">{$i18n.t('Search')}</div></div>
 						<span class="hidden md:inline-flex items-center self-center hover-reveal"><span class="inline-flex min-h-[1.125rem] shrink-0 items-center justify-center rounded-full bg-gray-100 px-[0.3125rem] py-0.5 text-[0.625rem] font-medium leading-none text-gray-500 dark:bg-white/6 dark:text-gray-400">S</span></span>
 					</button>
 				</div>
 				{#if searchOpen}
-					<div class="px-1 pt-1"><input bind:this={searchInput} bind:value={searchQuery} aria-label="Search chats" class="w-full rounded-xl border border-gray-200 bg-transparent px-3 py-1.5 outline-none dark:border-gray-800" on:keydown={(event) => { if (event.key === 'Escape') { searchQuery = ''; searchOpen = false; } }} /></div>
+					<div class="px-1 pt-1"><input bind:this={searchInput} bind:value={searchQuery} aria-label={$i18n.t('Search Chats')} class="w-full rounded-xl border border-gray-200 bg-transparent px-3 py-1.5 outline-none dark:border-gray-800" on:keydown={(event) => { if (event.key === 'Escape') { searchQuery = ''; searchOpen = false; } }} /></div>
 				{/if}
 
 				<div id="pinned-menu-items-list">
@@ -115,7 +118,7 @@
 						<div class="px-1 flex justify-center text-gray-700 dark:text-gray-300">
 							<a id="sidebar-notes-button" href="/notes" tabindex={expanded ? 0 : -1} class="grow flex items-center space-x-2 rounded-xl px-2 py-1.5 transition hover:bg-gray-100 dark:hover:bg-gray-900">
 								<div class="self-center flex size-4 shrink-0 items-center justify-center"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="size-4"><path d="M5 3h14v18H5z" /><path d="M8 7h8" /><path d="M8 11h8" /><path d="M8 15h5" /><path d="M8 19h4" /></svg></div>
-								<div class="flex self-center translate-y-[0.5px]"><div class="self-center text-[0.8125rem] leading-5">Notes</div></div>
+								<div class="flex self-center translate-y-[0.5px]"><div class="self-center text-[0.8125rem] leading-5">{$i18n.t('Notes')}</div></div>
 							</a>
 						</div>
 					{/if}
@@ -123,7 +126,7 @@
 						<div class="px-1 flex justify-center text-gray-700 dark:text-gray-300">
 							<a id="sidebar-workspace-button" href="/workspace" tabindex={expanded ? 0 : -1} class="grow flex items-center space-x-2 rounded-xl px-2 py-1.5 transition hover:bg-gray-100 dark:hover:bg-gray-900">
 								<div class="self-center flex size-4 shrink-0 items-center justify-center"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="size-4"><path d="M4 4h6v6H4z" /><path d="M14 4h6v6h-6z" /><path d="M4 14h6v6H4z" /><path d="M17 14v6" /></svg></div>
-								<div class="flex self-center translate-y-[0.5px]"><div class="self-center text-[0.8125rem] leading-5">Workspace</div></div>
+								<div class="flex self-center translate-y-[0.5px]"><div class="self-center text-[0.8125rem] leading-5">{$i18n.t('Workspace')}</div></div>
 							</a>
 						</div>
 					{/if}
@@ -131,8 +134,8 @@
 			</div>
 
 			<div class="relative">
-				<div class="w-full"><div class="w-full cursor-pointer"><div><div class="flex items-start justify-between"><div class="flex items-center justify-between h-6 w-full pl-3.5 pr-1.5 shrink-0"><h2 class="flex flex-1 h-full"><button id="sidebar-folders-button" type="button" tabindex={expanded ? 0 : -1} aria-expanded={foldersExpanded} on:click={() => foldersExpanded = !foldersExpanded} class="group flex flex-1 h-full items-center gap-1 text-left text-xs text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400 transition-colors duration-100"><span>Folders</span><span class="flex opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-100"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="size-[0.6875rem]"><path d="m9 18 6-6-6-6" /></svg></span></button></h2><div class="contents"></div><button type="button" tabindex={expanded ? 0 : -1} aria-label="New Folder" on:click={onCreateFolder} class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400 transition-colors duration-100"><div class="flex"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="size-3.5"><path d="M12 5v14m-7-7h14" /></svg></div></button></div></div></div></div></div>
-				{#if foldersExpanded}<div><div class="w-full px-1.5">
+				<div class="w-full"><div class="w-full cursor-pointer"><div><div class="flex items-start justify-between"><div class="flex items-center justify-between h-6 w-full pl-3.5 pr-1.5 shrink-0"><h2 class="flex flex-1 h-full"><button id="sidebar-folders-button" type="button" aria-expanded={foldersExpanded} aria-controls="sidebar-folders-content" on:click={() => foldersExpanded = !foldersExpanded} class="group flex flex-1 h-full items-center gap-1 text-left text-xs text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400 transition-colors duration-100"><span>{$i18n.t('Folders')}</span><span class="flex opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-100"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="size-[0.6875rem]"><path d="m9 18 6-6-6-6" /></svg></span></button></h2><div class="contents"></div><button type="button" aria-label={$i18n.t('New Folder')} on:click={onCreateFolder} class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400 transition-colors duration-100"><div class="flex"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="size-3.5"><path d="M12 5v14m-7-7h14" /></svg></div></button></div></div></div></div></div>
+				{#if foldersExpanded}<div id="sidebar-folders-content"><div class="w-full px-1.5">
 					{#each Object.values(folderItems).filter((folder) => folder?.parent_id == null) as folder}
 						<button type="button" class="w-full rounded-xl px-2 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-gray-900">{folder.name}</button>
 					{/each}
@@ -141,9 +144,9 @@
 
 			<div class="relative">
 				<div class="w-full">
-					<div class="w-full cursor-pointer"><div><div class="flex items-start justify-between"><div class="flex items-center justify-between h-6 w-full pl-3.5 pr-1.5 shrink-0"><h2 class="flex flex-1 h-full"><button id="sidebar-chats-button" type="button" tabindex="-1" class="group flex flex-1 h-full items-center gap-1 text-left text-xs text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400 transition-colors duration-100"><span>Chats</span><span class="flex opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-100"><svg aria-hidden="true" viewBox="0 0 24 24" class="size-[0.6875rem]"><path d="m9 18 6-6-6-6" /></svg></span></button></h2><div class="contents"><span><div class="flex"><button type="button" tabindex="-1" class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400 transition-colors duration-100"><svg aria-hidden="true" viewBox="0 0 24 24" class="size-3.5"><path d="M12 5v14" /><path d="M5 12h14" /><path d="M7 7h10" /></svg></button></div></span></div></div></div></div></div>
+					<div class="w-full cursor-pointer"><div><div class="flex items-start justify-between"><div class="flex items-center justify-between h-6 w-full pl-3.5 pr-1.5 shrink-0"><h2 class="flex flex-1 h-full"><button id="sidebar-chats-button" type="button" aria-expanded="true" aria-controls="sidebar-chats-content" class="group flex flex-1 h-full items-center gap-1 text-left text-xs text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400 transition-colors duration-100"><span>{$i18n.t('Chats')}</span><span class="flex opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-100"><svg aria-hidden="true" viewBox="0 0 24 24" class="size-[0.6875rem]"><path d="m9 18 6-6-6-6" /></svg></span></button></h2><div class="contents"><span><div class="flex"><button type="button" class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400 transition-colors duration-100"><svg aria-hidden="true" viewBox="0 0 24 24" class="size-3.5"><path d="M12 5v14" /><path d="M5 12h14" /><path d="M7 7h10" /></svg></button></div></span></div></div></div></div></div>
 					<div>
-						<div id="sidebar-chats-content" class="w-full px-1.5">
+						<div {...contentSlotAttribute} id="sidebar-chats-content" class="w-full px-1.5">
 							<div class="flex-1 flex flex-col overflow-y-auto scrollbar-hidden">
 								<div class="pt-1.5">
 									<div role="list">
@@ -151,7 +154,7 @@
 											<div role="listitem">
 								{#if index === 0 || chat.time_range !== visibleChats[index - 1]?.time_range}
 													<h3 class="w-full pl-2.5 text-xs text-gray-500 dark:text-gray-500 font-normal pb-1">
-														{chat.time_range ?? 'Today'}
+																{chat.time_range ?? $i18n.t('Today')}
 													</h3>
 												{/if}
 												<div
