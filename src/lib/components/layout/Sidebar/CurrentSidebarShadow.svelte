@@ -40,29 +40,34 @@
 	id={expanded ? 'sidebar' : undefined}
 	role="navigation"
 	aria-label="Chat history"
-	aria-hidden={expanded ? undefined : 'true'}
+	aria-hidden={expanded ? 'false' : 'true'}
+	data-state={expanded ? 'true' : 'false'}
 	inert={expanded ? undefined : true}
-	style:width={expanded ? (mobile ? '350px' : 'var(--sidebar-width)') : '0px'}
+	style={expanded
+		? mobile
+			? 'width: 350px; --sidebar-width: 350px; transform: translateX(0%); transition: none;'
+			: 'width: var(--sidebar-width); transform: translateX(0%); transition: none;'
+		: 'width: 0px; transform: translateX(-100%); transition: none;'}
 	class="h-screen max-h-[100dvh] min-h-screen select-none bg-gray-50 dark:bg-gray-950 z-50 {expanded ? '' : 'pointer-events-none'} shrink-0 text-gray-700 dark:text-gray-300 text-[0.8125rem] leading-5 fixed top-0 left-0 overflow-x-hidden"
 >
 	<div class="my-auto flex flex-col justify-between h-screen max-h-[100dvh] w-[var(--sidebar-width)] overflow-x-hidden scrollbar-hidden z-50 border-e border-gray-50 dark:border-gray-850/30">
 		<div class="sidebar {mobile ? 'px-0.75 pt-1 pb-1 -mb-2' : 'px-1 pt-0.5 pb-0.5'} flex shrink-0 justify-between space-x-1 text-gray-600 dark:text-gray-400 sticky top-0 z-10">
-			<a href="/" tabindex={expanded ? 0 : -1} class="flex items-center rounded-xl size-8.5 {mobile ? 'h-full' : 'shrink-0'} justify-center hover:bg-gray-100 dark:hover:bg-gray-900 transition no-drag-region">
-				<img class="sidebar-new-chat-icon size-5 rounded-full" alt="" src="/static/favicon.png" />
+			<a href="/" tabindex={expanded ? undefined : -1} draggable="false" aria-label={$i18n.t('New Chat')} class="flex items-center rounded-xl size-8.5 {mobile ? 'h-full' : 'shrink-0'} justify-center hover:bg-gray-100 dark:hover:bg-gray-900 transition no-drag-region">
+				<img crossorigin="anonymous" class="sidebar-new-chat-icon size-5 rounded-full" alt="" src="/static/favicon.png" />
 			</a>
-			<a href="/" tabindex={expanded ? 0 : -1} class="flex min-w-0 flex-1 px-0.5">
+			<a href="/" tabindex={expanded ? undefined : -1} class="flex min-w-0 flex-1 px-0.5">
 				<div id="sidebar-webui-name" class="self-center truncate font-normal text-gray-700 dark:text-gray-200">{webuiName}</div>
 			</a>
 			<div class="flex shrink-0 items-center gap-px">
 				<div class="flex">
-					<button type="button" tabindex={expanded ? 0 : -1} class="flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg text-gray-600 dark:text-gray-400 transition hover:bg-gray-100 dark:hover:bg-gray-900">
+					<button type="button" tabindex={expanded ? undefined : -1} data-inbox-trigger="" aria-controls="sidebar-notifications" aria-label={$i18n.t('Notifications')} aria-pressed="false" class="flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg text-gray-600 dark:text-gray-400 transition hover:bg-gray-100 dark:hover:bg-gray-900">
 						<span class="relative flex size-4 items-center justify-center">
 						<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="size-4"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" /></svg>
 						</span>
 					</button>
 				</div>
 				<div class="flex">
-					<button type="button" tabindex={expanded ? 0 : -1} aria-label={$i18n.t('Close navigation')} on:click={() => showSidebar.set(false)} class="flex size-[1.875rem] justify-center items-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition cursor-[w-resize]">
+					<button type="button" tabindex={expanded ? undefined : -1} aria-label={$i18n.t('Close navigation')} on:click={() => showSidebar.set(false)} class="flex size-[1.875rem] justify-center items-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition cursor-[w-resize]">
 						<div class="self-center">
 							<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" class="size-4">
 								<path d="M19 21L5 21C3.89543 21 3 20.1046 3 19L3 5C3 3.89543 3.89543 3 5 3L19 3C20.1046 3 21 3.89543 21 5L21 19C21 20.1046 20.1046 21 19 21Z" />
@@ -115,16 +120,16 @@
 
 				<div id="pinned-menu-items-list">
 					{#if $config?.features?.openatelier_private_notes}
-						<div class="px-1 flex justify-center text-gray-700 dark:text-gray-300">
-							<a id="sidebar-notes-button" href="/notes" tabindex={expanded ? 0 : -1} class="grow flex items-center space-x-2 rounded-xl px-2 py-1.5 transition hover:bg-gray-100 dark:hover:bg-gray-900">
+						<div class="px-1 flex justify-center text-gray-700 dark:text-gray-300" data-id="notes">
+							<a id="sidebar-notes-button" href="/notes" tabindex={expanded ? undefined : -1} draggable="false" aria-label={$i18n.t('Notes')} class="grow flex items-center space-x-2 rounded-xl px-2 py-1.5 transition hover:bg-gray-100 dark:hover:bg-gray-900">
 								<div class="self-center flex size-4 shrink-0 items-center justify-center"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="size-4"><path d="M5 3h14v18H5z" /><path d="M8 7h8" /><path d="M8 11h8" /><path d="M8 15h5" /><path d="M8 19h4" /></svg></div>
 								<div class="flex self-center translate-y-[0.5px]"><div class="self-center text-[0.8125rem] leading-5">{$i18n.t('Notes')}</div></div>
 							</a>
 						</div>
 					{/if}
 					{#if $user?.role === 'admin' || $user?.permissions?.workspace?.models || $user?.permissions?.workspace?.knowledge || $user?.permissions?.workspace?.prompts || $user?.permissions?.workspace?.tools}
-						<div class="px-1 flex justify-center text-gray-700 dark:text-gray-300">
-							<a id="sidebar-workspace-button" href="/workspace" tabindex={expanded ? 0 : -1} class="grow flex items-center space-x-2 rounded-xl px-2 py-1.5 transition hover:bg-gray-100 dark:hover:bg-gray-900">
+						<div class="px-1 flex justify-center text-gray-700 dark:text-gray-300" data-id="workspace">
+							<a id="sidebar-workspace-button" href="/workspace" tabindex={expanded ? undefined : -1} draggable="false" aria-label={$i18n.t('Workspace')} class="grow flex items-center space-x-2 rounded-xl px-2 py-1.5 transition hover:bg-gray-100 dark:hover:bg-gray-900">
 								<div class="self-center flex size-4 shrink-0 items-center justify-center"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="size-4"><path d="M4 4h6v6H4z" /><path d="M14 4h6v6h-6z" /><path d="M4 14h6v6H4z" /><path d="M17 14v6" /></svg></div>
 								<div class="flex self-center translate-y-[0.5px]"><div class="self-center text-[0.8125rem] leading-5">{$i18n.t('Workspace')}</div></div>
 							</a>
@@ -210,7 +215,7 @@
 														<div class="flex self-center z-10 items-end">
 															<span style="display: contents; cursor: pointer;">
 																<div class="flex">
-																	<button type="button" name="sidebar-chat-menu" aria-label="Chat Menu" class="flex size-5 items-center justify-center self-center dark:hover:text-white transition m-0">
+															<button type="button" name="sidebar-chat-menu" id="sidebar-chat-menu-{chat.id}" aria-label="Chat Menu" aria-haspopup="true" aria-expanded="false" class="flex size-5 items-center justify-center self-center dark:hover:text-white transition m-0">
 																		<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" class="size-3.5" stroke-width="2">
 																			<path d="M20 12.5C20.2761 12.5 20.5 12.2761 20.5 12C20.5 11.7239 20.2761 11.5 20 11.5C19.7239 11.5 19.5 11.7239 19.5 12C19.5 12.2761 19.7239 12.5 20 12.5Z" fill="currentColor" stroke="currentColor" />
 																			<path d="M12 12.5C12.2761 12.5 12.5 12.2761 12.5 12C12.5 11.7239 12.2761 11.5 12 11.5C11.7239 11.5 11.5 11.7239 11.5 12C11.5 12.2761 11.7239 12.5 12 12.5Z" fill="currentColor" stroke="currentColor" />

@@ -503,8 +503,8 @@
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 
 {#if latestCompatibility && $showSidebar}
-	<div class="fixed md:hidden z-40 top-0 right-0 left-0 bottom-0 bg-black w-full min-h-screen h-screen flex justify-center overflow-hidden overscroll-contain"></div>
-	<button type="button" class="hidden" aria-hidden="true" tabindex="-1"></button>
+	<div class="fixed md:hidden z-40 top-0 right-0 left-0 bottom-0 bg-black w-full min-h-screen h-screen flex justify-center overflow-hidden overscroll-contain" style="opacity: 0.6; transition: none;"></div>
+	<button id="sidebar-new-chat-button" class="hidden"></button>
 	<CurrentSidebarShadow
 		webuiName={$WEBUI_NAME}
 		expanded={true}

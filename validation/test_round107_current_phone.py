@@ -38,7 +38,7 @@ class CurrentPhoneTests(unittest.TestCase):
     def test_phone_sidebar_uses_observed_drawer_width(self) -> None:
         self.assertIn("mobile={$mobile}", SIDEBAR)
         self.assertIn("export let mobile = false", SHADOW)
-        self.assertIn("mobile ? '350px'", SHADOW)
+        self.assertIn("'width: 350px; --sidebar-width: 350px;", SHADOW)
         self.assertIn("w-[var(--sidebar-width)]", SHADOW)
         self.assertIn("mobile ? 'px-0.75 pt-1 pb-1 -mb-2'", SHADOW)
 
