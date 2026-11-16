@@ -126,13 +126,15 @@
 								placement="top"
 							>
 								<button
+									aria-hidden={!v0113Compatibility ? 'false' : undefined}
+									tabindex={!v0113Compatibility ? 0 : undefined}
 									aria-label={`${$i18n.t('Select a model')}: ${model?.name ?? $i18n.t('Model')}`}
 									on:click={() => {
 										selectedModelIdx = modelIdx;
 									}}
 								>
 									<img
-										crossorigin="anonymous"
+										crossorigin={v0113Compatibility ? 'anonymous' : undefined}
 										src={model?.info?.meta?.profile_image_url ??
 											($i18n.language === 'dg-DG'
 												? `/doge.png`
@@ -140,7 +142,7 @@
 										class={v0113Compatibility
 											? 'size-9 @sm:size-10 rounded-full border-[1px] border-gray-100 dark:border-none'
 											: 'size-9 @sm:size-10 rounded-2xl'}
-										alt=""
+										alt={v0113Compatibility ? '' : undefined}
 										aria-hidden="true"
 										draggable="false"
 									/>
@@ -228,7 +230,6 @@
 			</div>
 		</div>
 	</div>
-	{#if !v0113Compatibility}<div class="mb-0.5"></div>{/if}
 	<div
 		class={v0113Compatibility ? 'mx-auto max-w-2xl font-primary' : 'mx-auto max-w-2xl mt-2'}
 		in:fade={{ duration: 200, delay: 200 }}

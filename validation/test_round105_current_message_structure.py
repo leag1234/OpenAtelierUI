@@ -56,7 +56,7 @@ class CurrentMessageStructureTests(unittest.TestCase):
     def test_current_streaming_button_and_composer_tail_match_current_shape(self) -> None:
         self.assertIn("rounded-full p-[0.3125rem]", INPUT)
         self.assertIn(
-            '{#if !v0113Compatibility && history?.currentId}<div class="mb-0.5"></div>{/if}',
+            '{#if !v0113Compatibility}<div class="mb-0.5"></div>{/if}',
             INPUT,
         )
         self.assertIn("{#if v0113Compatibility || atSelectedModel !== undefined", INPUT)
