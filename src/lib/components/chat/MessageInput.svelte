@@ -104,6 +104,24 @@
 	let loaded = false;
 	let recording = false;
 
+	const cancelVoiceRecording = async () => {
+		recording = false;
+		await tick();
+		document.getElementById('chat-input')?.focus();
+	};
+
+	const confirmVoiceRecording = async (e) => {
+		const { text } = e.detail;
+		prompt = `${prompt}${text} `;
+		recording = false;
+		await tick();
+		document.getElementById('chat-input')?.focus();
+
+		if ($settings?.speechAutoSend ?? false) {
+			dispatch('submit', prompt);
+		}
+	};
+
 	let isComposing = false;
 
 	let chatInputContainerElement;
@@ -504,30 +522,25 @@
 						}}
 					/>
 
-					{#if recording}
-						<VoiceRecording
-							bind:recording
-							on:cancel={async () => {
-								recording = false;
-
-								await tick();
-								document.getElementById('chat-input')?.focus();
-							}}
-							on:confirm={async (e) => {
-								const { text, filename } = e.detail;
-								prompt = `${prompt}${text} `;
-
-								recording = false;
-
-								await tick();
-								document.getElementById('chat-input')?.focus();
-
-								if ($settings?.speechAutoSend ?? false) {
-									dispatch('submit', prompt);
-								}
-							}}
-						/>
+					{#if v0113Compatibility}
+						{#if recording}
+							<VoiceRecording
+								bind:recording
+								on:cancel={cancelVoiceRecording}
+								on:confirm={confirmVoiceRecording}
+							/>
+						{/if}
 					{:else}
+						<div class:hidden={!recording}>
+							<VoiceRecording
+								bind:recording
+								on:cancel={cancelVoiceRecording}
+								on:confirm={confirmVoiceRecording}
+							/>
+						</div>
+					{/if}
+
+					{#if !recording}
 						<form
 							class={v0113Compatibility ? 'w-full flex flex-col items-stretch gap-1.5' : 'w-full flex flex-col gap-1.5'}
 							on:submit|preventDefault={() => {

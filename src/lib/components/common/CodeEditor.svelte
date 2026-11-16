@@ -192,8 +192,15 @@
 
 			const editorRoot = document.getElementById(`code-textarea-${id}`);
 			const gutters = editorRoot?.querySelector('.cm-gutters');
+			const content = editorRoot?.querySelector('.cm-content');
 			if (gutters && gutters.className !== 'cm-gutters cm-gutters-before') {
 				gutters.className = 'cm-gutters cm-gutters-before';
+			}
+			if (content) {
+				content.setAttribute('aria-label', 'Code Editor');
+				content.setAttribute('aria-placeholder', 'Enter your code here...');
+				content.setAttribute('tabindex', '0');
+				content.setAttribute('writingsuggestions', 'false');
 			}
 
 			editorRoot?.querySelectorAll('.cm-activeLine.cm-line').forEach((line) => {

@@ -2250,6 +2250,14 @@
 					? 'h-full flex relative max-w-full min-w-0 min-h-0 flex-1 flex-col col-start-1 row-start-2'
 					: 'flex h-full min-h-0 w-full min-w-0 flex-col'}
 				>
+				{#if nativeCompatibility}
+					<button
+						id="new-chat-button"
+						class="hidden"
+						aria-label={$i18n.t('New Chat')}
+						on:click={initNewChat}
+					></button>
+				{/if}
 				<Navbar
 					bind:this={navbarElement}
 					chat={{
