@@ -43,11 +43,12 @@ class NativeTransientContractTests(unittest.TestCase):
         self.assertIn('placement: \'bottom\'', NAVBAR)
         self.assertIn("const syncRoute = (nextPathname: string)", NAVBAR)
         self.assertIn("nextPathname === '/'", NAVBAR)
-        self.assertIn('instance.popper.remove();', NAVBAR)
-        self.assertIn('update: syncRoute', NAVBAR)
+        self.assertIn("page.subscribe(($page) => syncRoute($page.url.pathname))", NAVBAR)
+        self.assertIn('instance?.destroy();', NAVBAR)
+        self.assertIn('instance = null;', NAVBAR)
         self.assertIn('instance.show();', NAVBAR)
         self.assertIn('instance.hide();', NAVBAR)
-        self.assertIn('use:nativeSidebarTooltip={$page.url.pathname}', NAVBAR)
+        self.assertIn('use:nativeSidebarTooltip', NAVBAR)
 
     def test_native_sidebar_shadow_retains_reference_attribute_contracts(self) -> None:
         self.assertGreaterEqual(SIDEBAR.count('<div id="" class="w-full">'), 2)
