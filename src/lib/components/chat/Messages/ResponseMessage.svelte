@@ -1471,11 +1471,18 @@
 													class="visible inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition"
 													on:click={regenerateMessageHandler}
 												>
-													<svg class="size-4" aria-hidden="true" fill="none" viewBox="0 0 24 24" stroke-width="1.5">
-														<path d="M20 8a9 9 0 0 0-15-3" stroke="currentColor" stroke-linecap="round" />
-														<path d="M5 5v4h4" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
-														<path d="M4 16a9 9 0 0 0 15 3" stroke="currentColor" stroke-linecap="round" />
-														<path d="M19 19v-4h-4" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+											<svg
+												xmlns="http://www.w3.org/2000/svg"
+												class="size-4"
+												aria-hidden="true"
+												fill="none"
+												viewBox="-2 -2 28 28"
+												stroke-width="1.5"
+											>
+												<path d="M21.1679 8C19.6247 4.46819 16.1006 2 11.9999 2C6.81459 2 2.55104 5.94668 2.04932 11" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+												<path d="M17 8H21.4C21.7314 8 22 7.73137 22 7.4V3" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+												<path d="M2.88146 16C4.42458 19.5318 7.94874 22 12.0494 22C17.2347 22 21.4983 18.0533 22 13" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+												<path d="M7.04932 16H2.64932C2.31795 16 2.04932 16.2686 2.04932 16.6V21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
 													</svg>
 												</button>
 											</Tooltip>

@@ -27,11 +27,11 @@ class NativeSvgStateContractTests(unittest.TestCase):
 
     def test_native_only_action_icons_keep_explicit_path_state(self) -> None:
         self.assertIn(
-            '<svg class="size-4" aria-hidden="true" fill="none" viewBox="0 0 24 24" stroke-width="1.5">',
+            'viewBox="-2 -2 28 28"',
             self.source,
         )
         self.assertIn(
-            '<path d="M20 8a9 9 0 0 0-15-3" stroke="currentColor" stroke-linecap="round" />',
+            '<path d="M21.1679 8C19.6247 4.46819 16.1006 2 11.9999 2C6.81459 2 2.55104 5.94668 2.04932 11" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />',
             self.source,
         )
         self.assertIn(
