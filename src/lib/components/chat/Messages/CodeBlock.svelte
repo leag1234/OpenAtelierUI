@@ -452,7 +452,7 @@
 						on:click={collapseCodeBlock}
 					>
 						<div class={currentCompatibility ? '-translate-y-[0.5px]' : ''}>
-							<ChevronUpDown className="size-3" />
+							<ChevronUpDown className="size-3" ariaHidden={currentCompatibility} />
 						</div>
 
 						<div>

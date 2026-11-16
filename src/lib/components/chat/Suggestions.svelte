@@ -70,7 +70,7 @@
 	? 'mb-1 flex gap-1 text-xs font-medium items-center text-gray-400 dark:text-gray-600'
 	: 'mb-1 flex gap-1 text-xs font-normal items-center text-gray-600 dark:text-gray-400'}>
 	{#if filteredPrompts.length > 0}
-		<Bolt />
+		<Bolt ariaHidden={!v0113Compatibility} />
 		{#if v0113Compatibility}
 			{$i18n.t('Suggested')}
 		{:else}

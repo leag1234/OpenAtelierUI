@@ -186,7 +186,7 @@
 			>
 				<Tooltip content={currentCompatibility ? $i18n.t('Copy') : $i18n.t('Copy table')}>
 					<button
-						type="button"
+						type={currentCompatibility ? undefined : 'button'}
 						class={currentCompatibility
 							? 'p-1 rounded-lg bg-transparent transition'
 							: 'copy-table-button rounded-lg bg-white p-1 text-xs dark:bg-gray-850'}
@@ -194,7 +194,11 @@
 						on:click={() => copyToClipboard([token.header.map((cell) => cell.text).join('\t'), ...token.rows.map((row) => row.map((cell) => cell.text).join('\t'))].join('\n'))}
 					>
 						{#if currentCompatibility}
-							<Clipboard className=" size-3.5" strokeWidth="1.5" />
+							<Clipboard
+								className=" size-3.5"
+								strokeWidth="1.5"
+								ariaHidden={currentCompatibility}
+							/>
 						{:else}
 							{$i18n.t('Copy')}
 						{/if}
@@ -203,6 +207,7 @@
                 <Tooltip content={$i18n.t('Export to CSV')}>
 					<button
 						class="p-1 rounded-lg bg-transparent transition"
+						aria-label={currentCompatibility ? $i18n.t('Export to CSV') : undefined}
 						on:click={(e) => {
 							e.stopPropagation();
 							exportTableToCSVHandler(token, tokenIdx);
@@ -211,13 +216,14 @@
 						{#if currentCompatibility}
 							<svg
 								xmlns="http://www.w3.org/2000/svg"
+								aria-hidden="true"
 								fill="none"
 								viewBox="0 0 24 24"
 								stroke="currentColor"
 								stroke-width="1.5"
 								class=" size-3.5"
 							>
-								<path stroke-linecap="round" d="M12 3v11" />
+								<path stroke-linecap="round" stroke-linejoin="round" d="M12 3v11" />
 								<path stroke-linecap="round" stroke-linejoin="round" d="m8 10 4 4 4-4M5 20h14" />
 							</svg>
 						{:else}
