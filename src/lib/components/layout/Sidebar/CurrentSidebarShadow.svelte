@@ -68,7 +68,7 @@
 					</button>
 				</div>
 				<div class="flex">
-					<button type="button" tabindex={expanded ? undefined : -1} aria-label={$i18n.t('Close navigation')} on:click={() => showSidebar.set(false)} class="flex size-[1.875rem] justify-center items-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition cursor-[w-resize]">
+					<button tabindex={expanded ? undefined : -1} aria-label={$i18n.t('Close navigation')} on:click={() => showSidebar.set(false)} class="flex size-[1.875rem] justify-center items-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition cursor-[w-resize]">
 						<div class="self-center">
 							<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" class="size-4">
 								<path d="M19 21L5 21C3.89543 21 3 20.1046 3 19L3 5C3 3.89543 3.89543 3 5 3L19 3C20.1046 3 21 3.89543 21 5L21 19C21 20.1046 20.1046 21 19 21Z" />
@@ -150,7 +150,7 @@
 
 			<div class="relative">
 				<div class="w-full">
-					<div class="w-full cursor-pointer"><div><div class="flex items-start justify-between"><div class="flex items-center justify-between h-6 w-full pl-3.5 pr-1.5 shrink-0"><h2 class="flex flex-1 h-full"><button id="sidebar-chats-button" type="button" aria-expanded="true" aria-controls="sidebar-chats-content" class="group flex flex-1 h-full items-center gap-1 text-left text-xs text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400 transition-colors duration-100"><span>{$i18n.t('Chats')}</span><span class="flex opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-100"><svg aria-hidden="true" viewBox="0 0 24 24" class="size-[0.6875rem]"><path d="m9 18 6-6-6-6" /></svg></span></button></h2><div class="contents"><span><div class="flex"><button type="button" class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400 transition-colors duration-100"><svg aria-hidden="true" viewBox="0 0 24 24" class="size-3.5"><path d="M12 5v14" /><path d="M5 12h14" /><path d="M7 7h10" /></svg></button></div></span></div></div></div></div></div>
+					<div class="w-full cursor-pointer"><div><div class="flex items-start justify-between"><div class="flex items-center justify-between h-6 w-full pl-3.5 pr-1.5 shrink-0"><h2 class="flex flex-1 h-full"><button id="sidebar-chats-button" type="button" aria-expanded="true" aria-controls="sidebar-chats-content" class="group flex flex-1 h-full items-center gap-1 text-left text-xs text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400 transition-colors duration-100"><span>{$i18n.t('Chats')}</span><span class="flex opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-100"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" class="size-[0.6875rem]"><path d="m9 18 6-6-6-6" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" /></svg></span></button></h2><div class="contents"><span><div class="flex"><button type="button" aria-expanded="false" aria-haspopup="menu" aria-label={$i18n.t('Chat list actions')} class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400 transition-colors duration-100"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" class="size-3.5"><path d="M12 5v14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" /><path d="M5 12h14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" /><path d="M7 7h10" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" /></svg></button></div></span></div></div></div></div></div>
 					<div>
 						<div {...contentSlotAttribute} id="sidebar-chats-content" class="w-full px-1.5">
 							<div class="flex-1 flex flex-col overflow-y-auto scrollbar-hidden">
@@ -217,10 +217,10 @@
 															<span style="display: contents; cursor: pointer;">
 																<div class="flex">
 															<button type="button" name="sidebar-chat-menu" id="sidebar-chat-menu-{chat.id}" aria-label="Chat Menu" aria-haspopup="true" aria-expanded="false" class="flex size-5 items-center justify-center self-center dark:hover:text-white transition m-0">
-																		<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" class="size-3.5" stroke-width="2">
-																			<path d="M20 12.5C20.2761 12.5 20.5 12.2761 20.5 12C20.5 11.7239 20.2761 11.5 20 11.5C19.7239 11.5 19.5 11.7239 19.5 12C19.5 12.2761 19.7239 12.5 20 12.5Z" fill="currentColor" stroke="currentColor" />
-																			<path d="M12 12.5C12.2761 12.5 12.5 12.2761 12.5 12C12.5 11.7239 12.2761 11.5 12 11.5C11.7239 11.5 11.5 11.7239 11.5 12C11.5 12.2761 11.7239 12.5 12 12.5Z" fill="currentColor" stroke="currentColor" />
-																			<path d="M4 12.5C4.27614 12.5 4.5 12.2761 4.5 12C4.5 11.7239 4.27614 11.5 4 11.5C3.72386 11.5 3.5 11.7239 3.5 12C3.5 12.2761 3.72386 12.5 4 12.5Z" fill="currentColor" stroke="currentColor" />
+																							<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="size-3.5" stroke-width="2">
+																								<path d="M20 12.5C20.2761 12.5 20.5 12.2761 20.5 12C20.5 11.7239 20.2761 11.5 20 11.5C19.7239 11.5 19.5 11.7239 19.5 12C19.5 12.2761 19.7239 12.5 20 12.5Z" fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+																								<path d="M12 12.5C12.2761 12.5 12.5 12.2761 12.5 12C12.5 11.7239 12.2761 11.5 12 11.5C11.7239 11.5 11.5 11.7239 11.5 12C11.5 12.2761 11.7239 12.5 12 12.5Z" fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+																								<path d="M4 12.5C4.27614 12.5 4.5 12.2761 4.5 12C4.5 11.7239 4.27614 11.5 4 11.5C3.72386 11.5 3.5 11.7239 3.5 12C3.5 12.2761 3.72386 12.5 4 12.5Z" fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
 																		</svg>
 																	</button>
 																</div>
