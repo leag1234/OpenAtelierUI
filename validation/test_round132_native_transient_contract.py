@@ -9,6 +9,10 @@ LAYOUT = (ROOT / "src/routes/+layout.svelte").read_text()
 MENU = (ROOT / "src/lib/components/layout/Navbar/Menu.svelte").read_text()
 SELECTOR = (ROOT / "src/lib/components/chat/ModelSelector/Selector.svelte").read_text()
 TOOLBAR = (ROOT / "src/lib/components/chat/CurrentSelectionToolbar.svelte").read_text()
+NAVBAR = (ROOT / "src/lib/components/chat/Navbar.svelte").read_text()
+SIDEBAR = (
+    ROOT / "src/lib/components/layout/Sidebar/CurrentSidebarShadow.svelte"
+).read_text()
 
 
 class NativeTransientContractTests(unittest.TestCase):
@@ -32,6 +36,17 @@ class NativeTransientContractTests(unittest.TestCase):
     def test_native_layout_retains_quiet_polite_announcer(self) -> None:
         self.assertIn("{#if $config?.compatibility_profile === 'native'}", LAYOUT)
         self.assertIn('<div aria-live="polite"></div>', LAYOUT)
+
+    def test_native_sidebar_toggle_initializes_the_accessible_tooltip_contract(self) -> None:
+        self.assertIn("import tippy from 'tippy.js';", NAVBAR)
+        self.assertIn('content: $i18n.t(\'Open Sidebar\')', NAVBAR)
+        self.assertIn('placement: \'bottom\'', NAVBAR)
+        self.assertIn('use:nativeSidebarTooltip', NAVBAR)
+
+    def test_native_sidebar_shadow_retains_reference_attribute_contracts(self) -> None:
+        self.assertGreaterEqual(SIDEBAR.count('<div id="" class="w-full">'), 2)
+        self.assertIn('fill="currentColor" xmlns="http://www.w3.org/2000/svg" class="size-4"', SIDEBAR)
+        self.assertGreaterEqual(SIDEBAR.count('fill="currentColor" stroke="currentColor"'), 3)
 
 
 if __name__ == "__main__":

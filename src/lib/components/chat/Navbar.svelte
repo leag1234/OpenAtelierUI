@@ -27,6 +27,7 @@
 	import MenuLines from '../icons/MenuLines.svelte';
 	import AdjustmentsHorizontal from '../icons/AdjustmentsHorizontal.svelte';
 	import { nativeMenuTriggerContract } from '$lib/actions/nativeMenuTriggerContract';
+	import tippy from 'tippy.js';
 
 	import PencilSquare from '../icons/PencilSquare.svelte';
 	import Banner from '../common/Banner.svelte';
@@ -45,6 +46,18 @@
 	let showShareChatModal = false;
 	let showDownloadChatModal = false;
 	$: v0113Compatibility = $config?.compatibility_profile !== 'native';
+
+	const nativeSidebarTooltip = (node: HTMLElement) => {
+		const instance = tippy(node, {
+			content: $i18n.t('Open Sidebar'),
+			placement: 'bottom',
+			touch: true,
+			theme: 'dark',
+			arrow: false,
+			offset: [0, 4]
+		});
+		return { destroy: () => instance.destroy() };
+	};
 </script>
 
 <ShareChatModal bind:show={showShareChatModal} chatId={$chatId} />
@@ -68,6 +81,7 @@
 					{#if !$showSidebar}<div class="mr-1 flex flex-none items-center self-start">
 						<div class="flex">
 							<button
+								use:nativeSidebarTooltip
 								id="sidebar-toggle-button"
 								class="flex cursor-pointer rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200"
 								aria-label={$i18n.t('Open Sidebar')}
