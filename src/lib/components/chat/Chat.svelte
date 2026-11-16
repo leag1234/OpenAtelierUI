@@ -2420,7 +2420,6 @@
 					{/if}
 				</div>
 			</div>
-			</Pane>
 
 			<ChatControls
 				bind:this={controlPaneComponent}
@@ -2444,6 +2443,7 @@
 				{showMessage}
 				{eventTarget}
 			/>
+			</Pane>
 		</PaneGroup>
 	{:else if loading}
 		<div class=" flex items-center justify-center h-full w-full">

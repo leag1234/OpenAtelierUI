@@ -15,12 +15,12 @@ class NativeParentContractTests(unittest.TestCase):
         self.assertIn("crossorigin={v0113Compatibility ? 'anonymous' : undefined}", PLACEHOLDER)
         self.assertIn("alt={v0113Compatibility ? '' : undefined}", PLACEHOLDER)
 
-    def test_native_model_controls_keep_direct_parent(self) -> None:
+    def test_native_model_controls_use_observed_layout_neutral_parent(self) -> None:
         marker = "aria-label={$i18n.t('Model controls')}"
         start = INPUT.index(marker) - 500
         end = INPUT.index(marker) + 500
         region = INPUT[start:end]
-        self.assertNotIn('<span style="display: contents;">', region)
+        self.assertIn('<span style="display: contents; cursor: pointer;">', region)
         self.assertIn('<div class="flex">', region)
 
     def test_native_spacer_stays_inside_composer_form(self) -> None:
@@ -32,6 +32,13 @@ class NativeParentContractTests(unittest.TestCase):
             "class={nativeCompatibility ? 'w-full h-full flex flex-col' : 'w-full h-full'}",
             CHAT,
         )
+
+    def test_controls_remain_inside_the_main_pane(self) -> None:
+        controls = CHAT.index("\n\t\t\t<ChatControls")
+        pane_close = CHAT.index("\n\t\t\t</Pane>", controls)
+        group_close = CHAT.index("\n\t\t</PaneGroup>", pane_close)
+        self.assertLess(controls, pane_close)
+        self.assertLess(pane_close, group_close)
 
 
 if __name__ == "__main__":
