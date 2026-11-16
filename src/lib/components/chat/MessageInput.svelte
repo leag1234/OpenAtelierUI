@@ -5,6 +5,7 @@
 	import { pickAndDownloadFile } from '$lib/utils/onedrive-file-picker';
 	import { detachFileForRemoval } from '$lib/utils/file-removal';
 	import { availableIntegrations } from '$lib/utils/availableIntegrations';
+	import { nativeMenuTriggerContract } from '$lib/actions/nativeMenuTriggerContract';
 
 	import { onMount, tick, getContext, createEventDispatcher, onDestroy } from 'svelte';
 	const dispatch = createEventDispatcher();
@@ -1137,6 +1138,7 @@
 											<button
 												{...builder}
 												use:builder.action
+												use:nativeMenuTriggerContract={!v0113Compatibility}
 												id="input-menu-button"
 											class={v0113Compatibility
 												? 'bg-transparent hover:bg-gray-100 text-gray-800 dark:text-white dark:hover:bg-gray-800 transition rounded-full p-1.5 outline-hidden focus:outline-hidden'
@@ -1266,9 +1268,9 @@
 														/>
 													</svg>
 													{:else}
-														<svg aria-hidden="true" viewBox="0 0 24 24" class="size-[1.125rem]" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+												<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="size-[1.125rem]" fill="none" stroke="currentColor" stroke-width="1.5">
 													<rect x="8" y="3" width="8" height="12" rx="4"></rect>
-													<path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+											<path stroke-linecap="round" stroke-linejoin="round" d="M5 11a7 7 0 0 0 14 0M12 18v3" />
 												</svg>
 													{/if}
 												</button>

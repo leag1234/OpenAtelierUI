@@ -50,7 +50,7 @@
 		on:mousedown|preventDefault={() => {}}
 			on:click={() => useSelection('Ask')}
 		>
-			<svg aria-hidden="true" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="size-3 shrink-0">
+			<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="size-3 shrink-0">
 				<path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12h-.375m4.125 0H12m4.125 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a4.48 4.48 0 0 0 .504-2.09C4.12 17.34 3 14.91 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
 			</svg>
 			<div class="shrink-0">Ask</div>
@@ -61,7 +61,7 @@
 		on:mousedown|preventDefault={() => {}}
 			on:click={() => useSelection('Explain')}
 		>
-			<svg aria-hidden="true" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="size-3 shrink-0">
+			<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="size-3 shrink-0">
 				<path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m2.25 7.289a12.06 12.06 0 0 1-4.5 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 1 0-7.517 0c.85.493 1.509 1.333 1.509 2.316V18" />
 			</svg>
 			<div class="shrink-0">Explain</div>

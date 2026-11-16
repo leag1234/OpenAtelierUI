@@ -4,7 +4,8 @@
 	import Fuse from 'fuse.js';
 
 	import { flyAndScale } from '$lib/utils/transitions';
-	import { createEventDispatcher, onMount, getContext, tick } from 'svelte';
+	import { createEventDispatcher, onDestroy, onMount, getContext, tick } from 'svelte';
+	import { nativeMenuTriggerContract } from '$lib/actions/nativeMenuTriggerContract';
 
 	import ChevronDown from '$lib/components/icons/ChevronDown.svelte';
 	import Check from '$lib/components/icons/Check.svelte';
@@ -66,6 +67,7 @@
 
 	let selectedTag = '';
 	let selectedConnectionType = '';
+	let nativeTriggerContractCleanup: (() => void) | undefined;
 
 	let ollamaVersion = null;
 	let selectedModelIdx = 0;
@@ -295,6 +297,19 @@
 			tags = Array.from(new Set(tags)).sort((a, b) => a.localeCompare(b));
 		}
 	});
+
+	onMount(async () => {
+		if (!nativeCompact) return;
+		await tick();
+		const trigger = document.getElementById(
+			id === '0' ? 'model-selector-model-button' : `model-selector-${id}-button`
+		);
+		if (trigger) {
+			nativeTriggerContractCleanup = nativeMenuTriggerContract(trigger, true).destroy;
+		}
+	});
+
+	onDestroy(() => nativeTriggerContractCleanup?.());
 
 	const cancelModelPullHandler = async (model: string) => {
 		const { reader, abortController } = $MODEL_DOWNLOAD_POOL[model];

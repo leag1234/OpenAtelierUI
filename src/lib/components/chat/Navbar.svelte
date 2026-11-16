@@ -26,6 +26,7 @@
 	import UserMenu from '$lib/components/layout/Sidebar/UserMenu.svelte';
 	import MenuLines from '../icons/MenuLines.svelte';
 	import AdjustmentsHorizontal from '../icons/AdjustmentsHorizontal.svelte';
+	import { nativeMenuTriggerContract } from '$lib/actions/nativeMenuTriggerContract';
 
 	import PencilSquare from '../icons/PencilSquare.svelte';
 	import Banner from '../common/Banner.svelte';
@@ -100,22 +101,22 @@
 					<div class="lg:mr-1 flex flex-none items-center gap-2 self-center">
 						{#if history.currentId}
 							<div class="flex">
-								<button type="button" class="flex size-6 {$showSidebar ? 'md:hidden' : ''} cursor-pointer items-center justify-center rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200" aria-label={$i18n.t('New Chat')} on:click={initNewChat}>
+								<button class="flex size-6 {$showSidebar ? 'md:hidden' : ''} cursor-pointer items-center justify-center rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200" aria-label={$i18n.t('New Chat')} on:click={initNewChat}>
 									<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="size-4"><path d="M9 12H12M15 12H12M12 12V9M12 12V15" stroke-linecap="round" stroke-linejoin="round" /><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 13.8214 2.48697 15.5291 3.33782 17L2.5 21.5L7 20.6622C8.47087 21.513 10.1786 22 12 22Z" stroke-linecap="round" stroke-linejoin="round" /></svg>
 								</button>
 							</div>
 							<span style="display: contents; cursor: pointer;"><Menu let:builder {chat} {shareEnabled} shareHandler={() => { showShareChatModal = !showShareChatModal; }} downloadHandler={() => { showDownloadChatModal = !showDownloadChatModal; }}>
-									<button {...builder} use:builder.action id="chat-context-menu-button" class="flex shrink-0 cursor-pointer items-center justify-center size-6 rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200" aria-label={$i18n.t('Chat actions')}>
+									<button {...builder} use:builder.action use:nativeMenuTriggerContract={true} id="chat-context-menu-button" class="flex shrink-0 cursor-pointer items-center justify-center size-6 rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200" aria-label={$i18n.t('Chat actions')}>
 										<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="size-4.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM12.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM18.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" /></svg>
 									</button>
 								</Menu></span>
 						{:else}
-							<div class="flex"><button type="button" id="temporary-chat-button" class="flex size-6 cursor-pointer items-center justify-center rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200" aria-label={$i18n.t('Temporary Chat')} on:click={() => temporaryChatEnabled.set(!$temporaryChatEnabled)}>
+							<div class="flex"><button id="temporary-chat-button" class="flex size-6 cursor-pointer items-center justify-center rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200" aria-label={$i18n.t('Temporary Chat')} on:click={() => temporaryChatEnabled.set(!$temporaryChatEnabled)}>
 								<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="size-4"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 13.8214 2.48697 15.5291 3.33782 17L2.5 21.5L7 20.6622C8.47087 21.513 10.1786 22 12 22Z" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2.5 3.5" /></svg>
 							</button></div>
 						{/if}
 						<div class="flex">
-							<button type="button" class="flex size-6 cursor-pointer items-center justify-center rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200" aria-label={$i18n.t('Tabs')} aria-expanded="false">
+							<button class="flex size-6 cursor-pointer items-center justify-center rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200" aria-label={$i18n.t('Tabs')} aria-expanded="false">
 								<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" class="size-4.5" stroke-width="1"><rect x="4" y="4" width="16" height="16" rx="1.5"></rect><path d="M12 20V4"></path></svg>
 							</button>
 						</div>
