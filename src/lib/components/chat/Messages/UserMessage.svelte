@@ -103,7 +103,7 @@
 
 <div
 	class={v0113Compatibility ? 'group flex w-full user-message' : 'flex w-full user-message group'}
-	dir={$settings.chatDirection}
+	dir={$settings?.chatDirection ?? 'auto'}
 	id="message-{message.id}"
 >
 	{#if !($settings?.chatBubble ?? true)}

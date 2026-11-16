@@ -615,7 +615,7 @@
 	<div
 		class={v0113Compatibility ? `group flex w-full message-${message.id}` : `flex w-full message-${message.id}`}
 		id="message-{message.id}"
-		dir={$settings.chatDirection}
+		dir={$settings?.chatDirection ?? 'auto'}
 	>
 		<div
 			class={v0113Compatibility

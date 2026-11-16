@@ -3,6 +3,7 @@
 
 	import { onDestroy } from 'svelte';
 	import { marked } from 'marked';
+	import { config } from '$lib/stores';
 
 	import tippy from 'tippy.js';
 	import { roundArrow } from 'tippy.js';
@@ -18,6 +19,7 @@
 
 	let tooltipElement;
 	let tooltipInstance;
+	$: nativeCompatibility = $config?.compatibility_profile === 'native';
 
 	$: if (tooltipElement && content) {
 		if (tooltipInstance) {
@@ -47,6 +49,10 @@
 	});
 </script>
 
-<div bind:this={tooltipElement} aria-label={DOMPurify.sanitize(content)} class={className}>
+<div
+	bind:this={tooltipElement}
+	aria-label={nativeCompatibility ? undefined : DOMPurify.sanitize(content)}
+	class={className}
+>
 	<slot />
 </div>
