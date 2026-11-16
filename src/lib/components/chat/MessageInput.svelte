@@ -1210,6 +1210,8 @@
 													type="button"
 													class="mr-2 flex shrink-0 items-center justify-center text-gray-500 transition-colors hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
 													aria-label={$i18n.t('Model controls')}
+													aria-haspopup="dialog"
+													aria-expanded={$showControls ? 'true' : 'false'}
 													on:click={() => showControls.set(!$showControls)}
 												>
 													<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24" class="size-4" stroke-width="1.5">
