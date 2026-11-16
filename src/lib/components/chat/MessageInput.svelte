@@ -1218,7 +1218,6 @@
 											<div class="flex min-w-0 max-w-[10rem] items-center sm:max-w-[13rem]">
 												<ModelSelector bind:selectedModels showSetDefault={false} />
 											</div>
-											<span style="display: contents;">
 											<div class="flex">
 												<button
 													type="button"
@@ -1233,7 +1232,6 @@
 													</svg>
 												</button>
 											</div>
-											</span>
 										{/if}
 
 										{#if (!history?.currentId || history.messages[history.currentId]?.done == true) && ($_user?.role === 'admin' || ($_user?.permissions?.chat?.stt ?? true))}

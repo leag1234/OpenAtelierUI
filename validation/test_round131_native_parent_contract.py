@@ -15,21 +15,21 @@ class NativeParentContractTests(unittest.TestCase):
         self.assertIn("crossorigin={v0113Compatibility ? 'anonymous' : undefined}", PLACEHOLDER)
         self.assertIn("alt={v0113Compatibility ? '' : undefined}", PLACEHOLDER)
 
-    def test_native_model_controls_use_layout_neutral_observed_parent(self) -> None:
+    def test_native_model_controls_keep_direct_parent(self) -> None:
         marker = "aria-label={$i18n.t('Model controls')}"
         start = INPUT.index(marker) - 500
         end = INPUT.index(marker) + 500
         region = INPUT[start:end]
-        self.assertIn('<span style="display: contents;">', region)
+        self.assertNotIn('<span style="display: contents;">', region)
         self.assertIn('<div class="flex">', region)
 
     def test_native_spacer_stays_inside_composer_form(self) -> None:
         self.assertIn('{#if !v0113Compatibility}<div class="mb-0.5"></div>{/if}', INPUT)
         self.assertNotIn('{#if !v0113Compatibility}<div class="mb-0.5"></div>{/if}', PLACEHOLDER)
 
-    def test_native_pane_group_matches_observed_parent_contract(self) -> None:
+    def test_native_pane_group_keeps_outer_shell_distinct(self) -> None:
         self.assertIn(
-            "class={nativeCompatibility ? 'relative w-full h-full min-h-0 flex' : 'w-full h-full'}",
+            "class={nativeCompatibility ? 'w-full h-full flex flex-col' : 'w-full h-full'}",
             CHAT,
         )
 

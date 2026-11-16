@@ -2239,7 +2239,7 @@
 			/>
 		{/if}
 
-		<PaneGroup direction="horizontal" class={nativeCompatibility ? 'relative w-full h-full min-h-0 flex' : 'w-full h-full'}>
+		<PaneGroup direction="horizontal" class={nativeCompatibility ? 'w-full h-full flex flex-col' : 'w-full h-full'}>
 			<Pane defaultSize={50} class={nativeCompatibility
 				? 'relative w-full h-full min-h-0 flex'
 				: 'h-full flex relative max-w-full flex-col'}>
