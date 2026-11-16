@@ -17,7 +17,6 @@
 	} from '$lib/stores';
 
 	import { slide } from 'svelte/transition';
-	import { page } from '$app/stores';
 
 	import ShareChatModal from '../chat/ShareChatModal.svelte';
 	import ModelSelector from '../chat/ModelSelector.svelte';
@@ -51,8 +50,8 @@
 		let instance: ReturnType<typeof tippy> | null = null;
 		// The current reference keeps the hidden mobile-sidebar tooltip mounted on
 		// the empty home route, but does not retain it once a chat route is open.
-		const syncRoute = (nextPathname: string) => {
-			if (nextPathname === '/') {
+		const syncChat = (activeChatId: string | null) => {
+			if (!activeChatId) {
 				instance ??= tippy(node, {
 					content: $i18n.t('Open Sidebar'),
 					placement: 'bottom',
@@ -69,7 +68,7 @@
 				instance = null;
 			}
 		};
-		const unsubscribe = page.subscribe(($page) => syncRoute($page.url.pathname));
+		const unsubscribe = chatId.subscribe(syncChat);
 		return {
 			destroy: () => {
 				unsubscribe();
