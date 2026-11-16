@@ -2456,6 +2456,7 @@
 
 {#if nativeCompatibility && history.currentId && history.messages[history.currentId]?.done}
 	<CurrentSelectionToolbar
+		id={history.currentId}
 		on:prompt={async (event) => {
 			prompt = `${event.detail.action}: ${event.detail.text}`;
 			await tick();

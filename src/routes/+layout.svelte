@@ -679,3 +679,7 @@
 	richColors
 	position="top-right"
 />
+
+{#if $config?.compatibility_profile === 'native'}
+	<div aria-live="polite"></div>
+{/if}

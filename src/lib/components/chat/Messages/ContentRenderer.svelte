@@ -123,7 +123,7 @@
 	bind:this={contentContainerElement}
 >
 	<Markdown
-		{id}
+		id={currentCompatibility ? `${id}-${id}` : id}
 		{content}
 		{model}
 		{save}

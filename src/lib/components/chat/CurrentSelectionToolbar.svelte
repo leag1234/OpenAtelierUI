@@ -2,12 +2,23 @@
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 
 	const dispatch = createEventDispatcher();
+	export let id = '';
 
 	let toolbar: HTMLDivElement;
 	let visible = false;
 	let selectedText = '';
 	let left = 0;
 	let top = 0;
+
+	const portalToBody = (node: HTMLElement) => {
+		document.body.appendChild(node);
+
+		return {
+			destroy() {
+				node.remove();
+			}
+		};
+	};
 
 	const updateSelection = () => {
 		const selection = window.getSelection();
@@ -38,6 +49,8 @@
 
 <div
 	bind:this={toolbar}
+	id={`floating-buttons-${id}-${id}`}
+	use:portalToBody
 	class="fixed max-w-[calc(100vw-1rem)] rounded-lg text-xs z-9999"
 	style:display={visible ? 'block' : 'none'}
 	style:left={`${left}px`}

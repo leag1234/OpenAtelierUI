@@ -352,7 +352,6 @@
 				<span class="min-w-0 flex-1 truncate">{selectedModel ? selectedModel.label : placeholder}</span>
 				<ChevronDown className="ml-1 size-2.5 shrink-0 self-center" strokeWidth="2.5" />
 			</div>
-			<span></span>
 		{:else}
 			<div
 				class="flex w-full text-left px-0.5 outline-hidden bg-transparent truncate {triggerClassName} justify-between font-medium placeholder-gray-400 focus:outline-hidden"

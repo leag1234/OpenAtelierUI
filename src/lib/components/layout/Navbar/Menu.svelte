@@ -163,7 +163,7 @@
 >
 	<slot {builder} />
 
-	<div slot="content">
+	<svelte:fragment slot="content">
 		<DropdownMenu.Content
 			class="w-full max-w-[200px] rounded-xl px-1 py-1.5  z-50 bg-white dark:bg-gray-850 dark:text-white shadow-lg"
 			sideOffset={8}
@@ -343,5 +343,5 @@
 				</div>
 			{/if}
 		</DropdownMenu.Content>
-	</div>
+	</svelte:fragment>
 </Dropdown>
