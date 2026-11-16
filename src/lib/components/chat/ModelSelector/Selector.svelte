@@ -328,7 +328,7 @@
 			? 'focus-ring relative w-full outline-hidden focus:outline-hidden'
 			: 'relative w-full font-primary'}
 		aria-label={placeholder}
-		id="model-selector-{id}-button"
+		id={nativeCompact && id === '0' ? 'model-selector-model-button' : `model-selector-${id}-button`}
 	>
 		{#if nativeCompact}
 			<div

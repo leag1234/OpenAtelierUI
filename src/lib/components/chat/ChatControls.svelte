@@ -151,7 +151,7 @@
 			<div role="presentation" class="absolute min-h-0 min-w-0 pointer-events-none flex flex-col overflow-hidden" data-panel-group="default">
 				<div data-panel-tab-bar="" class="flex h-9 items-center px-1.5 gap-1 shrink-0 pointer-events-auto select-none col-start-1 row-start-1 min-w-0 z-10">
 					<div class="flex items-center gap-0.5 flex-1 min-w-0 py-0.5">
-						<div role="tablist" tabindex="-1" class="panel-tab-strip flex items-center gap-0.5 min-w-0 overflow-x-auto" aria-label="Tabs"></div>
+						<div role="tablist" tabindex="-1" data-swipe-no-gesture class="panel-tab-strip flex items-center gap-0.5 min-w-0 overflow-x-auto" aria-label="Tabs"></div>
 						<span style="display: contents; cursor: pointer;"><button type="button" class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-100 shrink-0" aria-label="New tab" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" stroke-width="1.5" class="shrink-0"><path d="M6 12H12M18 12H12M12 12V6M12 12V18"></path></svg></button></span>
 					</div>
 					<button type="button" class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-100 shrink-0" aria-label="Hide tabs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" stroke-width="1.5" class="shrink-0"><path d="M6.75827 17.2426L12.0009 12M17.2435 6.75736L12.0009 12M12.0009 12L6.75827 6.75736M12.0009 12L17.2435 17.2426"></path></svg></button>
@@ -190,7 +190,7 @@
 						class="flex h-9 items-center px-1.5 pr-10 gap-1 shrink-0 pointer-events-auto select-none col-start-1 row-start-1 min-w-0 z-10"
 					>
 						<div class="flex items-center gap-0.5 flex-1 min-w-0 py-0.5">
-							<div role="tablist" aria-label="Tabs" tabindex="-1" class="panel-tab-strip flex items-center gap-0.5 min-w-0 overflow-x-auto">
+							<div role="tablist" aria-label="Tabs" tabindex="-1" data-swipe-no-gesture class="panel-tab-strip flex items-center gap-0.5 min-w-0 overflow-x-auto">
 								<div data-panel-tab="main-chat" class="panel-tab flex cursor-pointer items-center gap-1.5 ps-2.5 pe-2 h-7 rounded-lg text-sm font-normal whitespace-nowrap shrink-0 transition bg-gray-100/40 dark:bg-gray-800/25 text-gray-700 dark:text-gray-200">
 									<button role="tab" class="flex h-full items-center gap-1.5 min-w-0" id="chat-panel-main-chat" aria-controls="chat-container" aria-selected="true" tabindex="0" {title} aria-label={title}>
 										<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" stroke-width="1.5" class="shrink-0">
