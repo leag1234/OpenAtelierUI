@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getContext, onDestroy, onMount, tick } from 'svelte';
 	import { chatId, chats, config, showSidebar, user } from '$lib/stores';
+	import { nativeMenuTriggerContract } from '$lib/actions/nativeMenuTriggerContract';
 	import UserMenu from './UserMenu.svelte';
 
 	const i18n = getContext('i18n');
@@ -140,7 +141,7 @@
 
 			<div class="relative">
 				<div class="w-full"><div class="w-full cursor-pointer"><div><div class="flex items-start justify-between"><div class="flex items-center justify-between h-6 w-full pl-3.5 pr-1.5 shrink-0"><h2 class="flex flex-1 h-full"><button id="sidebar-folders-button" type="button" aria-expanded={foldersExpanded} aria-controls="sidebar-folders-content" on:click={() => foldersExpanded = !foldersExpanded} class="group flex flex-1 h-full items-center gap-1 text-left text-xs text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400 transition-colors duration-100"><span>{$i18n.t('Folders')}</span><span class="flex opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-100"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="size-[0.6875rem]"><path d="m9 18 6-6-6-6" /></svg></span></button></h2><div class="contents"></div><button type="button" aria-label={$i18n.t('New Folder')} on:click={onCreateFolder} class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400 transition-colors duration-100"><div class="flex"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="size-3.5"><path d="M12 5v14m-7-7h14" /></svg></div></button></div></div></div></div></div>
-				{#if foldersExpanded}<div id="sidebar-folders-content"><div class="w-full px-1.5">
+				{#if foldersExpanded}<div><div {...contentSlotAttribute} id="sidebar-folders-content" class="w-full px-1.5">
 					{#each Object.values(folderItems).filter((folder) => folder?.parent_id == null) as folder}
 						<button type="button" class="w-full rounded-xl px-2 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-gray-900">{folder.name}</button>
 					{/each}
@@ -255,7 +256,7 @@
 
 		<div class="px-1 pt-1 pb-1.5 sticky bottom-0 z-10 -mt-2 sidebar">
 			<div class="sidebar-bg-gradient-to-t bg-linear-to-t from-gray-50 dark:from-gray-950 to-transparent from-50% pointer-events-none absolute inset-0 -z-10 -mt-6"></div>
-			<div class="flex flex-col"><span><UserMenu role={$user?.role} let:builder><button {...builder} use:builder.action type="button" tabindex={expanded ? 0 : -1} aria-haspopup="menu" class="flex items-center rounded-xl py-1.5 px-1.5 w-full hover:bg-gray-100 dark:hover:bg-gray-900 transition"><div class="self-center mr-3 relative flex-shrink-0"><img src={$user?.profile_image_url ?? '/static/favicon.png'} alt="" class="size-5.5 object-cover rounded-full" /><div class="absolute -bottom-0.5 -right-0.5"><span class="relative flex size-2.5"><span class="relative inline-flex size-2.5 rounded-full bg-green-500 border-2 border-white dark:border-gray-900"></span></span></div></div><div class="self-center font-normal truncate">{$user?.name ?? 'User'}</div></button></UserMenu></span></div>
+			<div class="flex flex-col"><span><UserMenu role={$user?.role} let:builder><button {...builder} use:builder.action use:nativeMenuTriggerContract={{ enabled: true, removeGeneratedId: true }} type="button" tabindex={expanded ? 0 : -1} aria-haspopup="menu" class="flex items-center rounded-xl py-1.5 px-1.5 w-full hover:bg-gray-100 dark:hover:bg-gray-900 transition"><div class="self-center mr-3 relative flex-shrink-0"><img src={$user?.profile_image_url ?? '/static/favicon.png'} alt={$i18n.t('Open User Profile Menu')} aria-label={$i18n.t('Open User Profile Menu')} class="size-5.5 object-cover rounded-full" /><div class="absolute -bottom-0.5 -right-0.5"><span class="relative flex size-2.5"><span class="relative inline-flex size-2.5 rounded-full bg-green-500 border-2 border-white dark:border-gray-900"></span></span></div></div><div class="self-center font-normal truncate">{$user?.name ?? 'User'}</div></button></UserMenu></span></div>
 		</div>
 	</div>
 </div>
