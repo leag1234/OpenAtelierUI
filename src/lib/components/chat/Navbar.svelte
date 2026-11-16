@@ -57,10 +57,12 @@
 			offset: [0, 4],
 			duration: [0, 60_000]
 		});
-		// Mount the accessible tooltip once without a visible frame. Keeping the
-		// hidden popper mounted mirrors the current reference's stable DOM contract.
-		instance.show();
-		instance.hide();
+		// The current reference keeps the hidden mobile-sidebar tooltip mounted on
+		// the empty home route, but does not retain it once a chat route is open.
+		if (window.location.pathname === '/') {
+			instance.show();
+			instance.hide();
+		}
 		return { destroy: () => instance.destroy() };
 	};
 </script>
