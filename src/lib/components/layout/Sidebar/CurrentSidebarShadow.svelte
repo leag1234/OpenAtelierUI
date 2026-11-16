@@ -25,7 +25,10 @@
 	);
 
 	const updateStreamingState = () => {
-		responseStreaming = document.querySelector('#stop-response-button') !== null;
+		const stopLabel = $i18n.t('Stop');
+		responseStreaming = [...document.querySelectorAll('button[aria-label]')].some(
+			(button) => button.getAttribute('aria-label') === stopLabel
+		);
 	};
 
 	onMount(() => {

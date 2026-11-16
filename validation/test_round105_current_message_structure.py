@@ -26,7 +26,8 @@ class CurrentMessageStructureTests(unittest.TestCase):
         self.assertIn("$: visibleChats = ($chats ?? []).filter", SIDEBAR)
         self.assertIn("{#each visibleChats as chat, index}", SIDEBAR)
         self.assertIn("$chatId === chat.id", SIDEBAR)
-        self.assertIn("#stop-response-button", SIDEBAR)
+        self.assertIn("document.querySelectorAll('button[aria-label]')", SIDEBAR)
+        self.assertIn("button.getAttribute('aria-label') === stopLabel", SIDEBAR)
         self.assertIn('role="listitem"', SIDEBAR)
 
     def test_chat_announces_stream_state_and_mounts_completed_toolbar(self) -> None:

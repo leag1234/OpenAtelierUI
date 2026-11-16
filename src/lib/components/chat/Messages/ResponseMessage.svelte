@@ -1468,6 +1468,8 @@
 												<button
 													type="button"
 													aria-label={$i18n.t('Regenerate')}
+													aria-haspopup="true"
+													aria-expanded="false"
 													class="visible inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition"
 													on:click={regenerateMessageHandler}
 												>

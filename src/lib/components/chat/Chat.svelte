@@ -2374,7 +2374,7 @@
 							</div>
 						</div>
 					{:else}
-						{#if nativeCompatibility}<div class="sr-only"></div>{/if}
+						{#if nativeCompatibility}<div class="sr-only" aria-live="polite" aria-atomic="true"></div>{/if}
 						<div class={nativeCompatibility ? 'flex items-center h-full' : 'overflow-auto w-full h-full flex items-center'}>
 							<Placeholder
 								{history}

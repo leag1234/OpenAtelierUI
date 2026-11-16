@@ -1296,12 +1296,12 @@
 											<div class="flex items-center">
 												<div class="flex">
 												<button
-													id="stop-response-button"
+											id={v0113Compatibility ? 'stop-response-button' : undefined}
 													class={v0113Compatibility
 														? 'bg-white hover:bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-800 transition rounded-full p-1.5'
 														: 'bg-white hover:bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-800 transition rounded-full p-[0.3125rem]'}
 														aria-label={$i18n.t('Stop')}
-														title={$i18n.t('Stop')}
+												title={v0113Compatibility ? $i18n.t('Stop') : undefined}
 														on:click={() => {
 															stopResponse();
 														}}

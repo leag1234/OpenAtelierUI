@@ -238,13 +238,13 @@ class AtlasDropInReportTests(unittest.TestCase):
         for element_id in (
             "input-menu-button",
             "message-input-container",
-            "stop-response-button",
             "main-content",
             "sidebar-webui-name",
             "pinned-menu-items-list",
             "tab-general",
         ):
             self.assertEqual(source.count(f'id="{element_id}"'), 1, element_id)
+        self.assertEqual(source.count("'stop-response-button'"), 1)
 
     def test_composer_exposes_only_its_input_actions_and_keeps_integrations_reachable(self):
         navbar = CHAT_NAVBAR.read_text(encoding="utf-8")
@@ -318,10 +318,13 @@ class AtlasDropInReportTests(unittest.TestCase):
         self.assertNotIn("regenerate-response-button", delete_block)
         self.assertNotIn("regenerate-response-button", multi)
         self.assertIn('class="truncate text-left" title={title}', navbar)
-        stop_start = composer.index('id="stop-response-button"')
+        stop_start = composer.index("id={v0113Compatibility ? 'stop-response-button' : undefined}")
         stop_context = composer[max(0, stop_start - 250):stop_start + 500]
         self.assertNotIn("<Tooltip", stop_context)
-        self.assertIn("title={$i18n.t('Stop')}", stop_context)
+        self.assertIn(
+            "title={v0113Compatibility ? $i18n.t('Stop') : undefined}",
+            stop_context,
+        )
 
     def test_ollama_version_route_requires_verified_identity(self):
         tree = ast.parse(OLLAMA.read_text(encoding="utf-8"))
