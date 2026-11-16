@@ -13,6 +13,7 @@
 	import { get, type Unsubscriber, type Writable } from 'svelte/store';
 	import type { i18n as i18nType } from 'i18next';
 	import { WEBUI_BASE_URL } from '$lib/constants';
+	import { nativePaneShellContract } from '$lib/actions/nativePaneShellContract';
 	import {
 		bindChatEventChannel,
 		chatResultMatchesCurrent,
@@ -2222,6 +2223,7 @@
 		: ' '} w-full max-w-full {nativeCompatibility ? 'min-w-0' : ''} flex flex-col"
 	id="chat-container"
 	role={nativeCompatibility ? 'presentation' : undefined}
+	use:nativePaneShellContract={nativeCompatibility}
 >
 	{#if !loading}
 		{#if $settings?.backgroundImageUrl ?? null}
@@ -2242,11 +2244,8 @@
 				? 'relative w-full h-full min-h-0 flex'
 				: 'h-full flex relative max-w-full flex-col'}>
 				<div
-					id={nativeCompatibility ? 'chat-panel-main-chat-view' : 'chat-pane'}
+					id={nativeCompatibility ? undefined : 'chat-pane'}
 					data-main-chat-pane={nativeCompatibility ? '' : undefined}
-					data-panel-group={nativeCompatibility ? 'default' : undefined}
-					role={nativeCompatibility ? 'tabpanel' : undefined}
-					aria-labelledby={nativeCompatibility ? 'chat-panel-main-chat' : undefined}
 					class={nativeCompatibility
 					? 'h-full flex relative max-w-full min-w-0 min-h-0 flex-1 flex-col col-start-1 row-start-2'
 					: 'flex h-full min-h-0 w-full min-w-0 flex-col'}
