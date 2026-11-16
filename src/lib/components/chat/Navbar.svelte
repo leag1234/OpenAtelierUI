@@ -47,7 +47,7 @@
 	let showDownloadChatModal = false;
 	$: v0113Compatibility = $config?.compatibility_profile !== 'native';
 
-	const nativeSidebarTooltip = (node: HTMLElement) => {
+	const nativeSidebarTooltip = (node: HTMLElement, pathname: string) => {
 		const instance = tippy(node, {
 			content: $i18n.t('Open Sidebar'),
 			placement: 'bottom',
@@ -59,11 +59,19 @@
 		});
 		// The current reference keeps the hidden mobile-sidebar tooltip mounted on
 		// the empty home route, but does not retain it once a chat route is open.
-		if (window.location.pathname === '/') {
-			instance.show();
-			instance.hide();
-		}
-		return { destroy: () => instance.destroy() };
+		const syncRoute = (nextPathname: string) => {
+			if (nextPathname === '/') {
+				instance.enable();
+				instance.show();
+				instance.hide();
+			} else {
+				instance.hide();
+				instance.disable();
+				instance.popper.remove();
+			}
+		};
+		syncRoute(pathname);
+		return { update: syncRoute, destroy: () => instance.destroy() };
 	};
 </script>
 
@@ -88,7 +96,7 @@
 					{#if !$showSidebar}<div class="mr-1 flex flex-none items-center self-start">
 						<div class="flex">
 							<button
-								use:nativeSidebarTooltip
+								use:nativeSidebarTooltip={$page.url.pathname}
 								id="sidebar-toggle-button"
 								class="flex cursor-pointer rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200"
 								aria-label={$i18n.t('Open Sidebar')}

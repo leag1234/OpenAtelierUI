@@ -41,10 +41,13 @@ class NativeTransientContractTests(unittest.TestCase):
         self.assertIn("import tippy from 'tippy.js';", NAVBAR)
         self.assertIn('content: $i18n.t(\'Open Sidebar\')', NAVBAR)
         self.assertIn('placement: \'bottom\'', NAVBAR)
-        self.assertIn("window.location.pathname === '/'", NAVBAR)
+        self.assertIn("const syncRoute = (nextPathname: string)", NAVBAR)
+        self.assertIn("nextPathname === '/'", NAVBAR)
+        self.assertIn('instance.popper.remove();', NAVBAR)
+        self.assertIn('update: syncRoute', NAVBAR)
         self.assertIn('instance.show();', NAVBAR)
         self.assertIn('instance.hide();', NAVBAR)
-        self.assertIn('use:nativeSidebarTooltip', NAVBAR)
+        self.assertIn('use:nativeSidebarTooltip={$page.url.pathname}', NAVBAR)
 
     def test_native_sidebar_shadow_retains_reference_attribute_contracts(self) -> None:
         self.assertGreaterEqual(SIDEBAR.count('<div id="" class="w-full">'), 2)
