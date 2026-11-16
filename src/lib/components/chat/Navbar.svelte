@@ -54,8 +54,13 @@
 			touch: true,
 			theme: 'dark',
 			arrow: false,
-			offset: [0, 4]
+			offset: [0, 4],
+			duration: [0, 60_000]
 		});
+		// Mount the accessible tooltip once without a visible frame. Keeping the
+		// hidden popper mounted mirrors the current reference's stable DOM contract.
+		instance.show();
+		instance.hide();
 		return { destroy: () => instance.destroy() };
 	};
 </script>

@@ -41,6 +41,8 @@ class NativeTransientContractTests(unittest.TestCase):
         self.assertIn("import tippy from 'tippy.js';", NAVBAR)
         self.assertIn('content: $i18n.t(\'Open Sidebar\')', NAVBAR)
         self.assertIn('placement: \'bottom\'', NAVBAR)
+        self.assertIn('instance.show();', NAVBAR)
+        self.assertIn('instance.hide();', NAVBAR)
         self.assertIn('use:nativeSidebarTooltip', NAVBAR)
 
     def test_native_sidebar_shadow_retains_reference_attribute_contracts(self) -> None:
