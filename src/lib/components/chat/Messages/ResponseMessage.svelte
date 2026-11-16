@@ -1041,15 +1041,17 @@
 											>
 												<svg
 													xmlns="http://www.w3.org/2000/svg"
+													aria-hidden={!v0113Compatibility ? 'true' : undefined}
 													fill="none"
 													viewBox="0 0 24 24"
 													stroke-width="2.3"
-													stroke="currentColor"
+													stroke={v0113Compatibility ? 'currentColor' : undefined}
 													class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}
 												>
 													<path
-														stroke-linecap="round"
-														stroke-linejoin="round"
+														stroke={!v0113Compatibility ? 'currentColor' : undefined}
+														stroke-linecap={v0113Compatibility ? 'round' : undefined}
+														stroke-linejoin={v0113Compatibility ? 'round' : undefined}
 														d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125"
 													/>
 												</svg>
@@ -1070,19 +1072,21 @@
 									>
 										<svg
 											xmlns="http://www.w3.org/2000/svg"
+											aria-hidden={!v0113Compatibility ? 'true' : undefined}
 											fill="none"
 											viewBox="0 0 24 24"
 											stroke-width="2.3"
-											stroke="currentColor"
+											stroke={v0113Compatibility ? 'currentColor' : undefined}
 											class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}
 										>
 											<path
+												stroke={!v0113Compatibility ? 'currentColor' : undefined}
 												stroke-linecap="round"
 												stroke-linejoin="round"
 												d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184"
 											/>
 											{#if !v0113Compatibility}
-												<path stroke-linecap="round" stroke-linejoin="round" d="M9 8h10v11H9z" />
+												<path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M9 8h10v11H9z" />
 											{/if}
 										</svg>
 									</button>
@@ -1137,35 +1141,39 @@
 											{:else if speaking}
 												<svg
 													xmlns="http://www.w3.org/2000/svg"
+													aria-hidden={!v0113Compatibility ? 'true' : undefined}
 													fill="none"
 													viewBox="0 0 24 24"
 													stroke-width="2.3"
-													stroke="currentColor"
+													stroke={v0113Compatibility ? 'currentColor' : undefined}
 														class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}
 												>
 													<path
-														stroke-linecap="round"
-														stroke-linejoin="round"
+														stroke={!v0113Compatibility ? 'currentColor' : undefined}
+														stroke-linecap={v0113Compatibility ? 'round' : undefined}
+														stroke-linejoin={v0113Compatibility ? 'round' : undefined}
 														d="M17.25 9.75 19.5 12m0 0 2.25 2.25M19.5 12l2.25-2.25M19.5 12l-2.25 2.25m-10.5-6 4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z"
 													/>
 												</svg>
 											{:else}
 												<svg
 													xmlns="http://www.w3.org/2000/svg"
+													aria-hidden={!v0113Compatibility ? 'true' : undefined}
 													fill="none"
 													viewBox="0 0 24 24"
 													stroke-width="2.3"
-													stroke="currentColor"
+													stroke={v0113Compatibility ? 'currentColor' : undefined}
 													class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}
 												>
 													<path
-														stroke-linecap="round"
-														stroke-linejoin="round"
+														stroke={!v0113Compatibility ? 'currentColor' : undefined}
+														stroke-linecap={v0113Compatibility ? 'round' : undefined}
+														stroke-linejoin={v0113Compatibility ? 'round' : undefined}
 														d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z"
 													/>
 												{#if !v0113Compatibility}
-													<path stroke-linecap="round" d="M16.5 8.5c1.5 2 1.5 5 0 7" />
-													<path stroke-linecap="round" d="M19.5 5.5c3 3.5 3 9.5 0 13" />
+													<path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M16.5 8.5c1.5 2 1.5 5 0 7" />
+													<path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" d="M19.5 5.5c3 3.5 3 9.5 0 13" />
 												{/if}
 												</svg>
 											{/if}
@@ -1284,16 +1292,17 @@
 										>
 											<svg
 												class="size-4 -scale-x-100 -scale-y-100 -rotate-90"
+												aria-hidden="true"
 												viewBox="0 0 24 24"
 												fill="none"
-												stroke="currentColor"
 												stroke-width="1.5"
+												xmlns="http://www.w3.org/2000/svg"
 											>
-												<path d="M7 5h.01" stroke-linecap="round" />
-												<path d="M17 5h.01" stroke-linecap="round" />
-												<path d="M7 19h.01" stroke-linecap="round" />
-												<path d="M7 5v14" stroke-linecap="round" />
-												<path d="M17 5v3c0 3-10 2-10 8v3" stroke-linecap="round" />
+												<path d="M7 5h.01" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+												<path d="M17 5h.01" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+												<path d="M7 19h.01" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+												<path d="M7 5v14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+												<path d="M17 5v3c0 3-10 2-10 8v3" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
 											</svg>
 										</button>
 									</Tooltip>
@@ -1327,20 +1336,23 @@
 												}}
 											>
 												<svg
-													stroke="currentColor"
+												aria-hidden={!v0113Compatibility ? 'true' : undefined}
+												stroke={v0113Compatibility ? 'currentColor' : undefined}
 													fill="none"
 													stroke-width="2.3"
 													viewBox="0 0 24 24"
-													stroke-linecap="round"
-													stroke-linejoin="round"
+												stroke-linecap={v0113Compatibility ? 'round' : undefined}
+												stroke-linejoin={v0113Compatibility ? 'round' : undefined}
 													class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}
 													xmlns="http://www.w3.org/2000/svg"
 												>
 													<path
+													stroke={!v0113Compatibility ? 'currentColor' : undefined}
+													stroke-linecap={!v0113Compatibility ? 'round' : undefined}
 														d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"
 													/>
 													{#if !v0113Compatibility}
-														<path d="M7 21V10" />
+												<path d="M7 21V10" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
 													{/if}
 												</svg>
 											</button>
@@ -1372,20 +1384,23 @@
 												}}
 											>
 												<svg
-													stroke="currentColor"
+												aria-hidden={!v0113Compatibility ? 'true' : undefined}
+												stroke={v0113Compatibility ? 'currentColor' : undefined}
 													fill="none"
 													stroke-width="2.3"
 													viewBox="0 0 24 24"
-													stroke-linecap="round"
-													stroke-linejoin="round"
+												stroke-linecap={v0113Compatibility ? 'round' : undefined}
+												stroke-linejoin={v0113Compatibility ? 'round' : undefined}
 													class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}
 													xmlns="http://www.w3.org/2000/svg"
 												>
 													<path
+													stroke={!v0113Compatibility ? 'currentColor' : undefined}
+													stroke-linecap={!v0113Compatibility ? 'round' : undefined}
 														d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"
 													/>
 													{#if !v0113Compatibility}
-														<path d="M17 3v11" />
+												<path d="M17 3v11" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
 													{/if}
 												</svg>
 											</button>
@@ -1407,20 +1422,23 @@
 											>
 												<svg
 													xmlns="http://www.w3.org/2000/svg"
+													aria-hidden={!v0113Compatibility ? 'true' : undefined}
 													fill="none"
 													viewBox="0 0 24 24"
 													stroke-width="2.3"
-													stroke="currentColor"
+													stroke={v0113Compatibility ? 'currentColor' : undefined}
 													class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}
 												>
 													{#if v0113Compatibility}
 														<path
+															stroke={!v0113Compatibility ? 'currentColor' : undefined}
 															stroke-linecap="round"
 															stroke-linejoin="round"
 															d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
 														/>
 													{/if}
 													<path
+														stroke={!v0113Compatibility ? 'currentColor' : undefined}
 														stroke-linecap="round"
 														stroke-linejoin="round"
 														d="M15.91 11.672a.375.375 0 0 1 0 .656l-5.603 3.113a.375.375 0 0 1-.557-.328V8.887c0-.286.307-.466.557-.327l5.603 3.112Z"
@@ -1453,11 +1471,11 @@
 													class="visible inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition"
 													on:click={regenerateMessageHandler}
 												>
-													<svg class="size-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-														<path d="M20 8a9 9 0 0 0-15-3" stroke-linecap="round" />
-														<path d="M5 5v4h4" stroke-linecap="round" stroke-linejoin="round" />
-														<path d="M4 16a9 9 0 0 0 15 3" stroke-linecap="round" />
-														<path d="M19 19v-4h-4" stroke-linecap="round" stroke-linejoin="round" />
+													<svg class="size-4" aria-hidden="true" fill="none" viewBox="0 0 24 24" stroke-width="1.5">
+														<path d="M20 8a9 9 0 0 0-15-3" stroke="currentColor" stroke-linecap="round" />
+														<path d="M5 5v4h4" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+														<path d="M4 16a9 9 0 0 0 15 3" stroke="currentColor" stroke-linecap="round" />
+														<path d="M19 19v-4h-4" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
 													</svg>
 												</button>
 											</Tooltip>
