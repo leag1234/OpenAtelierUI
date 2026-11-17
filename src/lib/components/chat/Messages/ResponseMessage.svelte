@@ -40,6 +40,7 @@
 	import RateComment from './RateComment.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import WebSearchResults from './ResponseMessage/WebSearchResults.svelte';
+	import ResponseStatusCurrent from './ResponseStatusCurrent.svelte';
 	import Sparkles from '$lib/components/icons/Sparkles.svelte';
 
 	import DeleteConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
@@ -648,37 +649,58 @@
 							{@const status = (
 								message?.statusHistory ?? [...(message?.status ? [message?.status] : [])]
 							).at(-1)}
-							{#if !status?.hidden && !(!v0113Compatibility && status?.action === 'response_stopped')}
-								<div class={v0113Compatibility ? 'status-description flex items-center gap-2 py-0.5' : 'status-description relative flex items-center gap-2 py-0.5'}>
-									{#if !v0113Compatibility}
-										<button
-											type="button"
-											class="absolute inset-0"
-											aria-expanded="false"
-											aria-label={$i18n.t(statusDescription(status))}
-										></button>
-									{/if}
-									{#if status?.done === false && v0113Compatibility}
-										<div class="">
-											<Spinner className="size-4" />
-										</div>
-									{/if}
+							{#if !status?.hidden}
+								{#if v0113Compatibility}
+									<div class="status-description flex items-center gap-2 py-0.5">
+										{#if status?.done === false}
+											<div class="">
+												<Spinner className="size-4" />
+											</div>
+										{/if}
 
-									{#if status?.action === 'web_search' && statusSearchUrls(status)}
-										<WebSearchResults {status}>
+										{#if status?.action === 'web_search' && statusSearchUrls(status)}
+											<WebSearchResults {status}>
+												<div class="flex flex-col justify-center -space-y-0.5">
+													<div
+														class="{status?.done === false ? 'shimmer' : ''} text-base line-clamp-1 text-wrap"
+													>
+														{#if statusDescription(status).includes('{{count}}')}
+															{$i18n.t(statusDescription(status), {
+																count: statusSearchUrls(status).length
+															})}
+														{:else if statusDescription(status) === 'No search query generated'}
+															{$i18n.t('No search query generated')}
+														{:else if statusDescription(status) === 'Generating search query'}
+															{$i18n.t('Generating search query')}
+														{:else}
+															{statusDescription(status)}
+														{/if}
+													</div>
+												</div>
+											</WebSearchResults>
+										{:else if status?.action === 'knowledge_search' && statusSearchQuery(status)}
 											<div class="flex flex-col justify-center -space-y-0.5">
 												<div
 													class="{status?.done === false
 														? 'shimmer'
-													: ''} {v0113Compatibility ? 'text-base' : 'text-[0.90625rem]'} line-clamp-1 text-wrap"
+														: ''} text-gray-500 dark:text-gray-500 text-base line-clamp-1 text-wrap"
 												>
-													<!-- $i18n.t("Generating search query") -->
-													<!-- $i18n.t("No search query generated") -->
-
-													<!-- $i18n.t('Searched {{count}} sites') -->
-													{#if statusDescription(status).includes('{{count}}')}
+													{$i18n.t(`Searching Knowledge for "{{searchQuery}}"`, {
+														searchQuery: statusSearchQuery(status)
+													})}
+												</div>
+											</div>
+										{:else}
+											<div class="flex flex-col justify-center -space-y-0.5">
+												<div
+													class="{status?.done === false ? 'shimmer' : ''} {status?.action ===
+													'response_stopped'
+														? 'text-gray-700 dark:text-gray-300'
+														: 'text-gray-500 dark:text-gray-500'} text-base line-clamp-1 text-wrap"
+												>
+													{#if statusDescription(status).includes('{{searchQuery}}')}
 														{$i18n.t(statusDescription(status), {
-														count: statusSearchUrls(status).length
+															searchQuery: statusSearchQuery(status) ?? ''
 														})}
 													{:else if statusDescription(status) === 'No search query generated'}
 														{$i18n.t('No search query generated')}
@@ -689,44 +711,11 @@
 													{/if}
 												</div>
 											</div>
-										</WebSearchResults>
-									{:else if status?.action === 'knowledge_search' && statusSearchQuery(status)}
-										<div class="flex flex-col justify-center -space-y-0.5">
-											<div
-												class="{status?.done === false
-													? 'shimmer'
-													: ''} text-gray-500 dark:text-gray-500 {v0113Compatibility ? 'text-base' : 'text-[0.90625rem]'} line-clamp-1 text-wrap"
-											>
-											{$i18n.t(`Searching Knowledge for "{{searchQuery}}"`, {
-													searchQuery: statusSearchQuery(status)
-												})}
-											</div>
-										</div>
-									{:else}
-										<div class="flex flex-col justify-center -space-y-0.5">
-											<div
-												class="{status?.done === false
-													? 'shimmer'
-													: ''} {status?.action === 'response_stopped'
-														? 'text-gray-700 dark:text-gray-300'
-														: 'text-gray-500 dark:text-gray-500'} {v0113Compatibility ? 'text-base' : 'text-[0.90625rem]'} line-clamp-1 text-wrap"
-											>
-												<!-- $i18n.t(`Searching "{{searchQuery}}"`) -->
-													{#if statusDescription(status).includes('{{searchQuery}}')}
-														{$i18n.t(statusDescription(status), {
-															searchQuery: statusSearchQuery(status) ?? ''
-													})}
-													{:else if statusDescription(status) === 'No search query generated'}
-													{$i18n.t('No search query generated')}
-													{:else if statusDescription(status) === 'Generating search query'}
-													{$i18n.t('Generating search query')}
-												{:else}
-														{statusDescription(status)}
-												{/if}
-											</div>
-										</div>
-									{/if}
-								</div>
+										{/if}
+									</div>
+								{:else}
+									<ResponseStatusCurrent {status} />
+								{/if}
 							{/if}
 						{/if}
 

@@ -10,6 +10,9 @@ CHAT = (ROOT / "src/lib/components/chat/Chat.svelte").read_text()
 CONTROLS = (ROOT / "src/lib/components/chat/ChatControls.svelte").read_text()
 MESSAGE = (ROOT / "src/lib/components/chat/Messages/Message.svelte").read_text()
 RESPONSE = (ROOT / "src/lib/components/chat/Messages/ResponseMessage.svelte").read_text()
+CURRENT_STATUS = (
+    ROOT / "src/lib/components/chat/Messages/ResponseStatusCurrent.svelte"
+).read_text()
 USER_MESSAGE = (ROOT / "src/lib/components/chat/Messages/UserMessage.svelte").read_text()
 SIDEBAR = (ROOT / "src/lib/components/layout/Sidebar/CurrentSidebarShadow.svelte").read_text()
 
@@ -29,11 +32,11 @@ class AtlasRound20ContractTests(unittest.TestCase):
         self.assertIn("? `message-virtualized flex flex-col", MESSAGE)
 
     def test_native_status_is_a_text_control_without_legacy_loader(self) -> None:
-        self.assertIn('class="absolute inset-0"', RESPONSE)
-        self.assertIn('aria-expanded="false"', RESPONSE)
-        self.assertIn("'text-[0.90625rem]'", RESPONSE)
-        self.assertIn("status?.done === false && v0113Compatibility", RESPONSE)
-        self.assertIn("{:else if v0113Compatibility}", RESPONSE)
+        self.assertIn('class="absolute inset-0"', CURRENT_STATUS)
+        self.assertIn('aria-expanded="false"', CURRENT_STATUS)
+        self.assertIn('class="text-[0.90625rem] flex flex-col w-full"', CURRENT_STATUS)
+        self.assertIn("<ResponseStatusCurrent {status} />", RESPONSE)
+        self.assertNotIn("Spinner", CURRENT_STATUS)
 
     def test_native_usage_relationship_and_icon_contract(self) -> None:
         self.assertIn('id="usage-{message.id}"', RESPONSE)
