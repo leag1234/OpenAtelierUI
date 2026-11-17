@@ -158,6 +158,12 @@ textarea::placeholder {
 	}
 }
 
+@media (max-width: 1023px) {
+	#chat-container .buttons > .flex.self-center > time.hover-reveal {
+		display: none;
+	}
+}
+
 .markdown a {
 	@apply underline;
 }

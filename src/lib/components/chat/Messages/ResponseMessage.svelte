@@ -1559,6 +1559,20 @@
 									{/if}
 								{/if}
 							{/if}
+
+							{#if message.timestamp && message.done && !v0113Compatibility}
+								<div class="flex self-center">
+									<time
+										class="hover-reveal ml-1 shrink-0 whitespace-nowrap text-[0.6875rem] tabular-nums text-gray-400 dark:text-gray-600 select-none"
+										datetime={new Date(message.timestamp * 1000).toISOString()}
+									>
+										{formatDate(
+											message.timestamp * 1000,
+											$i18n.resolvedLanguage || $i18n.language
+										)}
+									</time>
+								</div>
+							{/if}
 						{/if}
 					</div>
 

@@ -44,8 +44,12 @@ class AtlasRound20ContractTests(unittest.TestCase):
         self.assertIn('class="w-4 h-4"', RESPONSE)
         self.assertIn('<svg class="size-4" aria-hidden="true"', RESPONSE)
 
-    def test_native_answer_timestamp_is_not_permanently_rendered(self) -> None:
-        self.assertNotIn("message.timestamp && message.done && !v0113Compatibility", RESPONSE)
+    def test_native_answer_timestamp_is_not_permanently_visible(self) -> None:
+        self.assertIn("message.timestamp && message.done && !v0113Compatibility", RESPONSE)
+        self.assertIn(
+            'class="hover-reveal ml-1 shrink-0 whitespace-nowrap text-[0.6875rem]',
+            RESPONSE,
+        )
 
     def test_phone_user_timestamp_and_sidebar_date_are_localized(self) -> None:
         self.assertIn(
