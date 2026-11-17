@@ -10,6 +10,8 @@ CHAT = (ROOT / "src/lib/components/chat/Chat.svelte").read_text()
 CONTROLS = (ROOT / "src/lib/components/chat/ChatControls.svelte").read_text()
 MESSAGE = (ROOT / "src/lib/components/chat/Messages/Message.svelte").read_text()
 RESPONSE = (ROOT / "src/lib/components/chat/Messages/ResponseMessage.svelte").read_text()
+USER_MESSAGE = (ROOT / "src/lib/components/chat/Messages/UserMessage.svelte").read_text()
+SIDEBAR = (ROOT / "src/lib/components/layout/Sidebar/CurrentSidebarShadow.svelte").read_text()
 
 
 class AtlasRound20ContractTests(unittest.TestCase):
@@ -40,6 +42,14 @@ class AtlasRound20ContractTests(unittest.TestCase):
 
     def test_native_answer_timestamp_is_not_permanently_rendered(self) -> None:
         self.assertNotIn("message.timestamp && message.done && !v0113Compatibility", RESPONSE)
+
+    def test_phone_user_timestamp_and_sidebar_date_are_localized(self) -> None:
+        self.assertIn(
+            'class="hover-reveal hidden @lg:block mr-1 text-[0.6875rem]',
+            USER_MESSAGE,
+        )
+        self.assertIn("{$i18n.t(chat.time_range ?? 'Today')}", SIDEBAR)
+        self.assertNotIn("{chat.time_range ?? $i18n.t('Today')}", SIDEBAR)
 
 
 if __name__ == "__main__":

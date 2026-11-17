@@ -163,7 +163,7 @@
 											<div role="listitem">
 								{#if index === 0 || chat.time_range !== visibleChats[index - 1]?.time_range}
 													<h3 class="w-full pl-2.5 text-xs text-gray-500 dark:text-gray-500 font-normal pb-1">
-																{chat.time_range ?? $i18n.t('Today')}
+																{$i18n.t(chat.time_range ?? 'Today')}
 													</h3>
 												{/if}
 												<div
