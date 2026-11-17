@@ -22,8 +22,8 @@ class Round167ShellContract(unittest.TestCase):
         marker = "<CurrentSidebarShadow webuiName={$WEBUI_NAME} />"
         self.assertGreater(SIDEBAR.index(marker), SIDEBAR.rindex("</div>"))
 
-    def test_collapsed_shadow_omits_unobserved_pagination_loader(self) -> None:
-        self.assertNotIn("{#if !expanded}<div>", SHADOW)
+    def test_collapsed_shadow_keeps_reference_pagination_loader(self) -> None:
+        self.assertIn("{#if !expanded}<div>", SHADOW)
 
     def test_collapsed_desktop_trigger_contract_is_stable(self) -> None:
         self.assertIn('id="sidebar-open-button"', SIDEBAR)
