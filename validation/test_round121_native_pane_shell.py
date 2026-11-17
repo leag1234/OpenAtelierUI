@@ -33,11 +33,11 @@ class NativePaneShellTests(unittest.TestCase):
         self.assertIn("id=\"chat-container\"", self.chat)
 
     def test_native_main_pane_matches_observed_reference_attributes(self) -> None:
-        self.assertIn("id={nativeCompatibility ? undefined : 'chat-pane'}", self.chat)
+        self.assertIn("id={nativeCompatibility ? 'chat-panel-main-chat-view' : 'chat-pane'}", self.chat)
         self.assertIn("data-main-chat-pane={nativeCompatibility ? '' : undefined}", self.chat)
-        self.assertNotIn("chat-panel-main-chat-view", self.chat)
-        self.assertNotIn("data-panel-group={nativeCompatibility", self.chat)
-        self.assertNotIn("aria-labelledby={nativeCompatibility ? 'chat-panel-main-chat'", self.chat)
+        self.assertIn("role={nativeCompatibility ? 'tabpanel' : undefined}", self.chat)
+        self.assertIn("data-panel-group={nativeCompatibility ? 'default' : undefined}", self.chat)
+        self.assertIn("aria-labelledby={nativeCompatibility ? 'chat-panel-main-chat'", self.chat)
 
     def test_inner_chat_pane_identity_remains_available(self) -> None:
         self.assertIn("id={nativeCompatibility ? 'chat-pane' : undefined}", self.chat)

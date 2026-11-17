@@ -2244,7 +2244,10 @@
 				? 'relative w-full h-full min-h-0 flex'
 				: 'h-full flex relative max-w-full flex-col'}>
 				<div
-					id={nativeCompatibility ? undefined : 'chat-pane'}
+					id={nativeCompatibility ? 'chat-panel-main-chat-view' : 'chat-pane'}
+					role={nativeCompatibility ? 'tabpanel' : undefined}
+					aria-labelledby={nativeCompatibility ? 'chat-panel-main-chat' : undefined}
+					data-panel-group={nativeCompatibility ? 'default' : undefined}
 					data-main-chat-pane={nativeCompatibility ? '' : undefined}
 					class={nativeCompatibility
 					? 'h-full flex relative max-w-full min-w-0 min-h-0 flex-1 flex-col col-start-1 row-start-2'

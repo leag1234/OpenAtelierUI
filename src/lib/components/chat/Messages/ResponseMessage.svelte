@@ -649,8 +649,16 @@
 								message?.statusHistory ?? [...(message?.status ? [message?.status] : [])]
 							).at(-1)}
 							{#if !status?.hidden && !(!v0113Compatibility && status?.action === 'response_stopped')}
-								<div class="status-description flex items-center gap-2 py-0.5">
-									{#if status?.done === false}
+								<div class={v0113Compatibility ? 'status-description flex items-center gap-2 py-0.5' : 'status-description relative flex items-center gap-2 py-0.5'}>
+									{#if !v0113Compatibility}
+										<button
+											type="button"
+											class="absolute inset-0"
+											aria-expanded="false"
+											aria-label={$i18n.t(statusDescription(status))}
+										></button>
+									{/if}
+									{#if status?.done === false && v0113Compatibility}
 										<div class="">
 											<Spinner className="size-4" />
 										</div>
@@ -662,7 +670,7 @@
 												<div
 													class="{status?.done === false
 														? 'shimmer'
-														: ''} text-base line-clamp-1 text-wrap"
+													: ''} {v0113Compatibility ? 'text-base' : 'text-[0.90625rem]'} line-clamp-1 text-wrap"
 												>
 													<!-- $i18n.t("Generating search query") -->
 													<!-- $i18n.t("No search query generated") -->
@@ -687,7 +695,7 @@
 											<div
 												class="{status?.done === false
 													? 'shimmer'
-													: ''} text-gray-500 dark:text-gray-500 text-base line-clamp-1 text-wrap"
+													: ''} text-gray-500 dark:text-gray-500 {v0113Compatibility ? 'text-base' : 'text-[0.90625rem]'} line-clamp-1 text-wrap"
 											>
 											{$i18n.t(`Searching Knowledge for "{{searchQuery}}"`, {
 													searchQuery: statusSearchQuery(status)
@@ -701,7 +709,7 @@
 													? 'shimmer'
 													: ''} {status?.action === 'response_stopped'
 														? 'text-gray-700 dark:text-gray-300'
-														: 'text-gray-500 dark:text-gray-500'} text-base line-clamp-1 text-wrap"
+														: 'text-gray-500 dark:text-gray-500'} {v0113Compatibility ? 'text-base' : 'text-[0.90625rem]'} line-clamp-1 text-wrap"
 											>
 												<!-- $i18n.t(`Searching "{{searchQuery}}"`) -->
 													{#if statusDescription(status).includes('{{searchQuery}}')}
@@ -811,7 +819,7 @@
 										<div class="text-sm text-gray-600 dark:text-gray-300">
 											{$i18n.t('Response ended without content.')}
 										</div>
-									{:else}
+									{:else if v0113Compatibility}
 										<Skeleton />
 									{/if}
 								{:else if message.content && message.error !== true}
@@ -1244,6 +1252,7 @@
 								{/if}
 
 								{#if message.usage}
+									{#if !v0113Compatibility}<span id="usage-{message.id}" class="sr-only">{JSON.stringify(message.usage)}</span>{/if}
 									<Tooltip
 										content={message.usage
 											? `<pre>${sanitizeResponseContent(
@@ -1259,6 +1268,7 @@
 										placement="bottom"
 									>
 										<button
+											aria-describedby={!v0113Compatibility ? `usage-${message.id}` : undefined}
 											class=" hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition whitespace-pre-wrap"
 											on:click={() => {
 												console.log(message);
@@ -1271,7 +1281,8 @@
 												viewBox="0 0 24 24"
 												stroke-width="2.3"
 												stroke="currentColor"
-												class="w-4 h-4"
+												class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}
+												aria-hidden={!v0113Compatibility ? 'true' : undefined}
 											>
 												<path
 													stroke-linecap="round"
@@ -1550,19 +1561,6 @@
 								{/if}
 							{/if}
 						{/if}
-		{#if message.timestamp && message.done && !v0113Compatibility}
-			<div class="flex self-center">
-				<time
-								class="hover-reveal ml-1 shrink-0 whitespace-nowrap text-[0.6875rem] tabular-nums text-gray-400 dark:text-gray-600 select-none"
-					datetime={new Date(message.timestamp * 1000).toISOString()}
-				>
-					{formatDate(
-						message.timestamp * 1000,
-						$i18n.resolvedLanguage || $i18n.language
-					)}
-				</time>
-			</div>
-		{/if}
 					</div>
 
 					{#if message.done && showRateComment}

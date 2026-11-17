@@ -165,16 +165,16 @@
 			<div class="flex max-w-full w-full mx-auto bg-transparent">
 				<div class="flex items-center w-full max-w-full">
 					<div class="flex-1 min-w-0 overflow-hidden max-w-full md:mt-0.5 md:py-0.5 pl-1 {$showSidebar ? 'ml-1' : ''}">
-						<div class="flex max-w-full min-w-0 items-center gap-2 mr-2">
-							<h1 class="min-w-0 truncate md:py-1 text-left text-[0.9375rem] font-normal text-gray-700 dark:text-gray-300">
-								{title}
-							</h1>
-							<button id="delete-chat-button" class="hidden" aria-label={$i18n.t('Delete')}>
-								<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="size-4.5">
-									<path stroke-linecap="round" stroke-linejoin="round" d="M6.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM12.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM18.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" />
-								</svg>
-							</button>
-						</div>
+						{#if history.currentId}
+							<div class="flex max-w-full min-w-0 items-center gap-2 mr-2">
+								<h1 class="min-w-0 truncate md:py-1 text-left text-[0.9375rem] font-normal text-gray-700 dark:text-gray-300">{title}</h1>
+							</div>
+						{:else}
+							<h1 class="sr-only">{title}</h1>
+							<div class="pointer-events-none invisible flex max-w-full min-w-0 items-center gap-2">
+								<div class="min-w-0 truncate md:py-1 text-left text-[0.9375rem] font-normal text-gray-700 dark:text-gray-300">{title}</div>
+							</div>
+						{/if}
 					</div>
 					<div class="lg:mr-1 flex flex-none items-center gap-2 self-center">
 						<div class="flex">
