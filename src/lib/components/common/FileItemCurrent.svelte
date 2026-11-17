@@ -48,7 +48,7 @@
 		class="flex w-full items-center bg-white dark:bg-gray-850 border border-gray-50/30 dark:border-gray-800/30 h-8 gap-1.5 rounded-xl px-2.5 text-[0.8125rem] leading-5 text-left"
 		on:click={openItem}
 	>
-		<div class="shrink-0 text-gray-500 dark:text-gray-400" aria-hidden="true">
+		<div class="shrink-0 text-gray-500 dark:text-gray-400">
 			<div class="flex">
 				{#if loading}
 					<Spinner className="size-3.5" />
@@ -72,7 +72,7 @@
 			</div>
 		</div>
 
-		<div class="flex min-w-0 flex-1 overflow-hidden" title={decodeString(name)}>
+		<div class="flex min-w-0 flex-1 overflow-hidden">
 			<div class="flex min-w-0 flex-1 items-center overflow-hidden">
 				<div class="flex min-w-0 flex-1 items-center justify-between dark:text-gray-100">
 					<div class="min-w-0 flex-1 truncate pr-1 font-normal">{decodeString(name)}</div>
