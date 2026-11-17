@@ -23,6 +23,7 @@ UUID_RE = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
     re.IGNORECASE,
 )
+PROVIDER_MESSAGE_ID_RE = re.compile(r"msg_[0-9a-f]{24}", re.IGNORECASE)
 VOID_TAGS = frozenset(
     {
         "area",
@@ -120,9 +121,10 @@ def normalize_contract_classes(raw: str | None) -> tuple[str, ...]:
 
 
 def normalize_identifier(raw: str | None) -> str:
-    """Mask only run-specific UUIDs while retaining stable identifier text."""
+    """Mask run-specific UUIDs and provider message IDs, retaining stable text."""
 
-    return UUID_RE.sub("<id>", raw or "")
+    normalized = UUID_RE.sub("<id>", raw or "")
+    return PROVIDER_MESSAGE_ID_RE.sub("<message-id>", normalized)
 
 
 class _StructureParser(HTMLParser):

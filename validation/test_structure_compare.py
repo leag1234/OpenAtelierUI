@@ -103,6 +103,10 @@ class StructureCompareTests(unittest.TestCase):
             normalize_identifier("message-123e4567-e89b-12d3-a456-426614174000"),
             "message-<id>",
         )
+        self.assertEqual(
+            normalize_identifier("code-msg_0536695022a741969e2fba4f-7"),
+            "code-<message-id>-7",
+        )
 
     def test_contract_records_id_attributes_and_immediate_parent(self) -> None:
         signatures = contract_signatures_from_html(

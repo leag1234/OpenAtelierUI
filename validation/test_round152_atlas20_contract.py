@@ -19,16 +19,14 @@ SIDEBAR = (ROOT / "src/lib/components/layout/Sidebar/CurrentSidebarShadow.svelte
 
 class AtlasRound20ContractTests(unittest.TestCase):
     def test_native_main_panel_exports_observed_identity_and_relationships(self) -> None:
-        self.assertIn("id={nativeCompatibility ? undefined : 'chat-pane'}", CHAT)
         self.assertIn("data-main-chat-pane={nativeCompatibility ? '' : undefined}", CHAT)
-        self.assertNotIn("role={nativeCompatibility ? 'tabpanel' : undefined}", CHAT)
-        self.assertNotIn("aria-labelledby={nativeCompatibility ? 'chat-panel-main-chat'", CHAT)
-        self.assertNotIn("data-panel-group={nativeCompatibility ? 'default' : undefined}", CHAT)
+        self.assertIn("role={nativeCompatibility && !$mobile ? 'tabpanel' : undefined}", CHAT)
+        self.assertIn("aria-labelledby={nativeCompatibility && !$mobile ? 'chat-panel-main-chat'", CHAT)
+        self.assertIn("data-panel-group={nativeCompatibility && !$mobile ? 'default' : undefined}", CHAT)
 
     def test_native_mobile_and_desktop_tabs_target_the_main_panel(self) -> None:
         self.assertEqual(CONTROLS.count('data-panel-tab="main-chat"'), 1)
-        self.assertEqual(CONTROLS.count('aria-controls="chat-container"'), 1)
-        self.assertNotIn('aria-controls="chat-panel-main-chat-view"', CONTROLS)
+        self.assertEqual(CONTROLS.count('aria-controls="chat-panel-main-chat-view"'), 1)
 
     def test_native_messages_are_marked_virtualized(self) -> None:
         self.assertNotIn("message-virtualized", MESSAGE)

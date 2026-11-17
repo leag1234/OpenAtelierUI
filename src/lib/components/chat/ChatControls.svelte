@@ -193,7 +193,7 @@
 						<div class="flex items-center gap-0.5 flex-1 min-w-0 py-0.5">
 							<div role="tablist" aria-label="Tabs" tabindex="-1" data-swipe-no-gesture class="panel-tab-strip flex items-center gap-0.5 min-w-0 overflow-x-auto">
 								<div role="presentation" data-panel-tab="main-chat" class="panel-tab flex cursor-pointer items-center gap-1.5 ps-2.5 pe-2 h-7 rounded-lg text-sm font-normal whitespace-nowrap shrink-0 transition bg-gray-100/40 dark:bg-gray-800/25 text-gray-700 dark:text-gray-200">
-									<button role="tab" class="flex h-full items-center gap-1.5 min-w-0" id="chat-panel-main-chat" aria-controls="chat-container" aria-selected="true" tabindex="0" {title} aria-label={title}>
+									<button role="tab" class="flex h-full items-center gap-1.5 min-w-0" id="chat-panel-main-chat" aria-controls="chat-panel-main-chat-view" aria-selected="true" tabindex="0" {title} aria-label={title}>
 										<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" stroke-width="1.5" class="shrink-0">
 											<path d="M8 10L12 10L16 10"></path>
 											<path d="M8 14L10 14L12 14"></path>
@@ -291,6 +291,7 @@
 			</PaneResizer>
 		{/if}
 
+		{#if !latestCompatibility || $showControls}
 		<Pane
 			bind:pane
 			defaultSize={0}
@@ -368,5 +369,6 @@
 				</div>
 			{/if}
 		</Pane>
+		{/if}
 	{/if}
 </SvelteFlowProvider>

@@ -38,9 +38,8 @@
 	};
 
 	const positionLinkPreview = (id: string) => {
-		const trigger = [...document.querySelectorAll<HTMLElement>('[data-link-preview-trigger]')].find(
-			(element) => element.id === `bits-link-preview-${id}` && !element.closest('[inert]')
-		);
+		const index = visibleChats.findIndex((chat) => chat.id === id);
+		const trigger = index < 0 ? null : document.getElementById(`bits-c${index + 1}`);
 		if (!trigger) return;
 		const bounds = trigger.getBoundingClientRect();
 		linkPreviewLeft = Math.max(8, Math.min(window.innerWidth - 264, bounds.right + 8));
@@ -194,12 +193,14 @@
 			</div>
 
 			<div class="relative">
-				<div id="" class="w-full"><div class="w-full cursor-pointer"><div><div class="flex items-start justify-between"><div class="flex items-center justify-between h-6 w-full pl-3.5 pr-1.5 shrink-0"><h2 class="flex flex-1 h-full"><button id="sidebar-folders-button" type="button" aria-expanded={foldersExpanded} aria-controls="sidebar-folders-content" on:click={() => foldersExpanded = !foldersExpanded} class="group flex flex-1 h-full items-center gap-1 text-left text-xs text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400 transition-colors duration-100"><span>{$i18n.t('Folders')}</span><span class="flex opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-100"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" class="size-[0.6875rem]"><path d="m9 18 6-6-6-6" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" /></svg></span></button></h2><div class="contents"></div><button type="button" aria-label={$i18n.t('New Folder')} on:click={onCreateFolder} class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400 transition-colors duration-100"><div class="flex"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" class="size-3.5"><path d="M12 5v14m-7-7h14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" /></svg></div></button></div></div></div></div></div>
-				{#if foldersExpanded}<div><div {...contentSlotAttribute} id="sidebar-folders-content" class="w-full px-1.5">
-					{#each Object.values(folderItems).filter((folder) => folder?.parent_id == null) as folder}
-						<button type="button" class="w-full rounded-xl px-2 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-gray-900">{folder.name}</button>
-					{/each}
-				</div></div>{/if}
+				<div id="" class="w-full">
+					<div class="w-full cursor-pointer"><div><div class="flex items-start justify-between"><div class="flex items-center justify-between h-6 w-full pl-3.5 pr-1.5 shrink-0"><h2 class="flex flex-1 h-full"><button id="sidebar-folders-button" type="button" aria-expanded={foldersExpanded} aria-controls="sidebar-folders-content" on:click={() => foldersExpanded = !foldersExpanded} class="group flex flex-1 h-full items-center gap-1 text-left text-xs text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400 transition-colors duration-100"><span>{$i18n.t('Folders')}</span><span class="flex opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-100"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" class="size-[0.6875rem]"><path d="m9 18 6-6-6-6" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" /></svg></span></button></h2><div class="contents"></div><button type="button" aria-label={$i18n.t('New Folder')} on:click={onCreateFolder} class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400 transition-colors duration-100"><div class="flex"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" class="size-3.5"><path d="M12 5v14m-7-7h14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" /></svg></div></button></div></div></div></div>
+					{#if foldersExpanded}<div style="overflow: hidden;"><div {...contentSlotAttribute} id="sidebar-folders-content" class="w-full px-1.5">
+						{#each Object.values(folderItems).filter((folder) => folder?.parent_id == null) as folder}
+							<button type="button" class="w-full rounded-xl px-2 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-gray-900">{folder.name}</button>
+						{/each}
+					</div></div>{/if}
+				</div>
 			</div>
 
 			<div class="relative">
@@ -231,20 +232,20 @@
 															: 'hover:bg-gray-100 dark:hover:bg-gray-900 group-hover:bg-gray-100 dark:group-hover:bg-gray-900'} whitespace-nowrap text-ellipsis transition"
 													>
 														<a
-															id="bits-link-preview-{chat.id}"
+															id={mobile ? undefined : `bits-c${index + 1}`}
 															class="flex min-w-0 flex-1 {mobile ? '' : '-my-1.5 py-1.5'} items-center"
 															href="/c/{chat.id}"
 															aria-current={$chatId === chat.id ? 'page' : undefined}
-															aria-expanded={linkPreviewChatId === chat.id}
-															aria-haspopup="dialog"
-															data-link-preview-trigger=""
-															data-state={linkPreviewChatId === chat.id ? 'open' : 'closed'}
-															role="button"
+															aria-expanded={mobile ? undefined : linkPreviewChatId === chat.id}
+															aria-haspopup={mobile ? undefined : 'dialog'}
+															data-link-preview-trigger={mobile ? undefined : ''}
+															data-state={mobile ? undefined : linkPreviewChatId === chat.id ? 'open' : 'closed'}
+															role={mobile ? undefined : 'button'}
 															draggable="false"
-															on:mouseenter={() => openLinkPreview(chat.id)}
-															on:mouseleave={() => closeLinkPreview(chat.id)}
-															on:focus={() => openLinkPreview(chat.id, 0)}
-															on:blur={() => closeLinkPreview(chat.id)}
+															on:mouseenter={() => !mobile && openLinkPreview(chat.id)}
+															on:mouseleave={() => !mobile && closeLinkPreview(chat.id)}
+															on:focus={() => !mobile && openLinkPreview(chat.id, 0)}
+															on:blur={() => !mobile && closeLinkPreview(chat.id)}
 															on:keydown={(event) => {
 																if (event.key === 'Escape') closeLinkPreview(chat.id, 0);
 															}}

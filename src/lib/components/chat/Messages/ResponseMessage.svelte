@@ -816,6 +816,7 @@
 									<!-- unless message.error === true which is legacy error handling, where the error message is stored in message.content -->
 									<ContentRenderer
 										id={message.id}
+										responseId={message.responseId ?? null}
 										currentCompatibility={!v0113Compatibility}
 										currentStreaming={!message?.done}
 										currentCompactParagraphs={!v0113Compatibility &&

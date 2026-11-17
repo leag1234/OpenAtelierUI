@@ -11,15 +11,15 @@ SIDEBAR = (ROOT / "src/lib/components/layout/Sidebar/CurrentSidebarShadow.svelte
 
 class SidebarLinkPreviewContractTests(unittest.TestCase):
     def test_trigger_keeps_navigation_and_exports_observed_attributes(self) -> None:
-        self.assertIn('id="bits-link-preview-{chat.id}"', SIDEBAR)
+        self.assertIn('id={mobile ? undefined : `bits-c${index + 1}`}', SIDEBAR)
         self.assertIn('href="/c/{chat.id}"', SIDEBAR)
-        self.assertIn('aria-haspopup="dialog"', SIDEBAR)
-        self.assertIn('data-link-preview-trigger=""', SIDEBAR)
-        self.assertIn("data-state={linkPreviewChatId === chat.id ? 'open' : 'closed'}", SIDEBAR)
-        self.assertIn('role="button"', SIDEBAR)
+        self.assertIn("aria-haspopup={mobile ? undefined : 'dialog'}", SIDEBAR)
+        self.assertIn("data-link-preview-trigger={mobile ? undefined : ''}", SIDEBAR)
+        self.assertIn("data-state={mobile ? undefined : linkPreviewChatId === chat.id ? 'open' : 'closed'}", SIDEBAR)
+        self.assertIn("role={mobile ? undefined : 'button'}", SIDEBAR)
 
     def test_trigger_state_matches_the_rendered_preview(self) -> None:
-        self.assertIn('aria-expanded={linkPreviewChatId === chat.id}', SIDEBAR)
+        self.assertIn('aria-expanded={mobile ? undefined : linkPreviewChatId === chat.id}', SIDEBAR)
         self.assertIn('{#if linkPreviewChatId === chat.id}', SIDEBAR)
         self.assertIn('id="sidebar-chat-preview-{chat.id}"', SIDEBAR)
         self.assertIn('role="dialog"', SIDEBAR)
@@ -28,9 +28,9 @@ class SidebarLinkPreviewContractTests(unittest.TestCase):
         self.assertIn('style:left={`${linkPreviewLeft}px`}', SIDEBAR)
 
     def test_mouse_and_keyboard_interactions_are_bounded(self) -> None:
-        self.assertIn('on:mouseenter={() => openLinkPreview(chat.id)}', SIDEBAR)
-        self.assertIn('on:mouseleave={() => closeLinkPreview(chat.id)}', SIDEBAR)
-        self.assertIn('on:focus={() => openLinkPreview(chat.id, 0)}', SIDEBAR)
+        self.assertIn('on:mouseenter={() => !mobile && openLinkPreview(chat.id)}', SIDEBAR)
+        self.assertIn('on:mouseleave={() => !mobile && closeLinkPreview(chat.id)}', SIDEBAR)
+        self.assertIn('on:focus={() => !mobile && openLinkPreview(chat.id, 0)}', SIDEBAR)
         self.assertIn("if (event.key === 'Escape') closeLinkPreview(chat.id, 0);", SIDEBAR)
         self.assertIn('const closeLinkPreview = (id: string, delay = 120)', SIDEBAR)
 

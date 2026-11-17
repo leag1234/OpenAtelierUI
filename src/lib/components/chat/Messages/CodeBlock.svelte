@@ -11,7 +11,7 @@
 	import PyodideWorker from '$lib/workers/pyodide.worker?worker';
 	import CodeEditor from '$lib/components/common/CodeEditor.svelte';
 	import SvgPanZoom from '$lib/components/common/SVGPanZoom.svelte';
-	import { config } from '$lib/stores';
+	import { config, mobile } from '$lib/stores';
 	import { executeCode } from '$lib/apis/utils';
 	import { toast } from 'svelte-sonner';
 	import ChevronUp from '$lib/components/icons/ChevronUp.svelte';
@@ -432,7 +432,7 @@
 
 			<div
 				class={currentCompatibility
-					? 'sticky top-0 left-0 right-0 py-0.5 px-3.5 gap-2 flex items-center justify-end w-full z-10 text-xs text-black dark:text-white bg-white dark:bg-black'
+					? `sticky ${$mobile ? 'top-10' : 'top-0'} left-0 right-0 py-0.5 px-3.5 gap-2 flex items-center justify-end w-full z-10 text-xs text-black dark:text-white bg-white dark:bg-black`
 					: `sticky ${stickyButtonsClassName} mb-1 py-1 pr-2.5 flex items-center justify-end z-10 text-xs text-black dark:text-white`}
 			>
 				{#if currentCompatibility}

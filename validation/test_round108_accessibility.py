@@ -15,8 +15,7 @@ class Round108AccessibilityContract(unittest.TestCase):
     def test_current_chat_tab_owns_only_tab_roles_and_controls_real_container(self):
         source = (ROOT / "src/lib/components/chat/ChatControls.svelte").read_text()
         self.assertIn('role="tablist" aria-label="Tabs" tabindex="-1"', source)
-        self.assertIn('aria-controls="chat-container"', source)
-        self.assertNotIn('aria-controls="chat-panel-main-chat-view"', source)
+        self.assertIn('aria-controls="chat-panel-main-chat-view"', source)
         self.assertNotIn('aria-label="Close tab"', source)
 
     def test_saved_chat_reconnect_reconciles_orphaned_pending_responses(self):

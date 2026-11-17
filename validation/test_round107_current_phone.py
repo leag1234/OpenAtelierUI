@@ -33,7 +33,7 @@ class CurrentPhoneTests(unittest.TestCase):
 
     def test_phone_messages_reserve_observed_header_space(self) -> None:
         self.assertIn("$mobile ? 'h-full flex pt-18'", MESSAGES)
-        self.assertIn("'sticky top-0 left-0 right-0", CODE)
+        self.assertIn("`sticky ${$mobile ? 'top-10' : 'top-0'} left-0 right-0", CODE)
 
     def test_phone_sidebar_uses_observed_drawer_width(self) -> None:
         self.assertIn("mobile={$mobile}", SIDEBAR)

@@ -9,6 +9,7 @@
 	import { createMessagesList } from '$lib/utils';
 
 	export let id;
+	export let responseId = null;
 	export let content;
 	export let history;
 	export let model = null;
@@ -123,7 +124,7 @@
 	bind:this={contentContainerElement}
 >
 	<Markdown
-		id={currentCompatibility ? `${id}-${id}` : id}
+		id={currentCompatibility ? `${$chatId}-${id}-${responseId ?? id}` : id}
 		{content}
 		{model}
 		{save}

@@ -1242,6 +1242,9 @@
 
 	const chatCompletionEventHandler = async (data, message, chatId) => {
 		const { id, done, choices, content, sources, selected_model_id, error, usage } = data;
+		if (id) {
+			message.responseId = id;
+		}
 
 		if (error) {
 			await handleOpenAIError(error, message);
@@ -2244,8 +2247,11 @@
 				? 'relative w-full h-full min-h-0 flex'
 				: 'h-full flex relative max-w-full flex-col'}>
 				<div
-					id={nativeCompatibility ? undefined : 'chat-pane'}
 					data-main-chat-pane={nativeCompatibility ? '' : undefined}
+					data-panel-group={nativeCompatibility && !$mobile ? 'default' : undefined}
+					id={nativeCompatibility && !$mobile ? 'chat-panel-main-chat-view' : nativeCompatibility ? undefined : 'chat-pane'}
+					role={nativeCompatibility && !$mobile ? 'tabpanel' : undefined}
+					aria-labelledby={nativeCompatibility && !$mobile ? 'chat-panel-main-chat' : undefined}
 					class={nativeCompatibility
 					? 'h-full flex relative max-w-full min-w-0 min-h-0 flex-1 flex-col col-start-1 row-start-2'
 					: 'flex h-full min-h-0 w-full min-w-0 flex-col'}

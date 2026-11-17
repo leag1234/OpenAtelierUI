@@ -13,12 +13,12 @@ def source(relative: str) -> str:
 
 
 class Round163HomogeneousStructuralContract(unittest.TestCase):
-    def test_current_main_pane_keeps_only_the_observed_marker(self) -> None:
+    def test_current_main_pane_keeps_phone_minimal_and_desktop_relationships(self) -> None:
         chat = source("src/lib/components/chat/Chat.svelte")
-        self.assertIn("id={nativeCompatibility ? undefined : 'chat-pane'}", chat)
         self.assertIn("data-main-chat-pane={nativeCompatibility ? '' : undefined}", chat)
-        self.assertNotIn("role={nativeCompatibility ? 'tabpanel' : undefined}", chat)
-        self.assertNotIn("data-panel-group={nativeCompatibility ? 'default' : undefined}", chat)
+        self.assertIn("data-panel-group={nativeCompatibility && !$mobile ? 'default' : undefined}", chat)
+        self.assertIn("role={nativeCompatibility && !$mobile ? 'tabpanel' : undefined}", chat)
+        self.assertIn("aria-labelledby={nativeCompatibility && !$mobile ? 'chat-panel-main-chat' : undefined}", chat)
 
     def test_current_mobile_tab_strip_is_empty_and_desktop_tab_stays_accessible(self) -> None:
         controls = source("src/lib/components/chat/ChatControls.svelte")
@@ -27,7 +27,7 @@ class Round163HomogeneousStructuralContract(unittest.TestCase):
             controls,
         )
         self.assertEqual(controls.count('data-panel-tab="main-chat"'), 1)
-        self.assertEqual(controls.count('aria-controls="chat-container"'), 1)
+        self.assertEqual(controls.count('aria-controls="chat-panel-main-chat-view"'), 1)
         self.assertIn('id="temporary-chat-button"', controls)
         self.assertIn('title="Split screen · Ctrl+\\\\"', controls)
 
@@ -52,8 +52,7 @@ class Round163HomogeneousStructuralContract(unittest.TestCase):
 
     def test_current_code_toolbar_uses_reference_sticky_offset(self) -> None:
         code = source("src/lib/components/chat/Messages/CodeBlock.svelte")
-        self.assertIn("? 'sticky top-0 left-0 right-0", code)
-        self.assertNotIn("? 'sticky top-10 left-0 right-0", code)
+        self.assertIn("`sticky ${$mobile ? 'top-10' : 'top-0'} left-0 right-0", code)
 
 
 if __name__ == "__main__":
