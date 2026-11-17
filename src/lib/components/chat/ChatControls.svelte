@@ -21,11 +21,13 @@
 	import Overview from './Overview.svelte';
 	import EllipsisVertical from '../icons/EllipsisVertical.svelte';
 	import Artifacts from './Artifacts.svelte';
+	import Menu from '$lib/components/layout/Navbar/Menu.svelte';
 	import { min } from '@floating-ui/utils';
 
 	export let history;
 	export let models = [];
 	export let title = 'New Chat';
+	export let chat = null;
 
 	export let chatId = null;
 
@@ -201,6 +203,21 @@
 										</svg>
 										<span class="max-w-30 overflow-hidden text-ellipsis">{title}</span>
 									</button>
+									{#if chatId && chat}
+										<span style="display: contents; cursor: pointer;">
+											<Menu {chat} shareEnabled={true} shareHandler={() => {}} downloadHandler={() => {}} let:builder>
+												<button
+													{...builder}
+													use:builder.action
+													id="chat-context-menu-button"
+													class="flex size-4 shrink-0 cursor-pointer items-center justify-center rounded text-gray-400 hover:bg-gray-200 hover:text-gray-700 dark:hover:bg-white/10 dark:hover:text-white"
+													aria-label="Chat actions"
+												>
+													<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="size-3"><path d="M6.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM12.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM18.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" stroke-linecap="round" stroke-linejoin="round" /></svg>
+												</button>
+											</Menu>
+										</span>
+									{/if}
 								</div>
 							</div>
 							<span style="display: contents; cursor: pointer;">

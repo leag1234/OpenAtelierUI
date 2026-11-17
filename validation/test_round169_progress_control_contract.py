@@ -37,11 +37,14 @@ class Round169ProgressControlContract(unittest.TestCase):
         self.assertIn(marker, CONTROLS)
         self.assertLess(CONTROLS.index(marker), CONTROLS.index('id="temporary-chat-button"'))
 
-    def test_hidden_desktop_header_retains_chat_action_contract(self) -> None:
+    def test_hidden_desktop_header_retains_delete_contract(self) -> None:
         desktop = NAVBAR[NAVBAR.index('pl-1.5 pr-1 hidden') :]
         self.assertIn('id="delete-chat-button"', desktop)
-        self.assertIn('id="chat-context-menu-button"', desktop)
-        self.assertIn('use:nativeMenuTriggerContract={true}', desktop)
+
+    def test_active_tab_retains_chat_action_contract(self) -> None:
+        self.assertIn('id="chat-context-menu-button"', CONTROLS)
+        self.assertIn('use:builder.action', CONTROLS)
+        self.assertIn('class="flex size-4 shrink-0 cursor-pointer', CONTROLS)
 
 
 if __name__ == "__main__":
