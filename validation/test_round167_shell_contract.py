@@ -8,6 +8,9 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SIDEBAR = (ROOT / "src/lib/components/layout/Sidebar.svelte").read_text(encoding="utf-8")
 PENCIL = (ROOT / "src/lib/components/icons/PencilSquare.svelte").read_text(encoding="utf-8")
+SHADOW = (
+    ROOT / "src/lib/components/layout/Sidebar/CurrentSidebarShadow.svelte"
+).read_text(encoding="utf-8")
 
 
 class Round167ShellContract(unittest.TestCase):
@@ -18,6 +21,9 @@ class Round167ShellContract(unittest.TestCase):
     def test_current_sidebar_shadow_is_a_sibling_of_the_collapsed_rail(self) -> None:
         marker = "<CurrentSidebarShadow webuiName={$WEBUI_NAME} />"
         self.assertGreater(SIDEBAR.index(marker), SIDEBAR.rindex("</div>"))
+
+    def test_collapsed_shadow_omits_unobserved_pagination_loader(self) -> None:
+        self.assertNotIn("{#if !expanded}<div>", SHADOW)
 
     def test_collapsed_desktop_trigger_contract_is_stable(self) -> None:
         self.assertIn('id="sidebar-open-button"', SIDEBAR)
