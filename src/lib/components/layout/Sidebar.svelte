@@ -44,6 +44,7 @@
 	import { WEBUI_BASE_URL } from '$lib/constants';
 	import { sidebarStateMarker } from '$lib/utils/sidebarState';
 	import { scheduleContainedNavigationFocus } from '$lib/utils/modalFocus';
+	import { nativeMenuTriggerContract } from '$lib/actions/nativeMenuTriggerContract';
 
 	import ArchivedChatsModal from './Sidebar/ArchivedChatsModal.svelte';
 	import UserMenu from './Sidebar/UserMenu.svelte';
@@ -190,11 +191,11 @@
 		currentChatPage.set(1);
 		allChatsLoaded = false;
 
-		if (search) {
-			await chats.set(await getChatListBySearchText(localStorage.token, search, $currentChatPage));
-		} else {
-			await chats.set(await getChatList(localStorage.token, $currentChatPage));
-		}
+		const initialChats = search
+			? await getChatListBySearchText(localStorage.token, search, $currentChatPage)
+			: await getChatList(localStorage.token, $currentChatPage);
+		await chats.set(initialChats);
+		allChatsLoaded = initialChats.length === 0;
 
 		// Enable pagination
 		scrollPaginationEnabled.set(true);
@@ -541,7 +542,6 @@
 				<div class="flex">
 					<button
 						id="sidebar-open-button"
-						type="button"
 						class="flex size-8.5 shrink-0 items-center justify-center transition group cursor-[e-resize]"
 						aria-label={$i18n.t('Open Sidebar')}
 						on:click={() => showSidebar.set(true)}
@@ -571,14 +571,13 @@
 						}}
 					>
 						<div class="self-center flex size-[calc(30px*var(--app-text-scale,1))] items-center justify-center rounded-lg transition group-hover:bg-gray-100 dark:group-hover:bg-gray-900">
-							<PencilSquare className="size-4" strokeWidth="1.5" />
+							<PencilSquare className="size-4" strokeWidth="1.5" pathStroke={true} />
 						</div>
 					</a>
 				</div></div>
 
 				<div><div class="flex">
 					<button
-						type="button"
 						draggable="false"
 						class="cursor-pointer flex size-8 items-center justify-center transition group"
 						aria-label={$i18n.t('Search')}
@@ -601,12 +600,12 @@
 					<div><div class="flex">
 						<a href="/notes" draggable="false" class="cursor-pointer flex size-8 items-center justify-center transition group" aria-label={$i18n.t('Notes')}>
 							<div class="self-center flex size-[calc(30px*var(--app-text-scale,1))] items-center justify-center rounded-lg transition group-hover:bg-gray-100 dark:group-hover:bg-gray-900">
-								<svg aria-hidden="true" viewBox="0 0 24 24" class="size-4">
-									<path d="M5 3h14v18H5z" />
-									<path d="M8 7h8" />
-									<path d="M8 11h8" />
-									<path d="M8 15h5" />
-									<path d="M8 19h4" />
+								<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" class="size-4">
+									<path d="M5 3h14v18H5z" stroke="currentColor" stroke-linecap="round" />
+									<path d="M8 7h8" stroke="currentColor" stroke-linecap="round" />
+									<path d="M8 11h8" stroke="currentColor" stroke-linecap="round" />
+									<path d="M8 15h5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+									<path d="M8 19h4" stroke="currentColor" stroke-linecap="round" />
 								</svg>
 							</div>
 						</a>
@@ -619,9 +618,9 @@
 							<div class="self-center flex size-[calc(30px*var(--app-text-scale,1))] items-center justify-center rounded-lg transition group-hover:bg-gray-100 dark:group-hover:bg-gray-900">
 								<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="size-4" stroke-width="1.5">
 									<path d="M13.9922 17H16.9922M19.9922 17H16.9922M16.9922 17V14M16.9922 17V20" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
-									<path d="M4 9.4V4.6C4 4.26863 4.26863 4 4.6 4H9.4C9.73137 4 10 4.26863 10 4.6V9.4C10 9.73137 9.73137 10 9.4 10H4.6C4.26863 10 4 9.73137 4 9.4Z" stroke="currentColor" />
-									<path d="M4 19.4V14.6C4 14.2686 4.26863 14 4.6 14H9.4C9.73137 14 10 14.2686 10 14.6V19.4C10 19.7314 9.73137 20 9.4 20H4.6C4.26863 20 4 19.7314 4 19.4Z" stroke="currentColor" />
-									<path d="M14 9.4V4.6C14 4.26863 14.2686 4 14.6 4H19.4C19.7314 4 20 4.26863 20 4.6V9.4C20 9.73137 19.7314 10 19.4 10H14.6C14.2686 10 14 9.73137 14 9.4Z" stroke="currentColor" />
+									<path d="M4 9.4V4.6C4 4.26863 4.26863 4 4.6 4H9.4C9.73137 4 10 4.26863 10 4.6V9.4C10 9.73137 9.73137 10 9.4 10H4.6C4.26863 10 4 9.73137 4 9.4Z" stroke="currentColor" stroke-width="1.5" />
+									<path d="M4 19.4V14.6C4 14.2686 4.26863 14 4.6 14H9.4C9.73137 14 10 14.2686 10 14.6V19.4C10 19.7314 9.73137 20 9.4 20H4.6C4.26863 20 4 19.7314 4 19.4Z" stroke="currentColor" stroke-width="1.5" />
+									<path d="M14 9.4V4.6C14 4.26863 14.2686 4 14.6 4H19.4C19.7314 4 20 4.26863 20 4.6V9.4C20 9.73137 19.7314 10 19.4 10H14.6C14.2686 10 14 9.73137 14 9.4Z" stroke="currentColor" stroke-width="1.5" />
 								</svg>
 							</div>
 						</a>
@@ -632,14 +631,13 @@
 
 		{#if $user !== undefined && $user !== null}
 			<div><div><div class="flex justify-center items-center">
-				<span></span>
 				<UserMenu role={$user?.role} className="max-w-[240px]" let:builder>
-					<button {...builder} use:builder.action type="button" class="cursor-pointer flex size-8.5 items-center justify-center transition group" aria-haspopup="menu" aria-label={$i18n.t('User menu')}>
+					<span><button {...builder} use:builder.action use:nativeMenuTriggerContract={{ enabled: true, removeGeneratedId: true }} type="button" class="cursor-pointer flex size-8.5 items-center justify-center transition group" aria-haspopup="menu" aria-label={$i18n.t('User menu')}>
 						<div class="self-center relative flex size-[calc(30px*var(--app-text-scale,1))] items-center justify-center rounded-lg transition group-hover:bg-gray-100 dark:group-hover:bg-gray-900">
-							<img src={$user?.profile_image_url} class="size-5.5 object-cover rounded-full" alt={$i18n.t('Open User Profile Menu')} />
+							<img src={$user?.profile_image_url} class="size-5.5 object-cover rounded-full" alt={$i18n.t('Open User Profile Menu')} aria-label={$i18n.t('Open User Profile Menu')} />
 							<div class="absolute -bottom-0.5 -right-0.5"><span class="relative flex size-2.5"><span class="relative inline-flex size-2.5 rounded-full bg-green-500 border-2 border-white dark:border-gray-900"></span></span></div>
 						</div>
-					</button>
+					</button></span>
 				</UserMenu>
 			</div></div></div>
 		{/if}
