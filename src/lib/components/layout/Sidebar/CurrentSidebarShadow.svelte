@@ -20,9 +20,49 @@
 	const contentSlotAttribute = { slot: 'content' };
 	let visibleChats: any[] = [];
 	let streamObserver: MutationObserver | null = null;
+	let linkPreviewChatId: string | null = null;
+	let linkPreviewTimer: ReturnType<typeof setTimeout> | null = null;
+	let linkPreviewLeft = 0;
+	let linkPreviewTop = 0;
 	$: visibleChats = ($chats ?? []).filter((chat) =>
 		searchQuery ? chat.title?.toLowerCase().includes(searchQuery.toLowerCase()) : true
 	);
+
+	const portalToBody = (node: HTMLElement) => {
+		document.body.appendChild(node);
+		return {
+			destroy() {
+				node.remove();
+			}
+		};
+	};
+
+	const positionLinkPreview = (id: string) => {
+		const trigger = [...document.querySelectorAll<HTMLElement>('[data-link-preview-trigger]')].find(
+			(element) => element.id === `bits-link-preview-${id}` && !element.closest('[inert]')
+		);
+		if (!trigger) return;
+		const bounds = trigger.getBoundingClientRect();
+		linkPreviewLeft = Math.max(8, Math.min(window.innerWidth - 264, bounds.right + 8));
+		linkPreviewTop = Math.max(8, Math.min(window.innerHeight - 72, bounds.top));
+	};
+
+	const openLinkPreview = (id: string, delay = 300) => {
+		if (linkPreviewTimer) clearTimeout(linkPreviewTimer);
+		linkPreviewTimer = setTimeout(() => {
+			positionLinkPreview(id);
+			linkPreviewChatId = id;
+			linkPreviewTimer = null;
+		}, delay);
+	};
+
+	const closeLinkPreview = (id: string, delay = 120) => {
+		if (linkPreviewTimer) clearTimeout(linkPreviewTimer);
+		linkPreviewTimer = setTimeout(() => {
+			if (linkPreviewChatId === id) linkPreviewChatId = null;
+			linkPreviewTimer = null;
+		}, delay);
+	};
 
 	const updateStreamingState = () => {
 		const stopLabel = $i18n.t('Stop');
@@ -31,13 +71,24 @@
 		);
 	};
 
+	const updateLinkPreviewPosition = () => {
+		if (linkPreviewChatId) positionLinkPreview(linkPreviewChatId);
+	};
+
 	onMount(() => {
 		updateStreamingState();
 		streamObserver = new MutationObserver(updateStreamingState);
 		streamObserver.observe(document.body, { childList: true, subtree: true });
+		window.addEventListener('resize', updateLinkPreviewPosition);
+		window.addEventListener('scroll', updateLinkPreviewPosition, true);
 	});
 
-	onDestroy(() => streamObserver?.disconnect());
+	onDestroy(() => {
+		streamObserver?.disconnect();
+		if (linkPreviewTimer) clearTimeout(linkPreviewTimer);
+		window.removeEventListener('resize', updateLinkPreviewPosition);
+		window.removeEventListener('scroll', updateLinkPreviewPosition, true);
+	});
 </script>
 
 <div
@@ -180,10 +231,23 @@
 															: 'hover:bg-gray-100 dark:hover:bg-gray-900 group-hover:bg-gray-100 dark:group-hover:bg-gray-900'} whitespace-nowrap text-ellipsis transition"
 													>
 														<a
-																	class="flex min-w-0 flex-1 {mobile ? '' : '-my-1.5 py-1.5'} items-center"
+															id="bits-link-preview-{chat.id}"
+															class="flex min-w-0 flex-1 {mobile ? '' : '-my-1.5 py-1.5'} items-center"
 															href="/c/{chat.id}"
 															aria-current={$chatId === chat.id ? 'page' : undefined}
+															aria-expanded={linkPreviewChatId === chat.id}
+															aria-haspopup="dialog"
+															data-link-preview-trigger=""
+															data-state={linkPreviewChatId === chat.id ? 'open' : 'closed'}
+															role="button"
 															draggable="false"
+															on:mouseenter={() => openLinkPreview(chat.id)}
+															on:mouseleave={() => closeLinkPreview(chat.id)}
+															on:focus={() => openLinkPreview(chat.id, 0)}
+															on:blur={() => closeLinkPreview(chat.id)}
+															on:keydown={(event) => {
+																if (event.key === 'Escape') closeLinkPreview(chat.id, 0);
+															}}
 														>
 															{#if responseStreaming && $chatId === chat.id}
 																<div class="shrink-0 self-center pr-2">
@@ -211,6 +275,23 @@
 																<div class="shrink-0 self-center text-[0.625rem] text-gray-400 dark:text-gray-500 pl-2" aria-hidden="true">1m</div>
 															{/if}
 														</a>
+														{#if linkPreviewChatId === chat.id}
+															<div
+																use:portalToBody
+																id="sidebar-chat-preview-{chat.id}"
+																role="dialog"
+																aria-label={$i18n.t('Chat preview')}
+																class="fixed z-[100] hidden w-64 rounded-xl border border-gray-200 bg-white p-3 text-left shadow-lg dark:border-gray-800 dark:bg-gray-900 md:block"
+																style:left={`${linkPreviewLeft}px`}
+																style:top={`${linkPreviewTop}px`}
+																on:mouseenter={() => openLinkPreview(chat.id, 0)}
+																on:mouseleave={() => closeLinkPreview(chat.id)}
+															>
+																<div class="truncate font-medium text-gray-800 dark:text-gray-100">
+																	{chat.title}
+																</div>
+															</div>
+														{/if}
 													</div>
 													<div
 														id="sidebar-chat-item-menu"
