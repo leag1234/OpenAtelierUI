@@ -661,7 +661,7 @@
 										<div
 											class={v0113Compatibility
 												? 'scrollbar-hidden text-left bg-transparent dark:text-gray-100 outline-hidden w-full pt-3 px-1 resize-none h-fit max-h-80 overflow-auto'
-												: 'scrollbar-hidden rtl:text-right ltr:text-left bg-transparent dark:text-gray-100 outline-hidden w-full pb-0.5 px-1 resize-none h-fit max-h-96 overflow-auto pt-2'}
+												: `scrollbar-hidden rtl:text-right ltr:text-left bg-transparent dark:text-gray-100 outline-hidden w-full pb-0.5 px-1 resize-none h-fit max-h-96 overflow-auto ${files.length > 0 ? '' : 'pt-2'}`}
 											id="chat-input-container"
 										>
 											<RichTextInput

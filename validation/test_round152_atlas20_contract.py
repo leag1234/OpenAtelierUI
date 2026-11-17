@@ -19,17 +19,19 @@ SIDEBAR = (ROOT / "src/lib/components/layout/Sidebar/CurrentSidebarShadow.svelte
 
 class AtlasRound20ContractTests(unittest.TestCase):
     def test_native_main_panel_exports_observed_identity_and_relationships(self) -> None:
-        self.assertIn("'chat-panel-main-chat-view'", CHAT)
-        self.assertIn("role={nativeCompatibility ? 'tabpanel' : undefined}", CHAT)
-        self.assertIn("aria-labelledby={nativeCompatibility ? 'chat-panel-main-chat'", CHAT)
-        self.assertIn("data-panel-group={nativeCompatibility ? 'default' : undefined}", CHAT)
+        self.assertIn("id={nativeCompatibility ? undefined : 'chat-pane'}", CHAT)
+        self.assertIn("data-main-chat-pane={nativeCompatibility ? '' : undefined}", CHAT)
+        self.assertNotIn("role={nativeCompatibility ? 'tabpanel' : undefined}", CHAT)
+        self.assertNotIn("aria-labelledby={nativeCompatibility ? 'chat-panel-main-chat'", CHAT)
+        self.assertNotIn("data-panel-group={nativeCompatibility ? 'default' : undefined}", CHAT)
 
     def test_native_mobile_and_desktop_tabs_target_the_main_panel(self) -> None:
-        self.assertGreaterEqual(CONTROLS.count('data-panel-tab="main-chat"'), 2)
-        self.assertGreaterEqual(CONTROLS.count('aria-controls="chat-panel-main-chat-view"'), 2)
+        self.assertEqual(CONTROLS.count('data-panel-tab="main-chat"'), 1)
+        self.assertEqual(CONTROLS.count('aria-controls="chat-container"'), 1)
+        self.assertNotIn('aria-controls="chat-panel-main-chat-view"', CONTROLS)
 
     def test_native_messages_are_marked_virtualized(self) -> None:
-        self.assertIn("? `message-virtualized flex flex-col", MESSAGE)
+        self.assertNotIn("message-virtualized", MESSAGE)
 
     def test_native_status_is_a_text_control_without_legacy_loader(self) -> None:
         self.assertIn('class="absolute inset-0"', CURRENT_STATUS)
@@ -53,7 +55,7 @@ class AtlasRound20ContractTests(unittest.TestCase):
 
     def test_phone_user_timestamp_and_sidebar_date_are_localized(self) -> None:
         self.assertIn(
-            'class="hover-reveal hidden @lg:block mr-1 text-[0.6875rem]',
+            'class="hover-reveal mr-1 text-[0.6875rem]',
             USER_MESSAGE,
         )
         self.assertIn("{$i18n.t(chat.time_range ?? 'Today')}", SIDEBAR)

@@ -105,7 +105,8 @@ class LatestChatTabBarTests(unittest.TestCase):
 
     def test_tab_controls_remain_directly_operable(self) -> None:
         self.assertIn('aria-label="New tab"', self.source)
-        self.assertIn('aria-label="Tabs" aria-expanded="false"', self.source)
+        self.assertIn('id="temporary-chat-button"', self.source)
+        self.assertIn('aria-label="Temporary Chat"', self.source)
         self.assertIn('aria-controls="chat-container"', self.source)
 
     def test_tab_bar_does_not_render_beneath_the_collapsed_rail(self) -> None:

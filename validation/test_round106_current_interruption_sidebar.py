@@ -45,7 +45,7 @@ class CurrentInterruptionSidebarTests(unittest.TestCase):
         self.assertIn("event.key === 'Escape'", CURRENT_SIDEBAR)
 
     def test_current_interruption_hides_internal_status_and_compacts_paragraph(self) -> None:
-        self.assertIn("status?.action === 'response_stopped'", RESPONSE)
+        self.assertIn("status?.action !== 'response_stopped'", RESPONSE)
         self.assertIn("currentCompactParagraphs={!v0113Compatibility", RESPONSE)
         self.assertIn("export let currentCompactParagraphs = false", CONTENT)
         self.assertIn("{currentCompactParagraphs}", CONTENT)

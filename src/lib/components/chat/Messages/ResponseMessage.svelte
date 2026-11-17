@@ -713,7 +713,7 @@
 											</div>
 										{/if}
 									</div>
-								{:else}
+								{:else if status?.action !== 'response_stopped'}
 									<ResponseStatusCurrent {status} />
 								{/if}
 							{/if}

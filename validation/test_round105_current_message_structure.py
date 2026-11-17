@@ -48,10 +48,10 @@ class CurrentMessageStructureTests(unittest.TestCase):
         )[0]
         self.assertIn('role="tablist" aria-label="Tabs" tabindex="-1"', current_block)
         self.assertIn('aria-controls="chat-container"', current_block)
-        self.assertIn('aria-label="Tabs" aria-expanded="false"', current_block)
+        self.assertIn('id="temporary-chat-button"', current_block)
+        self.assertIn('aria-label="Temporary Chat"', current_block)
         self.assertNotIn('aria-label="Close tab"', current_block)
         self.assertNotIn('id="chat-context-menu-button"', current_block)
-        self.assertNotIn('id="temporary-chat-button"', current_block)
 
     def test_current_streaming_button_and_composer_tail_match_current_shape(self) -> None:
         self.assertIn("rounded-full p-[0.3125rem]", INPUT)

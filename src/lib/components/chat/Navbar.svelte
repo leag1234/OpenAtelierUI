@@ -160,7 +160,7 @@
 		<div class="flex items-center w-full pl-1.5 pr-1 hidden">
 			<div
 				id="navbar-bg-gradient-to-b"
-				class="visible bg-linear-to-b via-40% to-97% from-white/90 via-white/50 to-transparent dark:from-gray-900/90 dark:via-gray-900/50 dark:to-transparent pointer-events-none absolute inset-0 -bottom-10 z-[-1]"
+				class="{history.currentId ? 'visible' : 'invisible'} bg-linear-to-b via-40% to-97% from-white/90 via-white/50 to-transparent dark:from-gray-900/90 dark:via-gray-900/50 dark:to-transparent pointer-events-none absolute inset-0 -bottom-10 z-[-1]"
 			></div>
 			<div class="flex max-w-full w-full mx-auto bg-transparent">
 				<div class="flex items-center w-full max-w-full">

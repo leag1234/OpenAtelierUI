@@ -432,7 +432,7 @@
 
 			<div
 				class={currentCompatibility
-					? 'sticky top-10 left-0 right-0 py-0.5 px-3.5 gap-2 flex items-center justify-end w-full z-10 text-xs text-black dark:text-white bg-white dark:bg-black'
+					? 'sticky top-0 left-0 right-0 py-0.5 px-3.5 gap-2 flex items-center justify-end w-full z-10 text-xs text-black dark:text-white bg-white dark:bg-black'
 					: `sticky ${stickyButtonsClassName} mb-1 py-1 pr-2.5 flex items-center justify-end z-10 text-xs text-black dark:text-white`}
 			>
 				{#if currentCompatibility}

@@ -268,7 +268,7 @@
 								{:else}
 									<div class="flex self-center mr-1">
 										<time
-											class="hover-reveal hidden @lg:block mr-1 text-[0.6875rem] tabular-nums text-gray-400 dark:text-gray-600 select-none"
+											class="hover-reveal mr-1 text-[0.6875rem] tabular-nums text-gray-400 dark:text-gray-600 select-none"
 									datetime={new Date(message.timestamp * 1000).toISOString()}
 								>
 									{formatDate(
