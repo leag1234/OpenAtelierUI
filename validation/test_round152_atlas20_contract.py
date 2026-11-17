@@ -41,7 +41,8 @@ class AtlasRound20ContractTests(unittest.TestCase):
     def test_native_usage_relationship_and_icon_contract(self) -> None:
         self.assertIn('id="usage-{message.id}"', RESPONSE)
         self.assertIn("`usage-${message.id}`", RESPONSE)
-        self.assertIn("class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}", RESPONSE)
+        self.assertIn('class="w-4 h-4"', RESPONSE)
+        self.assertIn('<svg class="size-4" aria-hidden="true"', RESPONSE)
 
     def test_native_answer_timestamp_is_not_permanently_rendered(self) -> None:
         self.assertNotIn("message.timestamp && message.done && !v0113Compatibility", RESPONSE)

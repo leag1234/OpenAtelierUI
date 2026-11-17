@@ -1257,28 +1257,38 @@
 										placement="bottom"
 									>
 										<button
+											aria-label={!v0113Compatibility ? $i18n.t('Info') : undefined}
 											aria-describedby={!v0113Compatibility ? `usage-${message.id}` : undefined}
-											class=" hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition whitespace-pre-wrap"
+											class="{v0113Compatibility
+												? 'hover-reveal p-1.5 dark:hover:text-white hover:text-black'
+												: 'visible inline-flex size-7 shrink-0 items-center justify-center p-1.5 dark:hover:text-gray-400 hover:text-gray-600'} hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition whitespace-pre-wrap"
 											on:click={() => {
 												console.log(message);
 											}}
 											id="info-{message.id}"
 										>
-											<svg
-												xmlns="http://www.w3.org/2000/svg"
-												fill="none"
-												viewBox="0 0 24 24"
-												stroke-width="2.3"
-												stroke="currentColor"
-												class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}
-												aria-hidden={!v0113Compatibility ? 'true' : undefined}
-											>
-												<path
-													stroke-linecap="round"
-													stroke-linejoin="round"
-													d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"
-												/>
-											</svg>
+											{#if v0113Compatibility}
+												<svg
+													xmlns="http://www.w3.org/2000/svg"
+													fill="none"
+													viewBox="0 0 24 24"
+													stroke-width="2.3"
+													stroke="currentColor"
+													class="w-4 h-4"
+												>
+													<path
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z"
+													/>
+												</svg>
+											{:else}
+												<svg class="size-4" aria-hidden="true" stroke-width="1.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+													<path d="M12 11.5V16.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+													<path d="M12 7.51L12.01 7.49889" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+													<path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
+												</svg>
+											{/if}
 										</button>
 									</Tooltip>
 								{/if}
