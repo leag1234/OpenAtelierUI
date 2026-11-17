@@ -1158,7 +1158,7 @@
 								/>
 							{/each}
 
-							{#if $scrollPaginationEnabled && !allChatsLoaded && ($chats?.length ?? 0) > 0}
+							{#if $showSidebar && $scrollPaginationEnabled && !allChatsLoaded && ($chats?.length ?? 0) > 0}
 								<Loader
 									on:visible={(e) => {
 										if (!chatListLoading) {
