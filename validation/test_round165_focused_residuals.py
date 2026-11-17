@@ -28,7 +28,7 @@ class Round165FocusedResiduals(unittest.TestCase):
 
     def test_desktop_and_phone_sidebar_triggers_have_measured_contracts(self) -> None:
         sidebar = source("src/lib/components/layout/Sidebar/CurrentSidebarShadow.svelte")
-        self.assertIn("`bits-c${index + 1}`", sidebar)
+        self.assertIn("`bits-c${visibleChats.length - index}`", sidebar)
         self.assertIn("aria-expanded={mobile ? undefined", sidebar)
         self.assertIn('style="overflow: hidden;"', sidebar)
 

@@ -71,8 +71,8 @@
 	let navElement;
 	let sidebarWidth = 260;
     let resizing = false;
-    const setSidebarWidth = (value) => {
-        sidebarWidth = Math.max(200, Math.min(360, Number(value) || 260));
+	const setSidebarWidth = (value, minimum = 200, maximum = 360) => {
+		sidebarWidth = Math.max(minimum, Math.min(maximum, Number(value) || 260));
         document.documentElement.style.setProperty('--sidebar-width', `${sidebarWidth}px`);
         localStorage.setItem('sidebar-width', String(sidebarWidth));
     };
@@ -514,7 +514,40 @@
 		folderItems={folders}
 	/>
 	{#if !$mobile}
-		<div class="relative flex items-center justify-center group border-r border-gray-50 dark:border-gray-850/30 hover:border-gray-200 dark:hover:border-gray-800 transition z-20 bg-transparent p-0 appearance-none">
+		<div
+			id="sidebar-resizer"
+			role="separator"
+			tabindex="0"
+			aria-orientation="vertical"
+			aria-valuemin="220"
+			aria-valuemax="480"
+			aria-label={$i18n.t('Resize panel')}
+			aria-valuenow={sidebarWidth}
+			class="relative flex items-center justify-center group border-r border-gray-50 dark:border-gray-850/30 hover:border-gray-200 dark:hover:border-gray-800 transition z-20 bg-transparent p-0 appearance-none"
+			on:pointerdown={(event) => {
+				resizing = true;
+				event.currentTarget.setPointerCapture(event.pointerId);
+			}}
+			on:pointermove={(event) => {
+				if (resizing) setSidebarWidth(event.clientX, 220, 480);
+			}}
+			on:pointerup={() => (resizing = false)}
+			on:pointercancel={() => (resizing = false)}
+			on:keydown={(event) => {
+				if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+					event.preventDefault();
+					setSidebarWidth(
+						event.key === 'Home'
+							? 220
+							: event.key === 'End'
+								? 480
+								: sidebarWidth + (event.key === 'ArrowRight' ? 10 : -10),
+						220,
+						480
+					);
+				}
+			}}
+		>
 			<div class="absolute -left-1.5 -right-1.5 -top-0 -bottom-0 z-20 cursor-col-resize bg-transparent"></div>
 		</div>
 	{/if}

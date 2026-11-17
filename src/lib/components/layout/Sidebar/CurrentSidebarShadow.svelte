@@ -39,7 +39,7 @@
 
 	const positionLinkPreview = (id: string) => {
 		const index = visibleChats.findIndex((chat) => chat.id === id);
-		const trigger = index < 0 ? null : document.getElementById(`bits-c${index + 1}`);
+		const trigger = index < 0 ? null : document.getElementById(`bits-c${visibleChats.length - index}`);
 		if (!trigger) return;
 		const bounds = trigger.getBoundingClientRect();
 		linkPreviewLeft = Math.max(8, Math.min(window.innerWidth - 264, bounds.right + 8));
@@ -232,7 +232,7 @@
 															: 'hover:bg-gray-100 dark:hover:bg-gray-900 group-hover:bg-gray-100 dark:group-hover:bg-gray-900'} whitespace-nowrap text-ellipsis transition"
 													>
 														<a
-															id={mobile ? undefined : `bits-c${index + 1}`}
+													id={mobile ? undefined : `bits-c${visibleChats.length - index}`}
 															class="flex min-w-0 flex-1 {mobile ? '' : '-my-1.5 py-1.5'} items-center"
 															href="/c/{chat.id}"
 															aria-current={$chatId === chat.id ? 'page' : undefined}
