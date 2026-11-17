@@ -723,10 +723,6 @@
 	{/if}
 {/if}
 
-{#if latestCompatibility && !$showSidebar && !$mobile}
-	<CurrentSidebarShadow webuiName={$WEBUI_NAME} />
-{/if}
-
 {#if $showSidebar}
 	<div
 		class=" {$isApp
@@ -1162,7 +1158,7 @@
 								/>
 							{/each}
 
-							{#if $scrollPaginationEnabled && !allChatsLoaded}
+							{#if $scrollPaginationEnabled && !allChatsLoaded && ($chats?.length ?? 0) > 0}
 								<Loader
 									on:visible={(e) => {
 										if (!chatListLoading) {
@@ -1238,6 +1234,9 @@
 
 {/if}
 </div>
+{#if latestCompatibility && !$showSidebar && !$mobile}
+	<CurrentSidebarShadow webuiName={$WEBUI_NAME} />
+{/if}
 {/if}
 {/if}
 

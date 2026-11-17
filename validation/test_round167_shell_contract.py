@@ -13,6 +13,11 @@ PENCIL = (ROOT / "src/lib/components/icons/PencilSquare.svelte").read_text(encod
 class Round167ShellContract(unittest.TestCase):
     def test_empty_initial_chat_page_closes_pagination(self) -> None:
         self.assertIn("allChatsLoaded = initialChats.length === 0;", SIDEBAR)
+        self.assertIn("!allChatsLoaded && ($chats?.length ?? 0) > 0", SIDEBAR)
+
+    def test_current_sidebar_shadow_is_a_sibling_of_the_collapsed_rail(self) -> None:
+        marker = "<CurrentSidebarShadow webuiName={$WEBUI_NAME} />"
+        self.assertGreater(SIDEBAR.index(marker), SIDEBAR.rindex("</div>"))
 
     def test_collapsed_desktop_trigger_contract_is_stable(self) -> None:
         self.assertIn('id="sidebar-open-button"', SIDEBAR)
