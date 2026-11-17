@@ -92,7 +92,8 @@ class Round16V0113ProfileTests(unittest.TestCase):
         self.assertLess(assistant, markdown)
         self.assertIn("'hidden shrink-0 ltr:mr-2 rtl:ml-2 @lg:flex mt-0.5'", source)
         self.assertIn("'shrink-0 ltr:mr-2 rtl:ml-2 hidden @lg:flex mt-0.5'", source)
-        self.assertIn('id="response-message-{message.id}"', source)
+        self.assertIn("v0113Compatibility ? `response-message-${message.id}`", source)
+        self.assertIn(": 'response-message-model-name'", source)
 
     def test_message_reveal_hooks_apply_to_timestamp_and_actions(self):
         response = RESPONSE.read_text(encoding="utf-8")
