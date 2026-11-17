@@ -24,6 +24,7 @@
 	let linkPreviewTimer: ReturnType<typeof setTimeout> | null = null;
 	let linkPreviewLeft = 0;
 	let linkPreviewTop = 0;
+	const foldersExpandedStorageKey = 'openatelierui-folders-expanded';
 	$: visibleChats = ($chats ?? []).filter((chat) =>
 		searchQuery ? chat.title?.toLowerCase().includes(searchQuery.toLowerCase()) : true
 	);
@@ -74,7 +75,13 @@
 		if (linkPreviewChatId) positionLinkPreview(linkPreviewChatId);
 	};
 
+	const toggleFolders = () => {
+		foldersExpanded = !foldersExpanded;
+		localStorage.setItem(foldersExpandedStorageKey, String(foldersExpanded));
+	};
+
 	onMount(() => {
+		foldersExpanded = localStorage.getItem(foldersExpandedStorageKey) === 'true';
 		updateStreamingState();
 		streamObserver = new MutationObserver(updateStreamingState);
 		streamObserver.observe(document.body, { childList: true, subtree: true });
@@ -194,7 +201,7 @@
 
 			<div class="relative">
 				<div id="" class="w-full">
-					<div class="w-full cursor-pointer"><div><div class="flex items-start justify-between"><div class="flex items-center justify-between h-6 w-full pl-3.5 pr-1.5 shrink-0"><h2 class="flex flex-1 h-full"><button id="sidebar-folders-button" type="button" aria-expanded={foldersExpanded} aria-controls="sidebar-folders-content" on:click={() => foldersExpanded = !foldersExpanded} class="group flex flex-1 h-full items-center gap-1 text-left text-xs text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400 transition-colors duration-100"><span>{$i18n.t('Folders')}</span><span class="flex opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-100"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" class="size-[0.6875rem]"><path d="m9 18 6-6-6-6" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" /></svg></span></button></h2><div class="contents"></div><button type="button" aria-label={$i18n.t('New Folder')} on:click={onCreateFolder} class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400 transition-colors duration-100"><div class="flex"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" class="size-3.5"><path d="M12 5v14m-7-7h14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" /></svg></div></button></div></div></div></div>
+					<div class="w-full cursor-pointer"><div><div class="flex items-start justify-between"><div class="flex items-center justify-between h-6 w-full pl-3.5 pr-1.5 shrink-0"><h2 class="flex flex-1 h-full"><button id="sidebar-folders-button" type="button" aria-expanded={foldersExpanded} aria-controls="sidebar-folders-content" on:click={toggleFolders} class="group flex flex-1 h-full items-center gap-1 text-left text-xs text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400 transition-colors duration-100"><span>{$i18n.t('Folders')}</span><span class="flex opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-100"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" class="size-[0.6875rem]"><path d="m9 18 6-6-6-6" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" /></svg></span></button></h2><div class="contents"></div><button type="button" aria-label={$i18n.t('New Folder')} on:click={onCreateFolder} class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400 transition-colors duration-100"><div class="flex"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke-width="1.5" class="size-3.5"><path d="M12 5v14m-7-7h14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" /></svg></div></button></div></div></div></div>
 					{#if foldersExpanded}<div style="overflow: hidden;"><div {...contentSlotAttribute} id="sidebar-folders-content" class="w-full px-1.5">
 						{#each Object.values(folderItems).filter((folder) => folder?.parent_id == null) as folder}
 							<button type="button" class="w-full rounded-xl px-2 py-1.5 text-left hover:bg-gray-100 dark:hover:bg-gray-900">{folder.name}</button>

@@ -32,6 +32,12 @@ class Round169ProgressControlContract(unittest.TestCase):
         marker = "`bits-c${visibleChats.length - index}`"
         self.assertEqual(SHADOW.count(marker), 2)
 
+    def test_folder_expansion_survives_page_recreation(self) -> None:
+        self.assertIn("const foldersExpandedStorageKey", SHADOW)
+        self.assertIn("localStorage.getItem(foldersExpandedStorageKey) === 'true'", SHADOW)
+        self.assertIn("localStorage.setItem(foldersExpandedStorageKey", SHADOW)
+        self.assertIn('on:click={toggleFolders}', SHADOW)
+
     def test_panel_temporary_control_only_exists_without_active_chat(self) -> None:
         marker = '{#if !chatId}<div class="flex">'
         self.assertIn(marker, CONTROLS)
