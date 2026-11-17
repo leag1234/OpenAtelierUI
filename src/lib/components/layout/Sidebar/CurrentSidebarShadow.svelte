@@ -317,7 +317,7 @@
 										{/each}
 									</div>
 								</div>
-								{#if !expanded}<div>
+								{#if !expanded && ($chats?.length ?? 0) > 0}<div>
 									<div class="w-full flex justify-center py-1 text-xs animate-pulse items-center gap-2">
 										<div class="flex justify-center text-center">
 											<svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor" class="size-4">
