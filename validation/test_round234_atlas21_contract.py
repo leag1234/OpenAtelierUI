@@ -21,6 +21,14 @@ class AtlasRound21ContractTests(unittest.TestCase):
         response = source("src/lib/components/chat/Messages/ResponseMessage.svelte")
         self.assertIn(": `flex w-full message-${message.id}`", response)
 
+    def test_native_user_actions_are_direct_chat_user_children(self) -> None:
+        user_message = source("src/lib/components/chat/Messages/UserMessage.svelte")
+        wrapper = source("src/lib/components/chat/Messages/MessageContentWrapper.svelte")
+        self.assertIn("<MessageContentWrapper wrapped={v0113Compatibility}>", user_message)
+        self.assertIn("{#if wrapped}", wrapper)
+        self.assertIn('<div class="w-full"><slot /></div>', wrapper)
+        self.assertIn("{:else}\n\t<slot />", wrapper)
+
     def test_native_answer_actions_follow_last_message_visibility(self) -> None:
         response = source("src/lib/components/chat/Messages/ResponseMessage.svelte")
         self.assertNotIn(": 'visible inline-flex", response)

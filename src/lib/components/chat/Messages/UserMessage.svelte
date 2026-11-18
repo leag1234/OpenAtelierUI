@@ -14,6 +14,7 @@
 	import Markdown from './Markdown.svelte';
 	import Image from '$lib/components/common/Image.svelte';
 	import DeleteConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
+	import MessageContentWrapper from './MessageContentWrapper.svelte';
 
 	import localizedFormat from 'dayjs/plugin/localizedFormat';
 
@@ -220,7 +221,7 @@
 						</div>
 					</div>
 				{:else}
-					<div class="w-full">
+					<MessageContentWrapper wrapped={v0113Compatibility}>
 						<div class="flex {($settings?.chatBubble ?? true) ? 'justify-end pb-1' : 'w-full'}">
 							<div
 							class="rounded-3xl {($settings?.chatBubble ?? true)
@@ -570,7 +571,7 @@
 								{/if}
 							{/if}
 						</div>
-					</div>
+					</MessageContentWrapper>
 				{/if}
 			{/if}
 		</div>
