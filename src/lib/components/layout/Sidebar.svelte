@@ -557,7 +557,7 @@
 {/if}
 {#if !$mobile || $showSidebar}
 {#if !$showSidebar && !$mobile && latestCompatibility}
-	<button type="button" class="hidden" aria-hidden="true" tabindex="-1"></button>
+	<button id="sidebar-new-chat-button" class="hidden"></button>
 {/if}
 <div id="sidebar" data-state={sidebarStateMarker($showSidebar)}
 	role={!$showSidebar && !$mobile && latestCompatibility ? 'navigation' : undefined}

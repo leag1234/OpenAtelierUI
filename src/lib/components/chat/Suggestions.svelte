@@ -79,9 +79,9 @@
 	{:else}
 		<!-- Keine Vorschläge -->
 
-		<div
-			class="flex w-full text-center items-center justify-center self-start text-gray-400 dark:text-gray-600"
-		>
+		<div class={v0113Compatibility
+			? 'flex w-full text-center items-center justify-center self-start text-gray-400 dark:text-gray-600'
+			: 'flex w-full text-center items-center justify-center self-start text-gray-600 dark:text-gray-400'}>
 			{$WEBUI_NAME} ‧ v{WEBUI_VERSION}
 		</div>
 	{/if}
@@ -117,8 +117,8 @@
 	</div>
 {:else}
 	<div class="h-36 w-full">
-		<div role="list" aria-labelledby="suggestions-heading" class="max-h-36 overflow-auto scrollbar-none items-start {className}">
-			{#if filteredPrompts.length > 0}
+		{#if filteredPrompts.length > 0}
+			<div role="list" aria-labelledby="suggestions-heading" class="max-h-36 overflow-auto scrollbar-none items-start {className}">
 				{#each filteredPrompts.slice(0, 6) as prompt, idx (prompt.id || prompt.content)}
 					<div role="listitem" class="contents">
 						<button
@@ -144,8 +144,8 @@
 						</button>
 					</div>
 				{/each}
-			{/if}
-		</div>
+			</div>
+		{/if}
 	</div>
 {/if}
 

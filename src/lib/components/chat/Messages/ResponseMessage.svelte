@@ -614,7 +614,9 @@
 
 {#key message.id}
 	<div
-		class={v0113Compatibility ? `group flex w-full message-${message.id}` : 'flex w-full'}
+		class={v0113Compatibility
+			? `group flex w-full message-${message.id}`
+			: `flex w-full message-${message.id}`}
 		id="message-{message.id}"
 		dir={$settings?.chatDirection ?? 'auto'}
 	>
@@ -803,8 +805,8 @@
 							</div>
 						{:else}
 							<div class="w-full flex flex-col relative" id="response-content-container">
-								{#if message.content === '' && !message.error}
-									{#if message.done === true}
+					{#if message.content === '' && !message.error}
+						{#if message.done === true && v0113Compatibility}
 										<div class="text-sm text-gray-600 dark:text-gray-300">
 											{$i18n.t('Response ended without content.')}
 										</div>
@@ -1032,7 +1034,7 @@
 												aria-label={$i18n.t('Edit')}
 								class={v0113Compatibility
 									? 'hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition'
-									: 'visible inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition'}
+									: `${isLastMessage ? 'visible' : 'hover-reveal'} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition`}
 												on:click={() => {
 													editMessageHandler();
 												}}
@@ -1063,7 +1065,7 @@
 										aria-label={$i18n.t('Copy')}
 						class={v0113Compatibility
 							? 'hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition copy-response-button'
-							: 'visible inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition copy-response-button'}
+							: `${isLastMessage ? 'visible' : 'hover-reveal'} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition copy-response-button`}
 										on:click={() => {
 											copyToClipboard(message.content);
 										}}
@@ -1097,7 +1099,7 @@
 											aria-label={$i18n.t('Read Aloud')}
 											class={v0113Compatibility
 												? 'hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition'
-												: 'visible inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition'}
+											: `${isLastMessage ? 'visible' : 'hover-reveal'} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition`}
 											on:click={() => {
 												if (!loadingSpeech) {
 													toggleSpeakMessage();
@@ -1242,7 +1244,7 @@
 								{/if}
 
 								{#if message.usage}
-									{#if !v0113Compatibility}<span id="usage-{message.id}" class="sr-only">{JSON.stringify(message.usage)}</span>{/if}
+									{#if !v0113Compatibility}<span id="usage-{message.id}" hidden>{JSON.stringify(message.usage)}</span>{/if}
 									<Tooltip
 										content={message.usage
 											? `<pre>${sanitizeResponseContent(
@@ -1262,7 +1264,7 @@
 											aria-describedby={!v0113Compatibility ? `usage-${message.id}` : undefined}
 											class="{v0113Compatibility
 												? 'hover-reveal p-1.5 dark:hover:text-white hover:text-black'
-												: 'visible inline-flex size-7 shrink-0 items-center justify-center p-1.5 dark:hover:text-gray-400 hover:text-gray-600'} hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition whitespace-pre-wrap"
+											: `${isLastMessage ? 'visible' : 'hover-reveal'} inline-flex size-7 shrink-0 items-center justify-center p-1.5 dark:hover:text-gray-400 hover:text-gray-600`} hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition whitespace-pre-wrap"
 											on:click={() => {
 												console.log(message);
 											}}
@@ -1298,7 +1300,7 @@
 									<Tooltip content={$i18n.t('Fork chat')} placement="bottom">
 										<button
 											aria-label={$i18n.t('Fork chat')}
-											class="visible inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition"
+										class="{isLastMessage ? 'visible' : 'hover-reveal'} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition"
 											on:click={forkChat}
 										>
 											<svg
@@ -1326,7 +1328,7 @@
 												aria-label={$i18n.t('Good Response')}
 												class="{v0113Compatibility
 													? 'hover-reveal p-1.5'
-													: 'visible inline-flex size-7 shrink-0 items-center justify-center p-1.5'} hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
+												: `${isLastMessage ? 'visible' : 'hover-reveal'} inline-flex size-7 shrink-0 items-center justify-center p-1.5`} hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
 													message?.annotation?.rating ?? ''
 												).toString() === '1'
 													? 'bg-gray-100 dark:bg-gray-800'
@@ -1374,7 +1376,7 @@
 												aria-label={$i18n.t('Bad Response')}
 												class="{v0113Compatibility
 													? 'hover-reveal p-1.5'
-													: 'visible inline-flex size-7 shrink-0 items-center justify-center p-1.5'} hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
+												: `${isLastMessage ? 'visible' : 'hover-reveal'} inline-flex size-7 shrink-0 items-center justify-center p-1.5`} hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
 													message?.annotation?.rating ?? ''
 												).toString() === '-1'
 													? 'bg-gray-100 dark:bg-gray-800'
@@ -1426,7 +1428,7 @@
 												aria-label={$i18n.t('Continue Response')}
 												class={v0113Compatibility
 													? 'hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition continue-response-button'
-													: 'visible inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition'}
+											: `${isLastMessage ? 'visible' : 'hover-reveal'} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition`}
 												on:click={() => {
 													continueResponse();
 												}}
@@ -1481,7 +1483,7 @@
 													aria-label={$i18n.t('Regenerate')}
 													aria-haspopup="true"
 													aria-expanded="false"
-													class="visible inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition"
+											class="{isLastMessage ? 'visible' : 'hover-reveal'} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition"
 													on:click={regenerateMessageHandler}
 												>
 											<svg

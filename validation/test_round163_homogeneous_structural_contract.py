@@ -29,12 +29,12 @@ class Round163HomogeneousStructuralContract(unittest.TestCase):
         self.assertEqual(controls.count('data-panel-tab="main-chat"'), 1)
         self.assertEqual(controls.count('aria-controls="chat-panel-main-chat-view"'), 1)
         self.assertIn('id="temporary-chat-button"', controls)
-        self.assertIn('title="Split screen · Ctrl+\\\\"', controls)
+        self.assertIn("title={'Split screen · Ctrl+\\\\'}", controls)
 
     def test_current_message_and_interrupted_status_match_the_measured_shape(self) -> None:
         message = source("src/lib/components/chat/Messages/Message.svelte")
         response = source("src/lib/components/chat/Messages/ResponseMessage.svelte")
-        self.assertNotIn("message-virtualized", message)
+        self.assertIn("message-virtualized", message)
         self.assertIn("{:else if status?.action !== 'response_stopped'}", response)
 
     def test_current_user_timestamp_is_available_at_phone_width(self) -> None:

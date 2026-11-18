@@ -3,7 +3,7 @@
 	import { slide } from 'svelte/transition';
 	import { Pane, PaneResizer } from 'paneforge';
 
-	import { onDestroy, onMount, tick } from 'svelte';
+	import { getContext, onDestroy, onMount, tick } from 'svelte';
 	import {
 		config,
 		mobile,
@@ -22,7 +22,10 @@
 	import EllipsisVertical from '../icons/EllipsisVertical.svelte';
 	import Artifacts from './Artifacts.svelte';
 	import Menu from '$lib/components/layout/Navbar/Menu.svelte';
+	import { nativeMenuTriggerContract } from '$lib/actions/nativeMenuTriggerContract';
 	import { min } from '@floating-ui/utils';
+
+	const i18n = getContext('i18n');
 
 	export let history;
 	export let models = [];
@@ -154,7 +157,6 @@
 				<div data-panel-tab-bar="" class="flex h-9 items-center px-1.5 gap-1 shrink-0 pointer-events-auto select-none col-start-1 row-start-1 min-w-0 z-10">
 					<div class="flex items-center gap-0.5 flex-1 min-w-0 py-0.5">
 						<div role="tablist" tabindex="-1" data-swipe-no-gesture class="panel-tab-strip flex items-center gap-0.5 min-w-0 overflow-x-auto" aria-label="Tabs"></div>
-						<span style="display: contents; cursor: pointer;"><button type="button" class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-100 shrink-0" aria-label="New tab" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" stroke-width="1.5" class="shrink-0"><path d="M6 12H12M18 12H12M12 12V6M12 12V18"></path></svg></button></span>
 					</div>
 					<button type="button" class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-100 shrink-0" aria-label="Hide tabs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" stroke-width="1.5" class="shrink-0"><path d="M6.75827 17.2426L12.0009 12M17.2435 6.75736L12.0009 12M12.0009 12L6.75827 6.75736M12.0009 12L17.2435 17.2426"></path></svg></button>
 				</div>
@@ -174,8 +176,9 @@
 					type="button"
 					class="absolute right-2 top-1 z-20 flex size-7 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-50/40 dark:text-gray-400 dark:hover:bg-gray-800/40 disabled:opacity-30 pointer-events-auto"
 					aria-label="Split screen"
-					title="Split screen · Ctrl+\\"
+					title={'Split screen · Ctrl+\\'}
 					aria-pressed="false"
+					disabled
 				>
 					<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" class="size-4.5" stroke-width="1">
 						<rect x="4" y="4" width="16" height="16" rx="1.5"></rect>
@@ -209,9 +212,10 @@
 												<button
 													{...builder}
 													use:builder.action
+													use:nativeMenuTriggerContract={true}
 													id="chat-context-menu-button"
 													class="flex size-4 shrink-0 cursor-pointer items-center justify-center rounded text-gray-400 hover:bg-gray-200 hover:text-gray-700 dark:hover:bg-white/10 dark:hover:text-white"
-													aria-label="Chat actions"
+													aria-label={$i18n.t('Chat actions')}
 												>
 													<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="size-3"><path d="M6.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM12.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM18.75 12a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Z" stroke-linecap="round" stroke-linejoin="round" /></svg>
 												</button>
@@ -220,17 +224,10 @@
 									{/if}
 								</div>
 							</div>
-							<span style="display: contents; cursor: pointer;">
-								<button type="button" class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-100 shrink-0" aria-label="New tab" aria-haspopup="true" aria-expanded="false">
-									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" stroke-width="1.5" class="shrink-0">
-										<path d="M6 12H12M18 12H12M12 12V6M12 12V18"></path>
-									</svg>
-								</button>
-							</span>
 						</div>
 						<div class="flex shrink-0 items-center gap-2">
 							{#if !chatId}<div class="flex">
-								<button id="temporary-chat-button" class="flex size-6 cursor-pointer items-center justify-center rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200" aria-label="Temporary Chat" on:click={() => temporaryChatEnabled.set(!$temporaryChatEnabled)}>
+								<button id="temporary-chat-button" class="flex size-6 cursor-pointer items-center justify-center rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200" aria-label={$i18n.t('Temporary Chat')} on:click={() => temporaryChatEnabled.set(!$temporaryChatEnabled)}>
 									<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="size-4"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 13.8214 2.48697 15.5291 3.33782 17L2.5 21.5L7 20.6622C8.47087 21.513 10.1786 22 12 22Z" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2.5 3.5"></path></svg>
 								</button>
 							</div>{/if}

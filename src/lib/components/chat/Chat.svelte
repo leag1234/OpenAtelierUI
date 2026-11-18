@@ -455,7 +455,11 @@
 			const pendingReplyIds = Object.entries(history.messages)
 				.filter(([, message]) => message?.role === 'assistant' && message?.done !== true)
 				.map(([messageId]) => messageId);
-			if (!pendingReplyIds.length || typeof currentSocket?.id !== 'string') return;
+			if (!pendingReplyIds.length) {
+				taskIds = null;
+				return;
+			}
+			if (typeof currentSocket?.id !== 'string') return;
 
 			if (get(temporaryChatEnabled) && isTemporaryChatId(currentChatId)) {
 				try {

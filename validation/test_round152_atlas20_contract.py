@@ -29,7 +29,8 @@ class AtlasRound20ContractTests(unittest.TestCase):
         self.assertEqual(CONTROLS.count('aria-controls="chat-panel-main-chat-view"'), 1)
 
     def test_native_messages_are_marked_virtualized(self) -> None:
-        self.assertNotIn("message-virtualized", MESSAGE)
+        self.assertIn("message-virtualized", MESSAGE)
+        self.assertIn("nativeVirtualized", MESSAGE)
 
     def test_native_status_is_a_text_control_without_legacy_loader(self) -> None:
         self.assertIn('class="absolute inset-0"', CURRENT_STATUS)

@@ -40,12 +40,18 @@
 	export let triggerScroll;
 	export let readOnly = false;
 	$: nativeCompatibility = $config?.compatibility_profile === 'native';
+	$: currentMessage = history.messages[messageId];
+	$: nativeVirtualized =
+		nativeCompatibility &&
+		currentMessage?.role === 'assistant' &&
+		(currentMessage?.done !== true ||
+			(currentMessage?.statusHistory ?? []).at(-1)?.action === 'response_stopped');
 </script>
 
 <div
 	role="listitem"
 	class={nativeCompatibility
-		? `flex flex-col justify-between px-3.5 mb-3 w-full ${($settings?.widescreenMode ?? null)
+		? `${nativeVirtualized ? 'message-virtualized ' : ''}flex flex-col justify-between px-3.5 mb-3 w-full ${($settings?.widescreenMode ?? null)
 			? 'max-w-full'
 			: 'max-w-[58rem]'} mx-auto rounded-lg group message-listitem`
 		: `message-listitem flex flex-col justify-between px-5 mb-3 w-full ${($settings?.widescreenMode ?? null)

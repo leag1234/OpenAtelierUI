@@ -14,10 +14,6 @@ RESPONSE = (
 class CurrentResponseParentContractTests(unittest.TestCase):
     def test_native_response_root_uses_the_measured_stable_class_contract(self) -> None:
         self.assertIn(
-            "v0113Compatibility ? `group flex w-full message-${message.id}` : 'flex w-full'",
-            RESPONSE,
-        )
-        self.assertNotIn(
             ": `flex w-full message-${message.id}`",
             RESPONSE,
         )
