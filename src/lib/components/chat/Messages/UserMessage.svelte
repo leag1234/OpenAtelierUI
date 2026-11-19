@@ -271,7 +271,7 @@
 								{:else}
 									<div class="flex self-center mr-1">
 										<time
-											class="hover-reveal mr-1 text-[0.6875rem] tabular-nums text-gray-400 dark:text-gray-600 select-none"
+											class="hover-reveal hidden @lg:block mr-1 text-[0.6875rem] tabular-nums text-gray-400 dark:text-gray-600 select-none"
 									datetime={new Date(message.timestamp * 1000).toISOString()}
 								>
 									{formatDate(
@@ -451,7 +451,10 @@
 							{#if !readOnly && (!isFirstMessage || siblings.length > 1)}
 								<Tooltip content={$i18n.t('Delete')} placement="bottom">
 									<button
-										class="hover-reveal p-1 rounded-sm dark:hover:text-white hover:text-black transition"
+										class={v0113Compatibility
+											? 'hover-reveal p-1 rounded-sm dark:hover:text-white hover:text-black transition'
+											: 'hover-reveal inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition'}
+										aria-label={$i18n.t('Delete')}
 										on:click={() => {
 											showDeleteConfirm = true;
 										}}
@@ -460,9 +463,9 @@
 											xmlns="http://www.w3.org/2000/svg"
 											fill="none"
 											viewBox="0 0 24 24"
-											stroke-width="2"
+											stroke-width={v0113Compatibility ? '2' : '1.5'}
 											stroke="currentColor"
-											class="w-4 h-4"
+											class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}
 										>
 											<path
 												stroke-linecap="round"

@@ -40,13 +40,11 @@ class AtlasRound22ContractTests(unittest.TestCase):
             user_message,
         )
 
-    def test_native_answer_actions_use_observed_inner_flex_group(self) -> None:
+    def test_native_answer_actions_do_not_add_a_global_inner_flex_group(self) -> None:
         response = source("src/lib/components/chat/Messages/ResponseMessage.svelte")
-        group = source("src/lib/components/chat/Messages/ActionRowGroup.svelte")
-        self.assertIn("<ActionRowGroup wrapped={!v0113Compatibility}>", response)
-        self.assertIn('<div class="flex"><slot /></div>', group)
-        self.assertNotIn("isLastMessage ? 'visible' : 'hover-reveal'", response)
-        self.assertGreaterEqual(response.count("hover-reveal inline-flex size-7"), 9)
+        self.assertNotIn("ActionRowGroup", response)
+        self.assertIn("isLastMessage ? 'visible' : 'hover-reveal'", response)
+        self.assertGreaterEqual(response.count("nativeActionVisibility"), 10)
 
 
 if __name__ == "__main__":

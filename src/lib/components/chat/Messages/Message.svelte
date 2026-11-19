@@ -40,12 +40,11 @@
 	export let triggerScroll;
 	export let readOnly = false;
 	$: nativeCompatibility = $config?.compatibility_profile === 'native';
-	$: currentMessage = history.messages[messageId];
+	$: currentTurnUserId = history.messages[history.currentId]?.parentId ?? null;
 	$: nativeVirtualized =
 		nativeCompatibility &&
-		currentMessage?.role === 'assistant' &&
-		(currentMessage?.done !== true ||
-			(currentMessage?.statusHistory ?? []).at(-1)?.action === 'response_stopped');
+		messageId !== history.currentId &&
+		messageId !== currentTurnUserId;
 </script>
 
 <div

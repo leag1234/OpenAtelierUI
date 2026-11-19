@@ -47,15 +47,15 @@
 	onDestroy(() => document.removeEventListener('selectionchange', updateSelection));
 </script>
 
-<div
-	bind:this={toolbar}
-	id={`floating-buttons-${id}-${id}`}
-	use:portalToBody
-	class="fixed max-w-[calc(100vw-1rem)] rounded-lg text-xs z-9999"
-	style:display={visible ? 'block' : 'none'}
-	style:left={`${left}px`}
-	style:top={`${top}px`}
->
+{#if visible}
+	<div
+		bind:this={toolbar}
+		id={`floating-buttons-${id}-${id}`}
+		use:portalToBody
+		class="fixed max-w-[calc(100vw-1rem)] rounded-lg text-xs z-9999"
+		style:left={`${left}px`}
+		style:top={`${top}px`}
+	>
 	<div class="flex flex-row flex-wrap shrink-0 p-0.5 bg-white dark:bg-gray-850 dark:text-gray-100 text-medium rounded-xl shadow-xl border border-gray-100 dark:border-gray-800">
 		<button
 			class="px-1.5 py-[0.0625rem] min-h-9 sm:min-h-0 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl flex items-center gap-1 min-w-fit transition"
@@ -79,5 +79,6 @@
 			</svg>
 			<div class="shrink-0">Explain</div>
 		</button>
+		</div>
 	</div>
-</div>
+{/if}

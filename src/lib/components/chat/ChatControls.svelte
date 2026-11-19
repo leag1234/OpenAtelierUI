@@ -11,7 +11,8 @@
 		showCallOverlay,
 		showOverview,
 		showArtifacts,
-		temporaryChatEnabled
+		temporaryChatEnabled,
+		user
 	} from '$lib/stores';
 
 	import Modal from '../common/Modal.svelte';
@@ -157,6 +158,9 @@
 				<div data-panel-tab-bar="" class="flex h-9 items-center px-1.5 gap-1 shrink-0 pointer-events-auto select-none col-start-1 row-start-1 min-w-0 z-10">
 					<div class="flex items-center gap-0.5 flex-1 min-w-0 py-0.5">
 						<div role="tablist" tabindex="-1" data-swipe-no-gesture class="panel-tab-strip flex items-center gap-0.5 min-w-0 overflow-x-auto" aria-label="Tabs"></div>
+						{#if $user?.role === 'admin'}
+							<span style="display: contents; cursor: pointer;"><button type="button" class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-100 shrink-0" aria-label="New tab" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" stroke-width="1.5" class="shrink-0"><path d="M6 12H12M18 12H12M12 12V6M12 12V18"></path></svg></button></span>
+						{/if}
 					</div>
 					<button type="button" class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-100 shrink-0" aria-label="Hide tabs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" stroke-width="1.5" class="shrink-0"><path d="M6.75827 17.2426L12.0009 12M17.2435 6.75736L12.0009 12M12.0009 12L6.75827 6.75736M12.0009 12L17.2435 17.2426"></path></svg></button>
 				</div>
@@ -178,7 +182,7 @@
 					aria-label="Split screen"
 					title={'Split screen · Ctrl+\\'}
 					aria-pressed="false"
-					disabled
+					disabled={$user?.role !== 'admin'}
 				>
 					<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" class="size-4.5" stroke-width="1">
 						<rect x="4" y="4" width="16" height="16" rx="1.5"></rect>
@@ -224,6 +228,13 @@
 									{/if}
 								</div>
 							</div>
+							{#if $user?.role === 'admin'}
+								<span style="display: contents; cursor: pointer;">
+									<button type="button" class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-100 shrink-0" aria-label="New tab" aria-haspopup="true" aria-expanded="false">
+										<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" stroke-width="1.5" class="shrink-0"><path d="M6 12H12M18 12H12M12 12V6M12 12V18"></path></svg>
+									</button>
+								</span>
+							{/if}
 						</div>
 						<div class="flex shrink-0 items-center gap-2">
 							{#if !chatId}<div class="flex">

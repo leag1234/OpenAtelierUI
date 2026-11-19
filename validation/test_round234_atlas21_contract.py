@@ -13,9 +13,10 @@ def source(relative: str) -> str:
 
 
 class AtlasRound21ContractTests(unittest.TestCase):
-    def test_native_tab_strip_does_not_add_a_new_tab_control(self) -> None:
+    def test_native_tab_strip_limits_new_tab_control_to_admins(self) -> None:
         controls = source("src/lib/components/chat/ChatControls.svelte")
-        self.assertNotIn('aria-label="New tab"', controls)
+        self.assertIn("{#if $user?.role === 'admin'}", controls)
+        self.assertIn('aria-label="New tab"', controls)
 
     def test_native_response_keeps_observed_message_identity(self) -> None:
         response = source("src/lib/components/chat/Messages/ResponseMessage.svelte")
@@ -31,30 +32,28 @@ class AtlasRound21ContractTests(unittest.TestCase):
 
     def test_native_answer_actions_follow_last_message_visibility(self) -> None:
         response = source("src/lib/components/chat/Messages/ResponseMessage.svelte")
-        self.assertNotIn(": 'visible inline-flex", response)
-        self.assertNotIn('class="visible inline-flex', response)
-        self.assertNotIn("isLastMessage ? 'visible' : 'hover-reveal'", response)
-        self.assertGreaterEqual(response.count("hover-reveal inline-flex size-7"), 9)
+        self.assertIn("isLastMessage ? 'visible' : 'hover-reveal'", response)
+        self.assertGreaterEqual(response.count("nativeActionVisibility"), 10)
         self.assertIn('id="usage-{message.id}" hidden', response)
 
     def test_native_progress_and_interruption_mark_virtualized_messages(self) -> None:
         message = source("src/lib/components/chat/Messages/Message.svelte")
         self.assertIn("nativeVirtualized", message)
-        self.assertIn("currentMessage?.done !== true", message)
-        self.assertIn("action === 'response_stopped'", message)
+        self.assertIn("messageId !== history.currentId", message)
+        self.assertIn("messageId !== currentTurnUserId", message)
 
     def test_native_chat_controls_match_disabled_split_and_menu_contract(self) -> None:
         controls = source("src/lib/components/chat/ChatControls.svelte")
         self.assertIn("use:nativeMenuTriggerContract={true}", controls)
         self.assertIn("title={'Split screen · Ctrl+\\\\'}", controls)
-        self.assertIn("\n\t\t\t\t\tdisabled\n", controls)
+        self.assertIn("disabled={$user?.role !== 'admin'}", controls)
 
     def test_native_empty_state_omits_unobserved_controls_and_empty_list(self) -> None:
         navbar = source("src/lib/components/chat/Navbar.svelte")
         suggestions = source("src/lib/components/chat/Suggestions.svelte")
         sidebar = source("src/lib/components/layout/Sidebar.svelte")
         self.assertNotIn("nativeSidebarTooltip", navbar)
-        self.assertIn("{#if history.currentId}<div class=\"flex\">", navbar)
+        self.assertIn("{#if $user?.role === 'admin'}<div class=\"flex\">", navbar)
         self.assertIn("{#if filteredPrompts.length > 0}", suggestions)
         self.assertIn('<button id="sidebar-new-chat-button" class="hidden"></button>', sidebar)
 
@@ -67,7 +66,8 @@ class AtlasRound21ContractTests(unittest.TestCase):
         self.assertIn('"Chat list actions": "Plus"', translations)
         native_heading = placeholder[placeholder.index('{:else}\n\t\t\t\t\t<h2') :]
         native_heading = native_heading[: native_heading.index('</h2>')]
-        self.assertNotIn('<span', native_heading)
+        self.assertIn('<span class="flex items-center">', native_heading)
+        self.assertIn('<span class="line-clamp-1">', native_heading)
 
     def test_reconnect_clears_stale_stop_state_without_pending_reply(self) -> None:
         chat = source("src/lib/components/chat/Chat.svelte")

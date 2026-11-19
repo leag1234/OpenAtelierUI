@@ -51,7 +51,6 @@
 	import ContentRenderer from './ContentRenderer.svelte';
 	import { KokoroWorker } from '$lib/workers/KokoroWorker';
 	import FileItem from '$lib/components/common/FileItem.svelte';
-	import ActionRowGroup from './ActionRowGroup.svelte';
 	$: v0113Compatibility = $config?.compatibility_profile !== 'native';
 
 	interface MessageType {
@@ -137,6 +136,7 @@
 
 	export let isLastMessage = true;
 	export let readOnly = false;
+	$: nativeActionVisibility = isLastMessage ? 'visible' : 'hover-reveal';
 
 	let buttonsContainerElement: HTMLDivElement;
 	let showDeleteConfirm = false;
@@ -1028,7 +1028,6 @@
 							{/if}
 
 							{#if message.done}
-								<ActionRowGroup wrapped={!v0113Compatibility}>
 								{#if !readOnly}
 									{#if $user?.role === 'user' ? ($user?.permissions?.chat?.edit ?? true) : true}
 										<Tooltip content={$i18n.t('Edit')} placement="bottom">
@@ -1036,7 +1035,7 @@
 												aria-label={$i18n.t('Edit')}
 								class={v0113Compatibility
 									? 'hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition'
-									: 'hover-reveal inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition'}
+									: `${nativeActionVisibility} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition`}
 												on:click={() => {
 													editMessageHandler();
 												}}
@@ -1067,7 +1066,7 @@
 										aria-label={$i18n.t('Copy')}
 						class={v0113Compatibility
 							? 'hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition copy-response-button'
-							: 'hover-reveal inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition copy-response-button'}
+							: `${nativeActionVisibility} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition copy-response-button`}
 										on:click={() => {
 											copyToClipboard(message.content);
 										}}
@@ -1101,7 +1100,7 @@
 											aria-label={$i18n.t('Read Aloud')}
 											class={v0113Compatibility
 												? 'hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition'
-										: 'hover-reveal inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition'}
+										: `${nativeActionVisibility} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition`}
 											on:click={() => {
 												if (!loadingSpeech) {
 													toggleSpeakMessage();
@@ -1186,7 +1185,7 @@
 								{#if $config?.features.enable_image_generation && ($user?.role === 'admin' || $user?.permissions?.features?.image_generation) && !readOnly}
 									<Tooltip content={$i18n.t('Generate Image')} placement="bottom">
 										<button
-											class="hover-reveal  p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
+											class="{v0113Compatibility ? 'hover-reveal' : nativeActionVisibility} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
 											on:click={() => {
 												if (!generatingImage) {
 													generateImage(message);
@@ -1266,7 +1265,7 @@
 											aria-describedby={!v0113Compatibility ? `usage-${message.id}` : undefined}
 											class="{v0113Compatibility
 												? 'hover-reveal p-1.5 dark:hover:text-white hover:text-black'
-										: 'hover-reveal inline-flex size-7 shrink-0 items-center justify-center p-1.5 dark:hover:text-gray-400 hover:text-gray-600'} hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition whitespace-pre-wrap"
+										: `${nativeActionVisibility} inline-flex size-7 shrink-0 items-center justify-center p-1.5 dark:hover:text-gray-400 hover:text-gray-600`} hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition whitespace-pre-wrap"
 											on:click={() => {
 												console.log(message);
 											}}
@@ -1302,7 +1301,7 @@
 									<Tooltip content={$i18n.t('Fork chat')} placement="bottom">
 										<button
 											aria-label={$i18n.t('Fork chat')}
-									class="hover-reveal inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition"
+									class="{nativeActionVisibility} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition"
 											on:click={forkChat}
 										>
 											<svg
@@ -1330,7 +1329,7 @@
 												aria-label={$i18n.t('Good Response')}
 												class="{v0113Compatibility
 													? 'hover-reveal p-1.5'
-											: 'hover-reveal inline-flex size-7 shrink-0 items-center justify-center p-1.5'} hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
+											: `${nativeActionVisibility} inline-flex size-7 shrink-0 items-center justify-center p-1.5`} hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
 													message?.annotation?.rating ?? ''
 												).toString() === '1'
 													? 'bg-gray-100 dark:bg-gray-800'
@@ -1378,7 +1377,7 @@
 												aria-label={$i18n.t('Bad Response')}
 												class="{v0113Compatibility
 													? 'hover-reveal p-1.5'
-											: 'hover-reveal inline-flex size-7 shrink-0 items-center justify-center p-1.5'} hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
+											: `${nativeActionVisibility} inline-flex size-7 shrink-0 items-center justify-center p-1.5`} hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
 													message?.annotation?.rating ?? ''
 												).toString() === '-1'
 													? 'bg-gray-100 dark:bg-gray-800'
@@ -1430,7 +1429,7 @@
 												aria-label={$i18n.t('Continue Response')}
 												class={v0113Compatibility
 													? 'hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition continue-response-button'
-										: 'hover-reveal inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition'}
+										: `${nativeActionVisibility} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition`}
 												on:click={() => {
 													continueResponse();
 												}}
@@ -1485,7 +1484,7 @@
 													aria-label={$i18n.t('Regenerate')}
 													aria-haspopup="true"
 													aria-expanded="false"
-											class="hover-reveal inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition"
+											class="{nativeActionVisibility} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition"
 													on:click={regenerateMessageHandler}
 												>
 											<svg
@@ -1511,7 +1510,7 @@
 											<button
 												type="button"
 												id="delete-response-button"
-												class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition delete-response-button"
+											class="{v0113Compatibility ? 'hover-reveal' : nativeActionVisibility} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition delete-response-button"
 												on:click={() => {
 													showDeleteConfirm = true;
 												}}
@@ -1539,7 +1538,7 @@
 											<Tooltip content={action.name} placement="bottom">
 												<button
 													type="button"
-													class="hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
+												class="{v0113Compatibility ? 'hover-reveal' : nativeActionVisibility} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
 													on:click={() => {
 														actionMessage(action.id, message);
 													}}
@@ -1563,13 +1562,12 @@
 										{/each}
 									{/if}
 								{/if}
-								</ActionRowGroup>
 							{/if}
 
 							{#if message.timestamp && message.done && !v0113Compatibility}
 								<div class="flex self-center">
 									<time
-										class="hover-reveal ml-1 shrink-0 whitespace-nowrap text-[0.6875rem] tabular-nums text-gray-400 dark:text-gray-600 select-none"
+									class="{nativeActionVisibility} ml-1 shrink-0 whitespace-nowrap text-[0.6875rem] tabular-nums text-gray-400 dark:text-gray-600 select-none"
 										datetime={new Date(message.timestamp * 1000).toISOString()}
 									>
 										{formatDate(
