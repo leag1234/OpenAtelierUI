@@ -222,6 +222,7 @@
 					</div>
 				{:else}
 					<MessageContentWrapper wrapped={v0113Compatibility}>
+						<MessageContentWrapper wrapped={!v0113Compatibility}>
 						<div class="flex {($settings?.chatBubble ?? true) ? 'justify-end pb-1' : 'w-full'}">
 							<div
 							class="rounded-3xl {($settings?.chatBubble ?? true)
@@ -249,6 +250,7 @@
 								{/if}
 							</div>
 						</div>
+						</MessageContentWrapper>
 
 						<div
 							class={v0113Compatibility

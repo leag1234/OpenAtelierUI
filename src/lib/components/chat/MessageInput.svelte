@@ -6,6 +6,7 @@
 	import { detachFileForRemoval } from '$lib/utils/file-removal';
 	import { availableIntegrations } from '$lib/utils/availableIntegrations';
 	import { nativeMenuTriggerContract } from '$lib/actions/nativeMenuTriggerContract';
+	import { isPendingAssistantReply } from '$lib/utils/chat-session';
 
 	import { onMount, tick, getContext, createEventDispatcher, onDestroy } from 'svelte';
 	const dispatch = createEventDispatcher();
@@ -1294,7 +1295,9 @@
 											</Tooltip>
 										{/if}
 
-										{#if exposeResponseControls && ((taskIds && taskIds.length > 0) || (history.currentId && history.messages[history.currentId]?.done != true))}
+										{#if exposeResponseControls && (v0113Compatibility
+											? ((taskIds && taskIds.length > 0) || (history.currentId && history.messages[history.currentId]?.done != true))
+											: isPendingAssistantReply(history.messages[history.currentId]))}
 											<div class="flex items-center">
 												<div class="flex">
 												<button

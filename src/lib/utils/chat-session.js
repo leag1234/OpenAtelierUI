@@ -114,6 +114,40 @@ export function mergeTaskIds(currentIds, response) {
 	return [...new Set([...normalizeTaskIds({ task_ids: currentIds }), ...normalizeTaskIds(response)])];
 }
 
+export function isPendingAssistantReply(message) {
+	if (!message || message.role !== 'assistant' || message.done === true) return false;
+	const statuses = Array.isArray(message.statusHistory)
+		? message.statusHistory
+		: message.status
+			? [message.status]
+			: [];
+	return !statuses.some((status) => status && status.action === 'response_stopped');
+}
+
+export function reconcileLoadedChatTaskState(history, response) {
+	const activeTaskIds = normalizeTaskIds(response);
+	const sourceMessages = history && history.messages ? history.messages : {};
+	const pendingReplyIds = Object.entries(sourceMessages)
+		.filter(([, message]) => isPendingAssistantReply(message))
+		.map(([messageId]) => messageId);
+	const keepPending = activeTaskIds.length > 0 && pendingReplyIds.length > 0;
+	const pendingReplyIdSet = new Set(pendingReplyIds);
+	const messages = Object.entries(sourceMessages).reduce((result, [messageId, message]) => {
+		result[messageId] =
+			message && message.role === 'assistant'
+				? Object.assign({}, message, {
+						done: keepPending && pendingReplyIdSet.has(messageId) ? false : true
+					})
+				: message;
+		return result;
+	}, {});
+
+	return {
+		history: Object.assign({}, history, { messages }),
+		taskIds: keepPending ? activeTaskIds : null
+	};
+}
+
 export function chatResultMatchesCurrent(requestChatId, currentChatId) {
 	return typeof requestChatId === 'string' && requestChatId === currentChatId;
 }

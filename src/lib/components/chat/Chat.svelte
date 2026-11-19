@@ -20,9 +20,11 @@
 		confirmConnectedSocketUser,
 		createTemporaryChatId,
 		isEphemeralChatId,
+		isPendingAssistantReply,
 		isTemporaryChatId,
 		mergeTaskIds,
 		normalizeTaskIds,
+		reconcileLoadedChatTaskState,
 		requestSavedChatStop,
 		selectChatEventChannel,
 		shouldRequestInitialChatTasks,
@@ -453,7 +455,7 @@
 			const reconciliationEpoch = ++reconnectReconciliationEpoch;
 			const currentChatId = get(chatId);
 			const pendingReplyIds = Object.entries(history.messages)
-				.filter(([, message]) => message?.role === 'assistant' && message?.done !== true)
+				.filter(([, message]) => isPendingAssistantReply(message))
 				.map(([messageId]) => messageId);
 			if (!pendingReplyIds.length) {
 				taskIds = null;
@@ -939,20 +941,14 @@
 				await tick();
 				if (!chatResultMatchesCurrent(requestedChatId, $chatId)) return null;
 
-				if (history.currentId) {
-					for (const message of Object.values(history.messages)) {
-						if (message.role === 'assistant') {
-							message.done = true;
-						}
-					}
-				}
-
 				const taskRes = await getTaskIdsByChatId(localStorage.token, requestedChatId).catch((error) => {
 					return null;
 				});
 
-				if (taskRes && chatResultMatchesCurrent(requestedChatId, $chatId)) {
-					taskIds = normalizeTaskIds(taskRes);
+				if (chatResultMatchesCurrent(requestedChatId, $chatId)) {
+					const reconciled = reconcileLoadedChatTaskState(history, taskRes);
+					history = reconciled.history;
+					taskIds = reconciled.taskIds;
 				}
 
 				await tick();

@@ -33,7 +33,8 @@ class AtlasRound21ContractTests(unittest.TestCase):
         response = source("src/lib/components/chat/Messages/ResponseMessage.svelte")
         self.assertNotIn(": 'visible inline-flex", response)
         self.assertNotIn('class="visible inline-flex', response)
-        self.assertGreaterEqual(response.count("isLastMessage ? 'visible' : 'hover-reveal'"), 9)
+        self.assertNotIn("isLastMessage ? 'visible' : 'hover-reveal'", response)
+        self.assertGreaterEqual(response.count("hover-reveal inline-flex size-7"), 9)
         self.assertIn('id="usage-{message.id}" hidden', response)
 
     def test_native_progress_and_interruption_mark_virtualized_messages(self) -> None:

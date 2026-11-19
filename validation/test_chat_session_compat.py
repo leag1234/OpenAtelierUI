@@ -71,6 +71,18 @@ assert.strictEqual(createTemporaryChatId('session','chat'), 'temporary:session:c
 assert.strictEqual(createTemporaryChatId('','chat'), null);
 assert.strictEqual(chatTaskStopPath('saved/chat 1'), '/api/tasks/chat/saved%2Fchat%201/stop');
 assert.strictEqual(chatTaskResumePath('temporary:session/chat'), '/api/tasks/chat/temporary%3Asession%2Fchat/resume');
+const liveLoaded = reconcileLoadedChatTaskState({messages:{assistant:{role:'assistant',done:false}}}, {task_ids:['live']});
+assert.deepStrictEqual(liveLoaded.taskIds, ['live']);
+assert.strictEqual(liveLoaded.history.messages.assistant.done, false);
+const staleLoaded = reconcileLoadedChatTaskState({messages:{assistant:{role:'assistant',done:true}}}, {task_ids:['stale']});
+assert.strictEqual(staleLoaded.taskIds, null);
+assert.strictEqual(staleLoaded.history.messages.assistant.done, true);
+const completedLoaded = reconcileLoadedChatTaskState({messages:{assistant:{role:'assistant',done:false}}}, {task_ids:[]});
+assert.strictEqual(completedLoaded.taskIds, null);
+assert.strictEqual(completedLoaded.history.messages.assistant.done, true);
+const stoppedLoaded = reconcileLoadedChatTaskState({messages:{assistant:{role:'assistant',done:false,statusHistory:[{action:'response_stopped',done:true}]}}}, {task_ids:['stale']});
+assert.strictEqual(stoppedLoaded.taskIds, null);
+assert.strictEqual(stoppedLoaded.history.messages.assistant.done, true);
 (async function () {
   let listCalls = 0;
   const success = await requestSavedChatStop(

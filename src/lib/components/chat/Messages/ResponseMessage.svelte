@@ -51,6 +51,7 @@
 	import ContentRenderer from './ContentRenderer.svelte';
 	import { KokoroWorker } from '$lib/workers/KokoroWorker';
 	import FileItem from '$lib/components/common/FileItem.svelte';
+	import ActionRowGroup from './ActionRowGroup.svelte';
 	$: v0113Compatibility = $config?.compatibility_profile !== 'native';
 
 	interface MessageType {
@@ -1027,6 +1028,7 @@
 							{/if}
 
 							{#if message.done}
+								<ActionRowGroup wrapped={!v0113Compatibility}>
 								{#if !readOnly}
 									{#if $user?.role === 'user' ? ($user?.permissions?.chat?.edit ?? true) : true}
 										<Tooltip content={$i18n.t('Edit')} placement="bottom">
@@ -1034,7 +1036,7 @@
 												aria-label={$i18n.t('Edit')}
 								class={v0113Compatibility
 									? 'hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition'
-									: `${isLastMessage ? 'visible' : 'hover-reveal'} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition`}
+									: 'hover-reveal inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition'}
 												on:click={() => {
 													editMessageHandler();
 												}}
@@ -1065,7 +1067,7 @@
 										aria-label={$i18n.t('Copy')}
 						class={v0113Compatibility
 							? 'hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition copy-response-button'
-							: `${isLastMessage ? 'visible' : 'hover-reveal'} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition copy-response-button`}
+							: 'hover-reveal inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition copy-response-button'}
 										on:click={() => {
 											copyToClipboard(message.content);
 										}}
@@ -1099,7 +1101,7 @@
 											aria-label={$i18n.t('Read Aloud')}
 											class={v0113Compatibility
 												? 'hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition'
-											: `${isLastMessage ? 'visible' : 'hover-reveal'} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition`}
+										: 'hover-reveal inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition'}
 											on:click={() => {
 												if (!loadingSpeech) {
 													toggleSpeakMessage();
@@ -1264,7 +1266,7 @@
 											aria-describedby={!v0113Compatibility ? `usage-${message.id}` : undefined}
 											class="{v0113Compatibility
 												? 'hover-reveal p-1.5 dark:hover:text-white hover:text-black'
-											: `${isLastMessage ? 'visible' : 'hover-reveal'} inline-flex size-7 shrink-0 items-center justify-center p-1.5 dark:hover:text-gray-400 hover:text-gray-600`} hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition whitespace-pre-wrap"
+										: 'hover-reveal inline-flex size-7 shrink-0 items-center justify-center p-1.5 dark:hover:text-gray-400 hover:text-gray-600'} hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition whitespace-pre-wrap"
 											on:click={() => {
 												console.log(message);
 											}}
@@ -1300,7 +1302,7 @@
 									<Tooltip content={$i18n.t('Fork chat')} placement="bottom">
 										<button
 											aria-label={$i18n.t('Fork chat')}
-										class="{isLastMessage ? 'visible' : 'hover-reveal'} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition"
+									class="hover-reveal inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition"
 											on:click={forkChat}
 										>
 											<svg
@@ -1328,7 +1330,7 @@
 												aria-label={$i18n.t('Good Response')}
 												class="{v0113Compatibility
 													? 'hover-reveal p-1.5'
-												: `${isLastMessage ? 'visible' : 'hover-reveal'} inline-flex size-7 shrink-0 items-center justify-center p-1.5`} hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
+											: 'hover-reveal inline-flex size-7 shrink-0 items-center justify-center p-1.5'} hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
 													message?.annotation?.rating ?? ''
 												).toString() === '1'
 													? 'bg-gray-100 dark:bg-gray-800'
@@ -1376,7 +1378,7 @@
 												aria-label={$i18n.t('Bad Response')}
 												class="{v0113Compatibility
 													? 'hover-reveal p-1.5'
-												: `${isLastMessage ? 'visible' : 'hover-reveal'} inline-flex size-7 shrink-0 items-center justify-center p-1.5`} hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
+											: 'hover-reveal inline-flex size-7 shrink-0 items-center justify-center p-1.5'} hover:bg-black/5 dark:hover:bg-white/5 rounded-lg {(
 													message?.annotation?.rating ?? ''
 												).toString() === '-1'
 													? 'bg-gray-100 dark:bg-gray-800'
@@ -1428,7 +1430,7 @@
 												aria-label={$i18n.t('Continue Response')}
 												class={v0113Compatibility
 													? 'hover-reveal p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition continue-response-button'
-											: `${isLastMessage ? 'visible' : 'hover-reveal'} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition`}
+										: 'hover-reveal inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition'}
 												on:click={() => {
 													continueResponse();
 												}}
@@ -1483,7 +1485,7 @@
 													aria-label={$i18n.t('Regenerate')}
 													aria-haspopup="true"
 													aria-expanded="false"
-											class="{isLastMessage ? 'visible' : 'hover-reveal'} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition"
+											class="hover-reveal inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition"
 													on:click={regenerateMessageHandler}
 												>
 											<svg
@@ -1561,6 +1563,7 @@
 										{/each}
 									{/if}
 								{/if}
+								</ActionRowGroup>
 							{/if}
 
 							{#if message.timestamp && message.done && !v0113Compatibility}
