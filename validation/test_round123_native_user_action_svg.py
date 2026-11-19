@@ -12,9 +12,9 @@ class NativeUserActionSvgContractTests(unittest.TestCase):
         cls.source = USER_MESSAGE.read_text(encoding="utf-8")
 
     def test_native_edit_and_copy_icons_are_decorative(self) -> None:
-        self.assertGreaterEqual(
+        self.assertEqual(
             self.source.count("aria-hidden={!v0113Compatibility ? 'true' : undefined}"),
-            2,
+            1,
         )
 
     def test_native_edit_and_copy_strokes_are_explicit_on_paths(self) -> None:

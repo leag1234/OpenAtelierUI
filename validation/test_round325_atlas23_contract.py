@@ -29,17 +29,18 @@ class AtlasRound23ContractTests(unittest.TestCase):
         self.assertIn("messageId !== currentTurnUserId", message)
         self.assertNotIn("currentMessage?.done !== true", message)
 
-    def test_selection_toolbar_is_not_mounted_without_a_selection(self) -> None:
+    def test_selection_toolbar_stays_mounted_but_hidden_without_a_selection(self) -> None:
         toolbar = source("src/lib/components/chat/CurrentSelectionToolbar.svelte")
-        self.assertIn("{#if visible}", toolbar)
-        self.assertNotIn("style:display={visible ? 'block' : 'none'}", toolbar)
+        self.assertNotIn("{#if visible}", toolbar)
+        self.assertIn("style:display={visible ? 'block' : 'none'}", toolbar)
 
-    def test_native_user_timestamp_stays_hidden_below_large_viewports(self) -> None:
+    def test_native_user_timestamp_retains_hover_reveal_without_viewport_hiding(self) -> None:
         user_message = source("src/lib/components/chat/Messages/UserMessage.svelte")
-        self.assertGreaterEqual(
-            user_message.count("hover-reveal hidden @lg:block"),
-            2,
+        self.assertIn(
+            'class="hover-reveal mr-1 text-[0.6875rem] tabular-nums',
+            user_message,
         )
+        self.assertEqual(user_message.count("hover-reveal hidden @lg:block"), 1)
 
     def test_native_home_controls_follow_the_observed_user_role(self) -> None:
         controls = source("src/lib/components/chat/ChatControls.svelte")
@@ -47,7 +48,7 @@ class AtlasRound23ContractTests(unittest.TestCase):
         self.assertIn("disabled={$user?.role !== 'admin'}", controls)
         self.assertIn("{#if $user?.role === 'admin'}", controls)
         self.assertIn('aria-label="New tab"', controls)
-        self.assertIn("{#if $user?.role === 'admin'}<div class=\"flex\">", navbar)
+        self.assertIn("{#if history.currentId}<div class=\"flex\">", navbar)
 
     def test_native_selected_model_heading_exposes_the_badge_anchor(self) -> None:
         placeholder = source("src/lib/components/chat/Placeholder.svelte")

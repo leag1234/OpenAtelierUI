@@ -49,7 +49,7 @@
 		on:click={openItem}
 	>
 		<div class="shrink-0 text-gray-500 dark:text-gray-400">
-			<div class="flex justify-center text-center">
+			<div class="flex">
 				{#if loading}
 					<Spinner className="size-3.5" />
 				{:else}

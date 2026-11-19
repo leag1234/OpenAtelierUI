@@ -18,6 +18,8 @@ class CurrentAttachmentAttributeTests(unittest.TestCase):
             '<div class="shrink-0 text-gray-500 dark:text-gray-400">',
             CURRENT_FILE,
         )
+        self.assertIn('<div class="flex">', CURRENT_FILE)
+        self.assertNotIn('<div class="flex justify-center text-center">', CURRENT_FILE)
         self.assertEqual(CURRENT_FILE.count('aria-hidden="true"'), 2)
 
     def test_visible_name_and_remove_control_keep_accessible_text(self) -> None:

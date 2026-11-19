@@ -18,6 +18,6 @@
 			? src
 			: `/user.png`}
 	class=" {className} object-cover {currentCompatibility ? 'rounded-2xl' : 'rounded-full -translate-y-[1px]'}"
-	alt="profile"
+	alt={currentCompatibility ? undefined : 'profile'}
 	draggable="false"
 />

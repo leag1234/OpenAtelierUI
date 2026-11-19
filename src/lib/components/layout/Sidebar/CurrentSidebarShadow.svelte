@@ -12,14 +12,12 @@
 	export let onCreateFolder = () => {};
 	export let folderItems: Record<string, any> = {};
 
-	let responseStreaming = false;
 	let foldersExpanded = false;
 	let searchOpen = false;
 	let searchQuery = '';
 	let searchInput: HTMLInputElement | null = null;
 	const contentSlotAttribute = { slot: 'content' };
 	let visibleChats: any[] = [];
-	let streamObserver: MutationObserver | null = null;
 	let linkPreviewChatId: string | null = null;
 	let linkPreviewTimer: ReturnType<typeof setTimeout> | null = null;
 	let linkPreviewLeft = 0;
@@ -64,13 +62,6 @@
 		}, delay);
 	};
 
-	const updateStreamingState = () => {
-		const stopLabel = $i18n.t('Stop');
-		responseStreaming = [...document.querySelectorAll('button[aria-label]')].some(
-			(button) => button.getAttribute('aria-label') === stopLabel
-		);
-	};
-
 	const updateLinkPreviewPosition = () => {
 		if (linkPreviewChatId) positionLinkPreview(linkPreviewChatId);
 	};
@@ -82,15 +73,11 @@
 
 	onMount(() => {
 		foldersExpanded = localStorage.getItem(foldersExpandedStorageKey) === 'true';
-		updateStreamingState();
-		streamObserver = new MutationObserver(updateStreamingState);
-		streamObserver.observe(document.body, { childList: true, subtree: true });
 		window.addEventListener('resize', updateLinkPreviewPosition);
 		window.addEventListener('scroll', updateLinkPreviewPosition, true);
 	});
 
 	onDestroy(() => {
-		streamObserver?.disconnect();
 		if (linkPreviewTimer) clearTimeout(linkPreviewTimer);
 		window.removeEventListener('resize', updateLinkPreviewPosition);
 		window.removeEventListener('scroll', updateLinkPreviewPosition, true);
@@ -257,22 +244,6 @@
 																if (event.key === 'Escape') closeLinkPreview(chat.id, 0);
 															}}
 														>
-															{#if responseStreaming && $chatId === chat.id}
-																<div class="shrink-0 self-center pr-2">
-																	<div class="size-3 flex items-center justify-center">
-																		<div class="flex justify-center text-center">
-																			<svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor" class="size-3">
-																				<style>
-																					.spinner_ajPY { transform-origin: center; animation: spinner_AtaB 0.75s infinite linear; }
-																					@keyframes spinner_AtaB { 100% { transform: rotate(360deg); } }
-																				</style>
-																				<path d="M12,1A11,11,0,1,0,23,12,11,11,0,0,0,12,1Zm0,19a8,8,0,1,1,8-8A8,8,0,0,1,12,20Z" opacity=".25" />
-																				<path d="M10.14,1.16a11,11,0,0,0-9,8.92A1.59,1.59,0,0,0,2.46,12,1.52,1.52,0,0,0,4.11,10.7a8,8,0,0,1,6.66-6.61A1.42,1.42,0,0,0,12,2.69h0A1.57,1.57,0,0,0,10.14,1.16Z" class="spinner_ajPY" />
-																			</svg>
-																		</div>
-																	</div>
-																</div>
-															{/if}
 															<div class="flex self-center flex-1 w-full min-w-0">
 																<div dir="auto" class="text-left self-center overflow-hidden w-full h-5 truncate {$chatId === chat.id ? 'pr-12' : ''}">
 																	{chat.title}
@@ -324,21 +295,6 @@
 										{/each}
 									</div>
 								</div>
-								{#if !expanded && ($chats?.length ?? 0) > 0}<div>
-									<div class="w-full flex justify-center py-1 text-xs animate-pulse items-center gap-2">
-										<div class="flex justify-center text-center">
-											<svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor" class="size-4">
-												<style>
-													.spinner_ajPY { transform-origin: center; animation: spinner_AtaB 0.75s infinite linear; }
-													@keyframes spinner_AtaB { 100% { transform: rotate(360deg); } }
-												</style>
-												<path d="M12,1A11,11,0,1,0,23,12,11,11,0,0,0,12,1Zm0,19a8,8,0,1,1,8-8A8,8,0,0,1,12,20Z" opacity=".25" />
-												<path d="M10.14,1.16a11,11,0,0,0-9,8.92A1.59,1.59,0,0,0,2.46,12,1.52,1.52,0,0,0,4.11,10.7a8,8,0,0,1,6.66-6.61A1.42,1.42,0,0,0,12,2.69h0A1.57,1.57,0,0,0,10.14,1.16Z" class="spinner_ajPY" />
-											</svg>
-										</div>
-										<div>Loading...</div>
-									</div>
-								</div>{/if}
 							</div>
 						</div>
 					</div>

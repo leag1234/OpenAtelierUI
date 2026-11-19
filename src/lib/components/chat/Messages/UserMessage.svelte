@@ -271,7 +271,7 @@
 								{:else}
 									<div class="flex self-center mr-1">
 										<time
-											class="hover-reveal hidden @lg:block mr-1 text-[0.6875rem] tabular-nums text-gray-400 dark:text-gray-600 select-none"
+											class="hover-reveal mr-1 text-[0.6875rem] tabular-nums text-gray-400 dark:text-gray-600 select-none"
 									datetime={new Date(message.timestamp * 1000).toISOString()}
 								>
 									{formatDate(
@@ -393,7 +393,6 @@
 									>
 										<svg
 											xmlns="http://www.w3.org/2000/svg"
-											aria-hidden={!v0113Compatibility ? 'true' : undefined}
 											fill="none"
 											viewBox="0 0 24 24"
 											stroke-width="2.3"

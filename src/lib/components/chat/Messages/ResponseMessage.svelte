@@ -1476,15 +1476,12 @@
 											</button>
 										</Tooltip>
 									{:else}
-										<button type="button" class="hidden regenerate-response-button" on:click={regenerateMessageHandler}></button>
 										<span style="display: contents; cursor: pointer;">
 											<Tooltip content={$i18n.t('Regenerate')} placement="bottom">
 												<button
 													type="button"
 													aria-label={$i18n.t('Regenerate')}
-													aria-haspopup="true"
-													aria-expanded="false"
-											class="{nativeActionVisibility} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition"
+											class="{nativeActionVisibility} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition regenerate-response-button"
 													on:click={regenerateMessageHandler}
 												>
 											<svg
@@ -1567,7 +1564,7 @@
 							{#if message.timestamp && message.done && !v0113Compatibility}
 								<div class="flex self-center">
 									<time
-									class="{nativeActionVisibility} ml-1 shrink-0 whitespace-nowrap text-[0.6875rem] tabular-nums text-gray-400 dark:text-gray-600 select-none"
+									class="hover-reveal ml-1 shrink-0 whitespace-nowrap text-[0.6875rem] tabular-nums text-gray-400 dark:text-gray-600 select-none"
 										datetime={new Date(message.timestamp * 1000).toISOString()}
 									>
 										{formatDate(

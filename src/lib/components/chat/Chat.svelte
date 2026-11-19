@@ -949,6 +949,7 @@
 					const reconciled = reconcileLoadedChatTaskState(history, taskRes);
 					history = reconciled.history;
 					taskIds = reconciled.taskIds;
+					if (taskIds?.length && reconnectHandler) void reconnectHandler();
 				}
 
 				await tick();

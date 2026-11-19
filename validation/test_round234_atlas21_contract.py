@@ -53,7 +53,7 @@ class AtlasRound21ContractTests(unittest.TestCase):
         suggestions = source("src/lib/components/chat/Suggestions.svelte")
         sidebar = source("src/lib/components/layout/Sidebar.svelte")
         self.assertNotIn("nativeSidebarTooltip", navbar)
-        self.assertIn("{#if $user?.role === 'admin'}<div class=\"flex\">", navbar)
+        self.assertIn("{#if history.currentId}<div class=\"flex\">", navbar)
         self.assertIn("{#if filteredPrompts.length > 0}", suggestions)
         self.assertIn('<button id="sidebar-new-chat-button" class="hidden"></button>', sidebar)
 
@@ -80,9 +80,10 @@ class AtlasRound21ContractTests(unittest.TestCase):
         response = source("src/lib/components/chat/Messages/ResponseMessage.svelte")
         self.assertIn("message.done === true && v0113Compatibility", response)
 
-    def test_current_attachment_icon_uses_observed_centering_wrapper(self) -> None:
+    def test_current_attachment_icon_uses_observed_plain_flex_wrapper(self) -> None:
         file_item = source("src/lib/components/common/FileItemCurrent.svelte")
-        self.assertIn('class="flex justify-center text-center"', file_item)
+        self.assertIn('class="flex"', file_item)
+        self.assertNotIn('class="flex justify-center text-center"', file_item)
 
 
 if __name__ == "__main__":
