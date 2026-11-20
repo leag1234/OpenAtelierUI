@@ -13,14 +13,15 @@ def source(relative: str) -> str:
 
 
 class AtlasRound26ContractTests(unittest.TestCase):
-    def test_tabs_follow_conversation_or_unconfigured_model_context(self) -> None:
+    def test_panel_tabs_remain_mounted_while_navbar_duplicate_is_stateful(self) -> None:
         navbar = source("src/lib/components/chat/Navbar.svelte")
         chat = source("src/lib/components/chat/Chat.svelte")
         self.assertIn("Boolean(history.currentId) ||", navbar)
         self.assertIn("!Array.isArray(selectedModels) ||", navbar)
         self.assertIn("selectedModels.filter((modelId)", navbar)
         self.assertNotIn("($chats?.length ?? 0) === 0", navbar)
-        self.assertIn("{#if !nativeCompatibility || history.currentId}", chat)
+        self.assertNotIn("{#if !nativeCompatibility || history.currentId}", chat)
+        self.assertEqual(chat.count("<ChatControls"), 1)
 
     def test_regenerate_attributes_match_native_contract(self) -> None:
         response = source("src/lib/components/chat/Messages/ResponseMessage.svelte")
@@ -38,8 +39,11 @@ class AtlasRound26ContractTests(unittest.TestCase):
 
     def test_phone_toolbar_omits_streaming_and_stopped_states(self) -> None:
         chat = source("src/lib/components/chat/Chat.svelte")
-        self.assertIn("(!$mobile || (history.messages[history.currentId]?.done === true", chat)
-        self.assertIn("!hasStoppedResponseStatus(history.messages[history.currentId])", chat)
+        self.assertIn("window.matchMedia('(min-width: 640px)')", chat)
+        self.assertIn(
+            "{#if nativeCompatibility && history.currentId && selectionToolbarDesktop}",
+            chat,
+        )
 
     def test_current_turn_delete_waits_for_terminal_state(self) -> None:
         user = source("src/lib/components/chat/Messages/UserMessage.svelte")

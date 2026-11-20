@@ -19,7 +19,6 @@
 		chatResultMatchesCurrent,
 		confirmConnectedSocketUser,
 		createTemporaryChatId,
-		hasStoppedResponseStatus,
 		isEphemeralChatId,
 		isPendingAssistantReply,
 		isTemporaryChatId,
@@ -139,6 +138,9 @@
 	let reconnectSocket: any = null;
 	let reconnectHandler: (() => Promise<void>) | null = null;
 	let reconnectReconciliationEpoch = 0;
+	let selectionToolbarDesktop = false;
+	let selectionToolbarMediaQuery: MediaQueryList | null = null;
+	let selectionToolbarMediaQueryHandler: (() => void) | null = null;
 
 	let selectedModels = [''];
 	let atSelectedModel: Model | undefined;
@@ -517,6 +519,12 @@
 	onMount(async () => {
 		console.log('mounted');
 		window.addEventListener('message', onMessageHandler);
+		selectionToolbarMediaQuery = window.matchMedia('(min-width: 640px)');
+		selectionToolbarMediaQueryHandler = () => {
+			selectionToolbarDesktop = selectionToolbarMediaQuery?.matches === true;
+		};
+		selectionToolbarMediaQueryHandler();
+		selectionToolbarMediaQuery.addEventListener('change', selectionToolbarMediaQueryHandler);
 		chatEventBindingUnsubscribers = [
 			config.subscribe(updateChatEventSubscription),
 			socket.subscribe(updateChatEventSubscription)
@@ -570,6 +578,9 @@
 		chatEventBindingUnsubscribers.forEach((unsubscribe) => unsubscribe());
 		chatEventBinding?.cleanup();
 		if (reconnectSocket && reconnectHandler) reconnectSocket.off('connect', reconnectHandler);
+		if (selectionToolbarMediaQuery && selectionToolbarMediaQueryHandler) {
+			selectionToolbarMediaQuery.removeEventListener('change', selectionToolbarMediaQueryHandler);
+		}
 		window.removeEventListener('message', onMessageHandler);
 	});
 
@@ -2463,31 +2474,29 @@
 				</div>
 			</div>
 
-			{#if !nativeCompatibility || history.currentId}
-				<ChatControls
-					bind:this={controlPaneComponent}
-					title={$chatTitle || $i18n.t('New Chat')}
-					{chat}
-					bind:history
-					bind:chatFiles
-					bind:params
-					bind:files
-					bind:pane={controlPane}
-					chatId={$chatId}
-					modelId={selectedModelIds?.at(0) ?? null}
-					models={selectedModelIds.reduce((a, e, i, arr) => {
-						const model = $models.find((m) => m.id === e);
-						if (model) {
-							return [...a, model];
-						}
-						return a;
-					}, [])}
-					{submitPrompt}
-					{stopResponse}
-					{showMessage}
-					{eventTarget}
-				/>
-			{/if}
+			<ChatControls
+				bind:this={controlPaneComponent}
+				title={$chatTitle || $i18n.t('New Chat')}
+				{chat}
+				bind:history
+				bind:chatFiles
+				bind:params
+				bind:files
+				bind:pane={controlPane}
+				chatId={$chatId}
+				modelId={selectedModelIds?.at(0) ?? null}
+				models={selectedModelIds.reduce((a, e, i, arr) => {
+					const model = $models.find((m) => m.id === e);
+					if (model) {
+						return [...a, model];
+					}
+					return a;
+				}, [])}
+				{submitPrompt}
+				{stopResponse}
+				{showMessage}
+				{eventTarget}
+			/>
 			</Pane>
 		</PaneGroup>
 	{:else if loading}
@@ -2499,7 +2508,7 @@
 	{/if}
 </div>
 
-{#if nativeCompatibility && history.currentId && (!$mobile || (history.messages[history.currentId]?.done === true && !hasStoppedResponseStatus(history.messages[history.currentId])))}
+{#if nativeCompatibility && history.currentId && selectionToolbarDesktop}
 	<CurrentSelectionToolbar
 		chatId={$chatId}
 		messageId={history.currentId}

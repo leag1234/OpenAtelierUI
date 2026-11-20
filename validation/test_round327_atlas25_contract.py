@@ -25,8 +25,10 @@ class AtlasRound25ContractTests(unittest.TestCase):
     def test_selection_toolbar_uses_chat_and_message_identity_during_streaming(self) -> None:
         chat = source("src/lib/components/chat/Chat.svelte")
         toolbar = source("src/lib/components/chat/CurrentSelectionToolbar.svelte")
-        self.assertIn("{#if nativeCompatibility && history.currentId && (!$mobile", chat)
-        self.assertIn("history.messages[history.currentId]?.done === true", chat)
+        self.assertIn(
+            "{#if nativeCompatibility && history.currentId && selectionToolbarDesktop}",
+            chat,
+        )
         self.assertIn("chatId={$chatId}", chat)
         self.assertIn("messageId={history.currentId}", chat)
         self.assertIn('id={`floating-buttons-${chatId}-${messageId}`}', toolbar)
