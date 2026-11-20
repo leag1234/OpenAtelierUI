@@ -59,6 +59,8 @@ class AtlasRound26ContractTests(unittest.TestCase):
         self.assertLess(stop.index("markCurrentResponsesDone(true"), stop.index("requestSavedChatStop("))
         self.assertIn("restoreResponseStates(responseStatesBeforeStop);", stop)
         self.assertIn("taskIds = remainingIds.length ? remainingIds : taskIdsBeforeStop;", stop)
+        self.assertIn("outcome.state === 'stopped' || outcome.state === 'already-finished'", stop)
+        self.assertIn("if (settledStop && optimisticallyStopped && savedChat)", stop)
         self.assertIn("restoreResponseStates(responseStatesBeforeStop, true);", stop)
 
 

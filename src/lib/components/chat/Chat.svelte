@@ -2002,9 +2002,9 @@
 				toast.error('The response may still be running. Try stopping it again.');
 				return;
 			}
-			const confirmedStopped = outcome.state === 'stopped';
-			if (!confirmedStopped) restoreResponseStates(responseStatesBeforeStop, true);
-			if (confirmedStopped && optimisticallyStopped && savedChat) {
+			const settledStop = outcome.state === 'stopped' || outcome.state === 'already-finished';
+			if (!settledStop) restoreResponseStates(responseStatesBeforeStop, true);
+			if (settledStop && optimisticallyStopped && savedChat) {
 				if (history.currentId === currentIdAtStop) {
 					await persistStoppedChat(stoppingChatId, history);
 				} else {
