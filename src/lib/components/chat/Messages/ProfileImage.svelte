@@ -8,7 +8,6 @@
 
 <img
 	crossorigin={currentCompatibility ? undefined : 'anonymous'}
-	aria-hidden={currentCompatibility ? 'true' : undefined}
 	src={src === ''
 		? `${WEBUI_BASE_URL}/static/favicon.png`
 		: src.startsWith(WEBUI_BASE_URL) ||
@@ -18,6 +17,6 @@
 			? src
 			: `/user.png`}
 	class=" {className} object-cover {currentCompatibility ? 'rounded-2xl' : 'rounded-full -translate-y-[1px]'}"
-	alt={currentCompatibility ? undefined : 'profile'}
+	alt="profile"
 	draggable="false"
 />

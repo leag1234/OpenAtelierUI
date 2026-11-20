@@ -51,6 +51,9 @@
 	import ContentRenderer from './ContentRenderer.svelte';
 	import { KokoroWorker } from '$lib/workers/KokoroWorker';
 	import FileItem from '$lib/components/common/FileItem.svelte';
+	import Dropdown from '$lib/components/common/Dropdown.svelte';
+	import { DropdownMenu } from 'bits-ui';
+	import { nativeMenuTriggerContract } from '$lib/actions/nativeMenuTriggerContract';
 	$: v0113Compatibility = $config?.compatibility_profile !== 'native';
 
 	interface MessageType {
@@ -1298,9 +1301,9 @@
 								{/if}
 
 								{#if !v0113Compatibility && !readOnly && chatId}
-									<Tooltip content={$i18n.t('Fork chat')} placement="bottom">
+									<Tooltip content={$i18n.t('Duplicate conversation')} placement="bottom">
 										<button
-											aria-label={$i18n.t('Fork chat')}
+											aria-label={$i18n.t('Duplicate conversation')}
 									class="{nativeActionVisibility} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition"
 											on:click={forkChat}
 										>
@@ -1476,13 +1479,22 @@
 											</button>
 										</Tooltip>
 									{:else}
-										<span style="display: contents; cursor: pointer;">
-											<Tooltip content={$i18n.t('Regenerate')} placement="bottom">
+										<button
+											type="button"
+											class="hidden regenerate-response-button"
+											aria-label={$i18n.t('Regenerate')}
+											on:click={regenerateMessageHandler}
+										></button>
+										<Dropdown asChild let:builder side="top" align="center">
+											<span style="display: contents; cursor: pointer;">
+												<Tooltip content={$i18n.t('Regenerate')} placement="bottom">
 												<button
+													{...builder}
+													use:builder.action
+													use:nativeMenuTriggerContract={true}
 													type="button"
 													aria-label={$i18n.t('Regenerate')}
-											class="{nativeActionVisibility} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition regenerate-response-button"
-													on:click={regenerateMessageHandler}
+													class="{nativeActionVisibility} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition"
 												>
 											<svg
 												xmlns="http://www.w3.org/2000/svg"
@@ -1498,8 +1510,29 @@
 												<path d="M7.04932 16H2.64932C2.31795 16 2.04932 16.2686 2.04932 16.6V21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />
 													</svg>
 												</button>
-											</Tooltip>
-										</span>
+												</Tooltip>
+											</span>
+											<svelte:fragment slot="content">
+												<DropdownMenu.Content
+													class="w-full max-w-[220px] rounded-xl border border-gray-200/70 bg-white p-1 text-gray-700 shadow-lg dark:border-gray-700/60 dark:bg-gray-850 dark:text-gray-200"
+													sideOffset={8}
+													side="top"
+													align="center"
+												>
+													<DropdownMenu.Item asChild let:builder>
+														<button
+															{...builder}
+															use:builder.action
+															type="button"
+															class="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800"
+															on:click={regenerateMessageHandler}
+														>
+															{$i18n.t('Regenerate')}
+														</button>
+													</DropdownMenu.Item>
+												</DropdownMenu.Content>
+											</svelte:fragment>
+										</Dropdown>
 									{/if}
 
 									{#if siblings.length > 1}

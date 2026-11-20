@@ -2462,9 +2462,10 @@
 	{/if}
 </div>
 
-{#if nativeCompatibility && history.currentId && history.messages[history.currentId]?.done}
+{#if nativeCompatibility && history.currentId}
 	<CurrentSelectionToolbar
-		id={history.currentId}
+		chatId={$chatId}
+		messageId={history.currentId}
 		on:prompt={async (event) => {
 			prompt = `${event.detail.action}: ${event.detail.text}`;
 			await tick();

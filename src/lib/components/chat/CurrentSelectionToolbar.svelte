@@ -2,7 +2,8 @@
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 
 	const dispatch = createEventDispatcher();
-	export let id = '';
+	export let chatId = '';
+	export let messageId = '';
 
 	let toolbar: HTMLDivElement;
 	let visible = false;
@@ -49,12 +50,12 @@
 
 <div
 	bind:this={toolbar}
-	id={`floating-buttons-${id}-${id}`}
+	id={`floating-buttons-${chatId}-${messageId}`}
 	use:portalToBody
 	class="fixed max-w-[calc(100vw-1rem)] rounded-lg text-xs z-9999"
 	style:display={visible ? 'block' : 'none'}
-	style:left={`${left}px`}
-	style:top={`${top}px`}
+	style:left={visible ? `${left}px` : undefined}
+	style:top={visible ? `${top}px` : undefined}
 >
 	<div class="flex flex-row flex-wrap shrink-0 p-0.5 bg-white dark:bg-gray-850 dark:text-gray-100 text-medium rounded-xl shadow-xl border border-gray-100 dark:border-gray-800">
 		<button

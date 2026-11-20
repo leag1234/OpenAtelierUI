@@ -393,9 +393,10 @@
 									>
 										<svg
 											xmlns="http://www.w3.org/2000/svg"
+											aria-hidden={!v0113Compatibility ? 'true' : undefined}
 											fill="none"
 											viewBox="0 0 24 24"
-											stroke-width="2.3"
+											stroke-width={v0113Compatibility ? '2.3' : '1.5'}
 											stroke={v0113Compatibility ? 'currentColor' : undefined}
 											class={v0113Compatibility ? 'w-4 h-4' : 'size-4'}
 										>

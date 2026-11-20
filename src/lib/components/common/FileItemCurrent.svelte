@@ -17,6 +17,7 @@
 	export let size: number;
 
 	let showModal = false;
+	$: spreadsheet = /\.(csv|tsv|xls|xlsx|ods)$/i.test(name ?? '');
 
 	const decodeString = (value: string) => {
 		try {
@@ -49,7 +50,7 @@
 		on:click={openItem}
 	>
 		<div class="shrink-0 text-gray-500 dark:text-gray-400">
-			<div class="flex">
+			<div class={spreadsheet ? 'flex' : 'flex justify-center text-center'}>
 				{#if loading}
 					<Spinner className="size-3.5" />
 				{:else}

@@ -29,9 +29,10 @@ class NativeTransientContractTests(unittest.TestCase):
 
     def test_selection_toolbar_is_body_portalled_and_message_bound(self) -> None:
         self.assertIn("document.body.appendChild(node)", TOOLBAR)
-        self.assertIn('id={`floating-buttons-${id}-${id}`}', TOOLBAR)
+        self.assertIn('id={`floating-buttons-${chatId}-${messageId}`}', TOOLBAR)
         self.assertIn("use:portalToBody", TOOLBAR)
-        self.assertIn("id={history.currentId}", CHAT)
+        self.assertIn("chatId={$chatId}", CHAT)
+        self.assertIn("messageId={history.currentId}", CHAT)
 
     def test_native_layout_retains_quiet_polite_announcer(self) -> None:
         self.assertIn("{#if $config?.compatibility_profile === 'native'}", LAYOUT)

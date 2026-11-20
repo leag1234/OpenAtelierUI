@@ -304,7 +304,7 @@ class AtlasDropInReportTests(unittest.TestCase):
         navbar = CHAT_NAVBAR.read_text(encoding="utf-8")
         self.assertIn("export let exposeResponseControls = true;", composer)
         self.assertIn("exposeResponseControls={false}", placeholder)
-        self.assertEqual(response.count("regenerate-response-button"), 1)
+        self.assertEqual(response.count("regenerate-response-button"), 2)
         self.assertEqual(response.count("transition continue-response-button"), 1)
         self.assertEqual(response.count("transition delete-response-button"), 1)
         regenerate_block = response[
