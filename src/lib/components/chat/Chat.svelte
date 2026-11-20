@@ -19,6 +19,7 @@
 		chatResultMatchesCurrent,
 		confirmConnectedSocketUser,
 		createTemporaryChatId,
+		hasStoppedResponseStatus,
 		isEphemeralChatId,
 		isPendingAssistantReply,
 		isTemporaryChatId,
@@ -142,6 +143,7 @@
 	let selectionToolbarDesktop = false;
 	let selectionToolbarMediaQuery: MediaQueryList | null = null;
 	let selectionToolbarMediaQueryHandler: (() => void) | null = null;
+	let nativeSelectionToolbarMounted = false;
 
 	let selectedModels = [''];
 	let atSelectedModel: Model | undefined;
@@ -161,6 +163,13 @@
 		messages: {},
 		currentId: null
 	};
+	$: nativeSelectionToolbarMounted = Boolean(
+		nativeCompatibility &&
+			history.currentId &&
+			(selectionToolbarDesktop ||
+				(history.messages[history.currentId]?.done === true &&
+					!hasStoppedResponseStatus(history.messages[history.currentId])))
+	);
 
 	let taskIds = null;
 	$: activeResponseChatId.set(taskIds?.length ? $chatId : '');
@@ -1985,6 +1994,10 @@
 		const stoppingChatId = $chatId;
 		const ids = normalizeTaskIds({ task_ids: taskIds });
 		if (!stoppingChatId) return;
+		// A reconnect inventory request may already be in flight. Invalidate it
+		// before applying the terminal stopped state so a stale response cannot
+		// resurrect taskIds, the Stop control, or the sidebar spinner.
+		reconnectReconciliationEpoch += 1;
 		const responseAtStop = history.messages[history.currentId];
 		const parentAtStop = responseAtStop?.parentId ? history.messages[responseAtStop.parentId] : null;
 		const stoppingResponseIds = (parentAtStop?.childrenIds ?? [history.currentId]).filter((id) => history.messages[id]?.done !== true);
@@ -2511,7 +2524,7 @@
 	{/if}
 </div>
 
-{#if nativeCompatibility && history.currentId && selectionToolbarDesktop}
+{#if nativeSelectionToolbarMounted}
 	<CurrentSelectionToolbar
 		chatId={$chatId}
 		messageId={history.currentId}

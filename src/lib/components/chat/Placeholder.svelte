@@ -9,7 +9,7 @@
 
 	import { config, user, models as _models, temporaryChatEnabled } from '$lib/stores';
 	import { sanitizeResponseContent, extractCurlyBraceWords } from '$lib/utils';
-	import { WEBUI_BASE_URL } from '$lib/constants';
+	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 
 	import Suggestions from './Suggestions.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
@@ -135,10 +135,12 @@
 								>
 									<img
 										crossorigin={v0113Compatibility ? 'anonymous' : undefined}
-										src={model?.info?.meta?.profile_image_url ??
-											($i18n.language === 'dg-DG'
-												? `/doge.png`
-												: `${WEBUI_BASE_URL}/static/favicon.png`)}
+										src={v0113Compatibility
+											? model?.info?.meta?.profile_image_url ??
+												($i18n.language === 'dg-DG'
+													? `/doge.png`
+													: `${WEBUI_BASE_URL}/static/favicon.png`)
+											: `${WEBUI_API_BASE_URL}/models/model/profile/image?id=${model?.id}&lang=${$i18n.language}`}
 										class={v0113Compatibility
 											? 'size-9 @sm:size-10 rounded-full border-[1px] border-gray-100 dark:border-none'
 											: 'size-9 @sm:size-10 rounded-2xl'}

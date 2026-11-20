@@ -251,7 +251,7 @@
 															</div>
 																{#if $activeResponseChatId === chat.id}
 																	<div class="pr-2 self-center shrink-0">
-																		<div class="size-3">
+																<div class="flex items-center justify-center size-3">
 																			<div class="flex justify-center text-center">
 																				<svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" class="size-3">
 																					<style>

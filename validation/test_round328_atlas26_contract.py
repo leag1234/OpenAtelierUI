@@ -40,10 +40,9 @@ class AtlasRound26ContractTests(unittest.TestCase):
     def test_phone_toolbar_omits_streaming_and_stopped_states(self) -> None:
         chat = source("src/lib/components/chat/Chat.svelte")
         self.assertIn("window.matchMedia('(min-width: 640px)')", chat)
-        self.assertIn(
-            "{#if nativeCompatibility && history.currentId && selectionToolbarDesktop}",
-            chat,
-        )
+        self.assertIn("selectionToolbarDesktop ||", chat)
+        self.assertIn("history.messages[history.currentId]?.done === true", chat)
+        self.assertIn("!hasStoppedResponseStatus(history.messages[history.currentId])", chat)
 
     def test_current_turn_delete_waits_for_terminal_state(self) -> None:
         user = source("src/lib/components/chat/Messages/UserMessage.svelte")

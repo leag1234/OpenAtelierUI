@@ -6,7 +6,7 @@
 	import { detachFileForRemoval } from '$lib/utils/file-removal';
 	import { availableIntegrations } from '$lib/utils/availableIntegrations';
 	import { nativeMenuTriggerContract } from '$lib/actions/nativeMenuTriggerContract';
-	import { isPendingAssistantReply } from '$lib/utils/chat-session';
+	import { hasStoppedResponseStatus, isPendingAssistantReply } from '$lib/utils/chat-session';
 
 	import { onMount, tick, getContext, createEventDispatcher, onDestroy } from 'svelte';
 	const dispatch = createEventDispatcher();
@@ -411,8 +411,7 @@
 					{#if autoScroll === false &&
 						history?.currentId &&
 						(v0113Compatibility ||
-							(history.messages[history.currentId]?.statusHistory ?? []).at(-1)?.action !==
-								'response_stopped')}
+						!hasStoppedResponseStatus(history.messages[history.currentId]))}
 						<div
 							class=" absolute -top-12 left-0 right-0 flex justify-center z-30 pointer-events-none"
 						>
