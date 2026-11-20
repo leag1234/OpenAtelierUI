@@ -142,7 +142,7 @@
 										class={v0113Compatibility
 											? 'size-9 @sm:size-10 rounded-full border-[1px] border-gray-100 dark:border-none'
 											: 'size-9 @sm:size-10 rounded-2xl'}
-										alt={v0113Compatibility ? '' : undefined}
+										{...(v0113Compatibility ? { alt: '' } : {})}
 										aria-hidden="true"
 										draggable="false"
 									/>

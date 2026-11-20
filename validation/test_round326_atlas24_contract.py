@@ -61,7 +61,7 @@ class AtlasRound24ContractTests(unittest.TestCase):
         native = response[response.index('class="hidden regenerate-response-button"') :]
         native = native[: native.index("{#if siblings.length > 1}")]
         self.assertIn('class="hidden regenerate-response-button"', native)
-        self.assertIn("use:nativeMenuTriggerContract={true}", native)
+        self.assertIn("use:nativeMenuTriggerContract={{", native)
         self.assertNotIn("transition regenerate-response-button", native)
 
     def test_loaded_pending_chat_starts_task_reconciliation(self) -> None:

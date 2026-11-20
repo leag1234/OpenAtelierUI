@@ -15,21 +15,18 @@ def source(relative: str) -> str:
 class AtlasRound25ContractTests(unittest.TestCase):
     def test_tabs_distinguish_fresh_empty_home_from_saved_new_chat(self) -> None:
         navbar = source("src/lib/components/chat/Navbar.svelte")
-        self.assertIn("chats,", navbar)
         self.assertIn(
-            "$: showNativeTabs = Boolean(history.currentId) || (($chats?.length ?? 0) === 0);",
+            "Boolean(history.currentId) ||",
             navbar,
         )
+        self.assertIn("selectedModels.filter((modelId)", navbar)
         self.assertEqual(navbar.count('{#if showNativeTabs}<div class="flex">'), 2)
 
     def test_selection_toolbar_uses_chat_and_message_identity_during_streaming(self) -> None:
         chat = source("src/lib/components/chat/Chat.svelte")
         toolbar = source("src/lib/components/chat/CurrentSelectionToolbar.svelte")
-        self.assertIn("{#if nativeCompatibility && history.currentId}", chat)
-        self.assertNotIn(
-            "nativeCompatibility && history.currentId && history.messages[history.currentId]?.done",
-            chat,
-        )
+        self.assertIn("{#if nativeCompatibility && history.currentId && (!$mobile", chat)
+        self.assertIn("history.messages[history.currentId]?.done === true", chat)
         self.assertIn("chatId={$chatId}", chat)
         self.assertIn("messageId={history.currentId}", chat)
         self.assertIn('id={`floating-buttons-${chatId}-${messageId}`}', toolbar)
@@ -41,7 +38,7 @@ class AtlasRound25ContractTests(unittest.TestCase):
         user = source("src/lib/components/chat/Messages/UserMessage.svelte")
         profile = source("src/lib/components/chat/Messages/ProfileImage.svelte")
         self.assertIn('class="hidden regenerate-response-button"', response)
-        self.assertIn("use:nativeMenuTriggerContract={true}", response)
+        self.assertIn("use:nativeMenuTriggerContract={{", response)
         self.assertIn("$i18n.t('Duplicate conversation')", response)
         self.assertIn("aria-hidden={!v0113Compatibility ? 'true' : undefined}", user)
         self.assertIn("stroke-width={v0113Compatibility ? '2.3' : '1.5'}", user)

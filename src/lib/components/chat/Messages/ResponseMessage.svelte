@@ -1482,7 +1482,6 @@
 										<button
 											type="button"
 											class="hidden regenerate-response-button"
-											aria-label={$i18n.t('Regenerate')}
 											on:click={regenerateMessageHandler}
 										></button>
 										<Dropdown asChild let:builder side="top" align="center">
@@ -1491,7 +1490,11 @@
 												<button
 													{...builder}
 													use:builder.action
-													use:nativeMenuTriggerContract={true}
+													use:nativeMenuTriggerContract={{
+														enabled: true,
+														removeGeneratedId: true,
+														ariaHasPopup: 'true'
+													}}
 													type="button"
 													aria-label={$i18n.t('Regenerate')}
 													class="{nativeActionVisibility} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition"

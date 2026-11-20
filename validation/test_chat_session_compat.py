@@ -52,6 +52,8 @@ assert.strictEqual(registrations.length, 1);
 assert.strictEqual(normalizeTaskIds({task_id:'legacy'}).join(','), 'legacy');
 assert.deepStrictEqual(normalizeTaskIds({task_ids:['a','',null,'a',4], task_id:'b'}), ['a','b']);
 assert.deepStrictEqual(mergeTaskIds(['a','a'], {task_ids:['b'],task_id:'a'}), ['a','b']);
+assert.strictEqual(hasStoppedResponseStatus({done:true,statusHistory:[{action:'response_stopped'}]}), true);
+assert.strictEqual(hasStoppedResponseStatus({done:true,statusHistory:[{action:'tool_call'}]}), false);
 assert.strictEqual(chatResultMatchesCurrent('chat-1','chat-1'), true);
 assert.strictEqual(chatResultMatchesCurrent('chat-1','chat-2'), false);
 assert.strictEqual(chatResultMatchesCurrent('chat-1',null), false);

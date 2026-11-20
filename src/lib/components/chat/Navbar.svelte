@@ -6,7 +6,6 @@
 		WEBUI_NAME,
 		banners,
 		chatId,
-		chats,
 		config,
 		mobile,
 		settings,
@@ -45,7 +44,10 @@
 	let showShareChatModal = false;
 	let showDownloadChatModal = false;
 	$: v0113Compatibility = $config?.compatibility_profile !== 'native';
-	$: showNativeTabs = Boolean(history.currentId) || (($chats?.length ?? 0) === 0);
+	$: showNativeTabs =
+		Boolean(history.currentId) ||
+		!Array.isArray(selectedModels) ||
+		selectedModels.filter((modelId) => typeof modelId === 'string' && modelId.length > 0).length === 0;
 
 </script>
 

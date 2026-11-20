@@ -116,12 +116,17 @@ export function mergeTaskIds(currentIds, response) {
 
 export function isPendingAssistantReply(message) {
 	if (!message || message.role !== 'assistant' || message.done === true) return false;
+	return !hasStoppedResponseStatus(message);
+}
+
+export function hasStoppedResponseStatus(message) {
+	if (!message) return false;
 	const statuses = Array.isArray(message.statusHistory)
 		? message.statusHistory
 		: message.status
 			? [message.status]
 			: [];
-	return !statuses.some((status) => status && status.action === 'response_stopped');
+	return statuses.some((status) => status && status.action === 'response_stopped');
 }
 
 export function reconcileLoadedChatTaskState(history, response) {
