@@ -2463,29 +2463,31 @@
 				</div>
 			</div>
 
-			<ChatControls
-				bind:this={controlPaneComponent}
-				title={$chatTitle || $i18n.t('New Chat')}
-				{chat}
-				bind:history
-				bind:chatFiles
-				bind:params
-				bind:files
-				bind:pane={controlPane}
-				chatId={$chatId}
-				modelId={selectedModelIds?.at(0) ?? null}
-				models={selectedModelIds.reduce((a, e, i, arr) => {
-					const model = $models.find((m) => m.id === e);
-					if (model) {
-						return [...a, model];
-					}
-					return a;
-				}, [])}
-				{submitPrompt}
-				{stopResponse}
-				{showMessage}
-				{eventTarget}
-			/>
+			{#if !nativeCompatibility || history.currentId}
+				<ChatControls
+					bind:this={controlPaneComponent}
+					title={$chatTitle || $i18n.t('New Chat')}
+					{chat}
+					bind:history
+					bind:chatFiles
+					bind:params
+					bind:files
+					bind:pane={controlPane}
+					chatId={$chatId}
+					modelId={selectedModelIds?.at(0) ?? null}
+					models={selectedModelIds.reduce((a, e, i, arr) => {
+						const model = $models.find((m) => m.id === e);
+						if (model) {
+							return [...a, model];
+						}
+						return a;
+					}, [])}
+					{submitPrompt}
+					{stopResponse}
+					{showMessage}
+					{eventTarget}
+				/>
+			{/if}
 			</Pane>
 		</PaneGroup>
 	{:else if loading}

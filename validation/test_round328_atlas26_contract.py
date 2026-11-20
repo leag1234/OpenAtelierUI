@@ -15,10 +15,12 @@ def source(relative: str) -> str:
 class AtlasRound26ContractTests(unittest.TestCase):
     def test_tabs_follow_conversation_or_unconfigured_model_context(self) -> None:
         navbar = source("src/lib/components/chat/Navbar.svelte")
+        chat = source("src/lib/components/chat/Chat.svelte")
         self.assertIn("Boolean(history.currentId) ||", navbar)
         self.assertIn("!Array.isArray(selectedModels) ||", navbar)
         self.assertIn("selectedModels.filter((modelId)", navbar)
         self.assertNotIn("($chats?.length ?? 0) === 0", navbar)
+        self.assertIn("{#if !nativeCompatibility || history.currentId}", chat)
 
     def test_regenerate_attributes_match_native_contract(self) -> None:
         response = source("src/lib/components/chat/Messages/ResponseMessage.svelte")
