@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext, onDestroy, onMount, tick } from 'svelte';
-	import { chatId, chats, config, showSidebar, user } from '$lib/stores';
+	import { activeResponseChatId, chatId, chats, config, showSidebar, user } from '$lib/stores';
 	import { nativeMenuTriggerContract } from '$lib/actions/nativeMenuTriggerContract';
 	import UserMenu from './UserMenu.svelte';
 
@@ -249,6 +249,22 @@
 																	{chat.title}
 																</div>
 															</div>
+																{#if $activeResponseChatId === chat.id}
+																	<div class="pr-2 self-center shrink-0">
+																		<div class="size-3">
+																			<div class="flex justify-center text-center">
+																				<svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" class="size-3">
+																					<style>
+																						.spinner_ajPY { transform-origin: center; animation: spinner_AtaB 0.75s infinite linear; }
+																						@keyframes spinner_AtaB { 100% { transform: rotate(360deg); } }
+																					</style>
+																					<path d="M12,1A11,11,0,1,0,23,12,11,11,0,0,0,12,1Zm0,19a8,8,0,1,1,8-8A8,8,0,0,1,12,20Z" opacity=".25" />
+																					<path d="M10.14,1.16a11,11,0,0,0-9,8.92A1.59,1.59,0,0,0,2.46,12,1.52,1.52,0,0,0,4.11,10.7a8,8,0,0,1,6.66-6.61A1.42,1.42,0,0,0,12,2.69h0A1.57,1.57,0,0,0,10.14,1.16Z" class="spinner_ajPY" />
+																				</svg>
+																			</div>
+																		</div>
+																	</div>
+																{/if}
 															<span class="sr-only">a few seconds ago</span>
 															{#if $chatId !== chat.id}
 																<div class="shrink-0 self-center text-[0.625rem] text-gray-400 dark:text-gray-500 pl-2" aria-hidden="true">1m</div>

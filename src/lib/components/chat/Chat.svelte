@@ -33,6 +33,7 @@
 	import { clearChatDraft, readChatDraft, saveChatDraft } from '$lib/utils/chat-draft';
 
 	import {
+		activeResponseChatId,
 		chatId,
 		chats,
 		config,
@@ -162,6 +163,7 @@
 	};
 
 	let taskIds = null;
+	$: activeResponseChatId.set(taskIds?.length ? $chatId : '');
 
 	// Chat Input
 	let prompt = '';
@@ -573,6 +575,7 @@
 	});
 
 	onDestroy(() => {
+		activeResponseChatId.set('');
 		reconnectReconciliationEpoch += 1;
 		chatIdUnsubscriber?.();
 		chatEventBindingUnsubscribers.forEach((unsubscribe) => unsubscribe());

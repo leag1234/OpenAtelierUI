@@ -408,7 +408,11 @@
 						: 'max-w-[58rem]'} w-full"
 			>
 				<div class="relative">
-					{#if autoScroll === false && history?.currentId}
+					{#if autoScroll === false &&
+						history?.currentId &&
+						(v0113Compatibility ||
+							(history.messages[history.currentId]?.statusHistory ?? []).at(-1)?.action !==
+								'response_stopped')}
 						<div
 							class=" absolute -top-12 left-0 right-0 flex justify-center z-30 pointer-events-none"
 						>

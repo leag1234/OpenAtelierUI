@@ -32,6 +32,24 @@ class AtlasRound27ContractTests(unittest.TestCase):
             chat,
         )
 
+    def test_native_sidebar_streaming_indicator_tracks_the_active_chat(self) -> None:
+        stores = source("src/lib/stores/index.ts")
+        chat = source("src/lib/components/chat/Chat.svelte")
+        sidebar = source("src/lib/components/layout/Sidebar/CurrentSidebarShadow.svelte")
+        self.assertIn("export const activeResponseChatId = writable('');", stores)
+        self.assertIn("activeResponseChatId.set(taskIds?.length ? $chatId : '');", chat)
+        self.assertIn("{#if $activeResponseChatId === chat.id}", sidebar)
+        self.assertIn('class="pr-2 self-center shrink-0"', sidebar)
+        self.assertIn('class="size-3"', sidebar)
+
+    def test_native_interrupted_turn_does_not_mount_scroll_control(self) -> None:
+        message_input = source("src/lib/components/chat/MessageInput.svelte")
+        self.assertIn(
+            "(history.messages[history.currentId]?.statusHistory ?? []).at(-1)?.action !==",
+            message_input,
+        )
+        self.assertIn("'response_stopped'", message_input)
+
 
 if __name__ == "__main__":
     unittest.main()
