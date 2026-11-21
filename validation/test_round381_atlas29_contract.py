@@ -40,9 +40,10 @@ class AtlasRound29ContractTests(unittest.TestCase):
 
     def test_folder_toggle_releases_composer_focus(self) -> None:
         sidebar = source("src/lib/components/layout/Sidebar/CurrentSidebarShadow.svelte")
+        self.assertIn("document.getElementById('chat-input')?.blur();", sidebar)
         toggle = sidebar[sidebar.index("const toggleFolders =") :]
         toggle = toggle[: toggle.index("onMount(")]
-        self.assertIn("document.getElementById('chat-input')?.blur();", toggle)
+        self.assertIn("releaseComposerFocus();", toggle)
 
 
 if __name__ == "__main__":

@@ -352,7 +352,10 @@
 
 		window.setTimeout(() => {
 			const chatInput = document.getElementById('chat-input');
-			chatInput?.focus();
+			if (
+				v0113Compatibility ||
+				localStorage.getItem('openatelierui-folders-expanded') !== 'true'
+			) chatInput?.focus();
 		}, 0);
 
 		window.addEventListener('keydown', handleKeyDown);

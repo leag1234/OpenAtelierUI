@@ -66,14 +66,26 @@
 		if (linkPreviewChatId) positionLinkPreview(linkPreviewChatId);
 	};
 
-	const toggleFolders = () => {
+	const releaseComposerFocus = () => {
 		document.getElementById('chat-input')?.blur();
+	};
+
+	const toggleFolders = async () => {
 		foldersExpanded = !foldersExpanded;
 		localStorage.setItem(foldersExpandedStorageKey, String(foldersExpanded));
+		if (foldersExpanded) {
+			await tick();
+			releaseComposerFocus();
+		}
 	};
 
 	onMount(() => {
 		foldersExpanded = localStorage.getItem(foldersExpandedStorageKey) === 'true';
+		if (foldersExpanded) {
+			// Chat and MessageInput both restore composer focus while loading a
+			// saved conversation. Release it after their mount callbacks settle.
+			requestAnimationFrame(() => requestAnimationFrame(releaseComposerFocus));
+		}
 		window.addEventListener('resize', updateLinkPreviewPosition);
 		window.addEventListener('scroll', updateLinkPreviewPosition, true);
 	});

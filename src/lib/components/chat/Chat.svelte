@@ -150,6 +150,12 @@
 	let selectedModelIds = [];
 	$: nativeCompatibility = $config?.compatibility_profile === 'native';
 	$: selectedModelIds = atSelectedModel !== undefined ? [atSelectedModel.id] : selectedModels;
+	const focusComposerForCurrentState = () => {
+		if (
+			!nativeCompatibility ||
+			localStorage.getItem('openatelierui-folders-expanded') !== 'true'
+		) document.getElementById('chat-input')?.focus();
+	};
 
 	let selectedToolIds = [];
 	let imageGenerationEnabled = false;
@@ -219,8 +225,7 @@
 				draftReady = true;
 
 				window.setTimeout(() => scrollToBottom(), 0);
-				const chatInput = document.getElementById('chat-input');
-				chatInput?.focus();
+				focusComposerForCurrentState();
 			} else {
 				await goto('/');
 			}
@@ -503,18 +508,36 @@
 					const activeTasks = normalizeTaskIds(
 						await getTaskIdsByChatId(localStorage.token, currentChatId)
 					);
-					taskIds = activeTasks;
+					// A second reconnect or a navigation may complete while the task
+					// inventory request is in flight. Never let that stale response
+					// resurrect the Stop control or the sidebar progress indicator.
+					if (
+						reconciliationEpoch !== reconnectReconciliationEpoch ||
+						get(chatId) !== currentChatId
+					) return;
 					if (!activeTasks.length) {
-						const messages = { ...history.messages };
-						for (const messageId of pendingReplyIds) {
-							const message = messages[messageId];
-							if (message?.done !== true) messages[messageId] = { ...message, done: true };
+						const interruptedReplyIds = pendingReplyIds.filter((messageId) =>
+							isPendingAssistantReply(history.messages[messageId])
+						);
+						if (!interruptedReplyIds.length) {
+							taskIds = null;
+							return;
 						}
+						const stoppedHistory = stoppedHistorySnapshot(interruptedReplyIds);
+						// A reconnect after the server vanished is an interruption, not a
+						// successful completion. Persist the terminal marker before hiding
+						// Stop so an immediate reload cannot restore the running state.
+						await persistStoppedChat(currentChatId, stoppedHistory);
+						if (
+							reconciliationEpoch !== reconnectReconciliationEpoch ||
+							get(chatId) !== currentChatId
+						) return;
+						history = stoppedHistory;
 						taskIds = null;
-						history = { ...history, messages };
 						await tick();
 						return;
 					}
+					taskIds = activeTasks;
 				} catch (error) {
 					// Keep the local pending state when the task inventory cannot be
 					// confirmed. This avoids offering Continue while work may still run.
@@ -577,8 +600,7 @@
 			}
 		});
 
-		const chatInput = document.getElementById('chat-input');
-		chatInput?.focus();
+		focusComposerForCurrentState();
 
 		chats.subscribe(() => {});
 	});
@@ -907,8 +929,7 @@
 			settings.set(JSON.parse(localStorage.getItem('settings') ?? '{}'));
 		}
 
-		const chatInput = document.getElementById('chat-input');
-		setTimeout(() => chatInput?.focus(), 0);
+		setTimeout(focusComposerForCurrentState, 0);
 	};
 
 	const loadChat = async () => {
