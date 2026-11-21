@@ -1962,7 +1962,7 @@
 	};
 
 	const persistStoppedChat = async (targetChatId, stoppedHistory) => {
-		if (!chatResultMatchesCurrent(targetChatId, $chatId)) return;
+		if (!chatResultMatchesCurrent(targetChatId, $chatId)) return false;
 		const historySnapshot = JSON.parse(JSON.stringify(stoppedHistory));
 		const firstUserMessage = Object.values(historySnapshot.messages ?? {}).find(
 			(message) => message?.role === 'user' && typeof message?.content === 'string'
@@ -1983,11 +1983,37 @@
 				currentChatPage.set(1);
 				await chats.set(await getChatList(localStorage.token, $currentChatPage));
 			}
+			return true;
 		} catch (error) {
 			if (chatResultMatchesCurrent(targetChatId, $chatId)) {
 				toast.error('The response stopped, but its status could not be saved.');
 			}
+			return false;
 		}
+	};
+
+	const stoppedHistorySnapshot = (responseIds) => {
+		const stoppedHistory = JSON.parse(JSON.stringify(history));
+		for (const messageId of responseIds) {
+			const message = stoppedHistory.messages?.[messageId];
+			if (!message) continue;
+			const statuses = Array.isArray(message.statusHistory)
+				? message.statusHistory.filter((status) => status?.done !== false)
+				: message.status
+					? message.status.done === false
+						? []
+						: [message.status]
+					: [];
+			if (message.status?.done === false) delete message.status;
+			if (!statuses.some((status) => status?.action === 'response_stopped')) {
+				message.statusHistory = [
+					...statuses,
+					{ action: 'response_stopped', description: 'Response stopped', done: true }
+				];
+			}
+			message.done = true;
+		}
+		return stoppedHistory;
 	};
 
 	const stopResponse = async () => {
@@ -2000,12 +2026,11 @@
 		reconnectReconciliationEpoch += 1;
 		const responseAtStop = history.messages[history.currentId];
 		const parentAtStop = responseAtStop?.parentId ? history.messages[responseAtStop.parentId] : null;
-		const stoppingResponseIds = (parentAtStop?.childrenIds ?? [history.currentId]).filter((id) => history.messages[id]?.done !== true);
+		const stoppingResponseIds = (parentAtStop?.childrenIds ?? [history.currentId]).filter(
+			(id) => history.messages[id]?.role === 'assistant' && history.messages[id]?.done !== true
+		);
 		const currentIdAtStop = history.currentId;
 		const taskIdsBeforeStop = taskIds;
-		const responseStatesBeforeStop = captureResponseStates(stoppingResponseIds);
-		const optimisticallyStopped = markCurrentResponsesDone(true, stoppingResponseIds);
-		taskIds = null;
 
 		const savedChat = !$temporaryChatEnabled && !isEphemeralChatId(stoppingChatId);
 		const ownerScopedContext = savedChat || isEphemeralChatId(stoppingChatId);
@@ -2017,27 +2042,25 @@
 			);
 			if (outcome.state === 'navigated') return;
 			if (outcome.state === 'error') {
-				restoreResponseStates(responseStatesBeforeStop);
-				taskIds = taskIdsBeforeStop;
 				toast.error(`${outcome.error}`);
 				return;
 			}
 			if (outcome.state === 'uncertain') {
 				const remainingIds = normalizeTaskIds(outcome.taskListResponse);
-				restoreResponseStates(responseStatesBeforeStop);
 				taskIds = remainingIds.length ? remainingIds : taskIdsBeforeStop;
 				toast.error('The response may still be running. Try stopping it again.');
 				return;
 			}
 			const settledStop = outcome.state === 'stopped' || outcome.state === 'already-finished';
-			if (!settledStop) restoreResponseStates(responseStatesBeforeStop, true);
-			if (settledStop && optimisticallyStopped && savedChat) {
-				if (history.currentId === currentIdAtStop) {
-					await persistStoppedChat(stoppingChatId, history);
-				} else {
-					toast.error('The response stopped, but its status could not be saved.');
-				}
-			}
+			if (!settledStop || history.currentId !== currentIdAtStop) return;
+			const stoppedHistory = stoppedHistorySnapshot(stoppingResponseIds);
+			// Keep the running controls visible until the terminal marker is durable.
+			// Atlas reloads as soon as Stop disappears; publishing the local terminal
+			// state before this await made that reload race the database write.
+			if (savedChat) await persistStoppedChat(stoppingChatId, stoppedHistory);
+			if (!chatResultMatchesCurrent(stoppingChatId, $chatId) || history.currentId !== currentIdAtStop) return;
+			history = stoppedHistory;
+			taskIds = null;
 			return;
 		}
 
@@ -2048,21 +2071,19 @@
 				result = await stopTask(localStorage.token, taskId);
 			} catch (error) {
 				if (chatResultMatchesCurrent(stoppingChatId, $chatId)) {
-					restoreResponseStates(responseStatesBeforeStop);
-					taskIds = taskIdsBeforeStop;
 					toast.error(`${error}`);
 				}
 				return;
 			}
 			if (!chatResultMatchesCurrent(stoppingChatId, $chatId)) return;
 			if (result?.status !== true) {
-				restoreResponseStates(responseStatesBeforeStop);
-				taskIds = taskIdsBeforeStop;
 				toast.error('The response may still be running. Try stopping it again.');
 				return;
 			}
 		}
 		if (!chatResultMatchesCurrent(stoppingChatId, $chatId)) return;
+		markCurrentResponsesDone(true, stoppingResponseIds);
+		taskIds = null;
 	};
 
 	const submitMessage = async (parentId, prompt) => {

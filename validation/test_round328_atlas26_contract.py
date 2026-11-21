@@ -55,16 +55,14 @@ class AtlasRound26ContractTests(unittest.TestCase):
         placeholder = source("src/lib/components/chat/Placeholder.svelte")
         self.assertIn("{...(v0113Compatibility ? { alt: '' } : {})}", placeholder)
 
-    def test_stop_is_optimistic_but_rolls_back_uncertain_outcomes(self) -> None:
+    def test_stop_waits_for_confirmation_and_durable_save(self) -> None:
         chat = source("src/lib/components/chat/Chat.svelte")
         stop = chat[chat.index("const stopResponse = async () => {") :]
         stop = stop[: stop.index("const submitMessage = async")]
-        self.assertLess(stop.index("markCurrentResponsesDone(true"), stop.index("requestSavedChatStop("))
-        self.assertIn("restoreResponseStates(responseStatesBeforeStop);", stop)
+        self.assertLess(stop.index("requestSavedChatStop("), stop.index("stoppedHistorySnapshot("))
         self.assertIn("taskIds = remainingIds.length ? remainingIds : taskIdsBeforeStop;", stop)
         self.assertIn("outcome.state === 'stopped' || outcome.state === 'already-finished'", stop)
-        self.assertIn("if (settledStop && optimisticallyStopped && savedChat)", stop)
-        self.assertIn("restoreResponseStates(responseStatesBeforeStop, true);", stop)
+        self.assertLess(stop.index("await persistStoppedChat("), stop.index("taskIds = null;"))
 
 
 if __name__ == "__main__":

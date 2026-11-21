@@ -26,7 +26,7 @@ class AtlasRound28ContractTests(unittest.TestCase):
         stop = chat[chat.index("const stopResponse = async () => {") :]
         self.assertLess(
             stop.index("reconnectReconciliationEpoch += 1"),
-            stop.index("markCurrentResponsesDone(true"),
+            stop.index("requestSavedChatStop("),
         )
 
     def test_stopped_turn_hides_scroll_control_for_any_terminal_marker(self) -> None:

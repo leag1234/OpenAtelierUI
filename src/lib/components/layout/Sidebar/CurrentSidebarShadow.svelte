@@ -67,6 +67,7 @@
 	};
 
 	const toggleFolders = () => {
+		document.getElementById('chat-input')?.blur();
 		foldersExpanded = !foldersExpanded;
 		localStorage.setItem(foldersExpandedStorageKey, String(foldersExpanded));
 	};

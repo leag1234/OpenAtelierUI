@@ -1149,7 +1149,7 @@
 												await tick();
 
 												const chatInput = document.getElementById('chat-input');
-												chatInput?.focus();
+												if (v0113Compatibility || !$mobile) chatInput?.focus();
 											}}
 										>
 											<button
