@@ -64,6 +64,7 @@
 
 	export let transparentBackground = false;
 	export let chatId = '';
+	export let suppressInitialFocus = false;
 
 	export let onChange: Function = () => {};
 	export let createMessagePair: Function;
@@ -353,7 +354,7 @@
 
 		window.setTimeout(() => {
 			const chatInput = document.getElementById('chat-input');
-			if (v0113Compatibility || !chatId) chatInput?.focus();
+			if (v0113Compatibility || (!chatId && !suppressInitialFocus)) chatInput?.focus();
 		}, 0);
 
 		window.addEventListener('keydown', handleKeyDown);

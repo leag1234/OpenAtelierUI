@@ -505,7 +505,10 @@
 				// the task already vanished), then make the partial answer terminal. This
 				// converges across the short API-readiness race after Socket.IO reconnects
 				// instead of leaving Stop and sidebar progress mounted indefinitely.
-				for (let attempt = 0; attempt < 30; attempt += 1) {
+				// The socket can reconnect before the restarted API and task registry are
+				// ready. Keep reconciliation alive for the existing 120 s readiness
+				// budget so a late-but-valid restart cannot strand running controls.
+				for (let attempt = 0; attempt < 480; attempt += 1) {
 					const stillCurrent = () =>
 						reconciliationEpoch === reconnectReconciliationEpoch &&
 						get(chatId) === currentChatId;
@@ -2474,6 +2477,7 @@
 						<div class={nativeCompatibility ? 'pb-2 z-10' : 'pb-[1rem]'}>
 							<MessageInput
 								chatId={$chatId}
+								suppressInitialFocus={nativeCompatibility && Boolean(chatIdProp)}
 								{history}
 								{taskIds}
 								bind:selectedModels

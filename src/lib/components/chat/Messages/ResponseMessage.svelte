@@ -57,8 +57,14 @@
 	$: v0113Compatibility = $config?.compatibility_profile !== 'native';
 	const visibleResponseStatus = (value) => {
 		const statuses = value?.statusHistory ?? [...(value?.status ? [value.status] : [])];
-		if (v0113Compatibility) return statuses.at(-1);
-		return [...statuses].reverse().find((status) => status?.action !== 'response_stopped');
+		// response_stopped is a terminal control marker, not the user-visible
+		// progress label. Preserve the last meaningful status in both profiles;
+		// this keeps the legacy French reasoning line while native renders the
+		// same status above its stopped notice.
+		return (
+			[...statuses].reverse().find((status) => status?.action !== 'response_stopped') ??
+			statuses.at(-1)
+		);
 	};
 
 	interface MessageType {

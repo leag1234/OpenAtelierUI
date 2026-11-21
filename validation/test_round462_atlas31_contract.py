@@ -44,7 +44,11 @@ class AtlasRound31ContractTests(unittest.TestCase):
         message_input = source("src/lib/components/chat/MessageInput.svelte")
         self.assertIn("if (!nativeCompatibility || !get(chatId))", chat)
         self.assertIn("export let chatId = '';", message_input)
-        self.assertIn("if (v0113Compatibility || !chatId) chatInput?.focus();", message_input)
+        self.assertIn("export let suppressInitialFocus = false;", message_input)
+        self.assertIn(
+            "if (v0113Compatibility || (!chatId && !suppressInitialFocus)) chatInput?.focus();",
+            message_input,
+        )
         self.assertIn("chatId={$chatId}", chat)
 
 

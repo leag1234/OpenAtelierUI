@@ -49,7 +49,11 @@ class AtlasRound30ContractTests(unittest.TestCase):
             "requestAnimationFrame(() => requestAnimationFrame(releaseComposerFocus))",
             sidebar,
         )
-        self.assertIn("if (v0113Compatibility || !chatId) chatInput?.focus();", message_input)
+        self.assertIn("export let suppressInitialFocus = false;", message_input)
+        self.assertIn(
+            "if (v0113Compatibility || (!chatId && !suppressInitialFocus)) chatInput?.focus();",
+            message_input,
+        )
         self.assertIn("const focusComposerForCurrentState = () =>", source("src/lib/components/chat/Chat.svelte"))
 
 
