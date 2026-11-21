@@ -151,10 +151,10 @@
 	$: nativeCompatibility = $config?.compatibility_profile === 'native';
 	$: selectedModelIds = atSelectedModel !== undefined ? [atSelectedModel.id] : selectedModels;
 	const focusComposerForCurrentState = () => {
-		if (
-			!nativeCompatibility ||
-			localStorage.getItem('openatelierui-folders-expanded') !== 'true'
-		) document.getElementById('chat-input')?.focus();
+		// The current reference leaves a reopened saved conversation neutral so
+		// sidebar/folder navigation keeps keyboard focus. New chats and the
+		// v0.11.3 compatibility profile retain their established autofocus.
+		if (!nativeCompatibility || !get(chatId)) document.getElementById('chat-input')?.focus();
 	};
 
 	let selectedToolIds = [];
@@ -499,6 +499,43 @@
 			}
 
 			if (!currentChatId || isEphemeralChatId(currentChatId)) return;
+			if (nativeCompatibility) {
+				// A native-profile response whose transport disappeared cannot safely
+				// resume from an unobserved byte boundary. Confirm cancellation (or that
+				// the task already vanished), then make the partial answer terminal. This
+				// converges across the short API-readiness race after Socket.IO reconnects
+				// instead of leaving Stop and sidebar progress mounted indefinitely.
+				for (let attempt = 0; attempt < 30; attempt += 1) {
+					const stillCurrent = () =>
+						reconciliationEpoch === reconnectReconciliationEpoch &&
+						get(chatId) === currentChatId;
+					if (!stillCurrent()) return;
+					const outcome = await requestSavedChatStop(
+						() => stopTasksByChatId(localStorage.token, currentChatId),
+						() => getTaskIdsByChatId(localStorage.token, currentChatId),
+						stillCurrent
+					);
+					if (outcome.state === 'navigated') return;
+					if (outcome.state === 'stopped' || outcome.state === 'already-finished') {
+						const interruptedReplyIds = pendingReplyIds.filter((messageId) =>
+							isPendingAssistantReply(history.messages[messageId])
+						);
+						if (!interruptedReplyIds.length) {
+							taskIds = null;
+							return;
+						}
+						const stoppedHistory = stoppedHistorySnapshot(interruptedReplyIds);
+						await persistStoppedChat(currentChatId, stoppedHistory);
+						if (!stillCurrent()) return;
+						history = stoppedHistory;
+						taskIds = null;
+						await tick();
+						return;
+					}
+					await sleep(250);
+				}
+				return;
+			}
 			for (let attempt = 0; attempt < 30; attempt += 1) {
 				if (
 					reconciliationEpoch !== reconnectReconciliationEpoch ||
@@ -2019,19 +2056,20 @@
 			const message = stoppedHistory.messages?.[messageId];
 			if (!message) continue;
 			const statuses = Array.isArray(message.statusHistory)
-				? message.statusHistory.filter((status) => status?.done !== false)
+				? message.statusHistory.filter((status) => status?.action !== 'response_stopped')
 				: message.status
-					? message.status.done === false
+					? message.status.action === 'response_stopped'
 						? []
 						: [message.status]
 					: [];
-			if (message.status?.done === false) delete message.status;
-			if (!statuses.some((status) => status?.action === 'response_stopped')) {
-				message.statusHistory = [
-					...statuses,
-					{ action: 'response_stopped', description: 'Response stopped', done: true }
-				];
-			}
+			// Preserve the last in-progress reasoning/status record exactly. Native
+			// rendering selects it as the visible context while response_stopped is
+			// the durable terminal marker used by controls and restart recovery.
+			delete message.status;
+			message.statusHistory = [
+				...statuses,
+				{ action: 'response_stopped', description: 'Response stopped', done: true }
+			];
 			message.done = true;
 		}
 		return stoppedHistory;
@@ -2435,6 +2473,7 @@
 
 						<div class={nativeCompatibility ? 'pb-2 z-10' : 'pb-[1rem]'}>
 							<MessageInput
+								chatId={$chatId}
 								{history}
 								{taskIds}
 								bind:selectedModels

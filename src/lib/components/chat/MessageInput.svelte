@@ -63,6 +63,7 @@
 	$: v0113Compatibility = $config?.compatibility_profile !== 'native';
 
 	export let transparentBackground = false;
+	export let chatId = '';
 
 	export let onChange: Function = () => {};
 	export let createMessagePair: Function;
@@ -352,10 +353,7 @@
 
 		window.setTimeout(() => {
 			const chatInput = document.getElementById('chat-input');
-			if (
-				v0113Compatibility ||
-				localStorage.getItem('openatelierui-folders-expanded') !== 'true'
-			) chatInput?.focus();
+			if (v0113Compatibility || !chatId) chatInput?.focus();
 		}, 0);
 
 		window.addEventListener('keydown', handleKeyDown);

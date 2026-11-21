@@ -55,6 +55,11 @@
 	import { DropdownMenu } from 'bits-ui';
 	import { nativeMenuTriggerContract } from '$lib/actions/nativeMenuTriggerContract';
 	$: v0113Compatibility = $config?.compatibility_profile !== 'native';
+	const visibleResponseStatus = (value) => {
+		const statuses = value?.statusHistory ?? [...(value?.status ? [value.status] : [])];
+		if (v0113Compatibility) return statuses.at(-1);
+		return [...statuses].reverse().find((status) => status?.action !== 'response_stopped');
+	};
 
 	interface MessageType {
 		id: string;
@@ -652,10 +657,8 @@
 				<div class="chat-assistant w-full min-w-full">
 					<div class={v0113Compatibility ? 'markdown-prose' : ''}>
 						{#if (message?.statusHistory ?? [...(message?.status ? [message?.status] : [])]).length > 0}
-							{@const status = (
-								message?.statusHistory ?? [...(message?.status ? [message?.status] : [])]
-							).at(-1)}
-							{#if !status?.hidden}
+							{@const status = visibleResponseStatus(message)}
+							{#if status && !status.hidden}
 								{#if v0113Compatibility}
 									<div class="status-description flex items-center gap-2 py-0.5">
 										{#if status?.done === false}

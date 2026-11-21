@@ -22,11 +22,11 @@ class AtlasRound29ContractTests(unittest.TestCase):
         self.assertLess(stop.index("history = stoppedHistory;"), stop.index("taskIds = null;"))
         self.assertNotIn("const optimisticallyStopped", stop)
 
-    def test_terminal_snapshot_removes_in_progress_statuses(self) -> None:
+    def test_terminal_snapshot_preserves_visible_status_and_adds_terminal_marker(self) -> None:
         chat = source("src/lib/components/chat/Chat.svelte")
         snapshot = chat[chat.index("const stoppedHistorySnapshot =") :]
         snapshot = snapshot[: snapshot.index("const stopResponse = async")]
-        self.assertIn("filter((status) => status?.done !== false)", snapshot)
+        self.assertIn("filter((status) => status?.action !== 'response_stopped')", snapshot)
         self.assertIn("delete message.status", snapshot)
         self.assertIn("action: 'response_stopped'", snapshot)
 

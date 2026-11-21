@@ -270,6 +270,27 @@ assert.strictEqual(history.messages.active.content, 'partial answer');
 """,
         )
 
+    def test_interrupted_snapshot_keeps_visible_reasoning_before_terminal_marker(self):
+        snapshot = self._chat_function("stoppedHistorySnapshot")
+        script = r"""
+const assert = require('assert');
+let history = {currentId:'active', messages:{
+  active:{role:'assistant',content:'partial',done:false,statusHistory:[
+    {action:'reasoning',description:'Reasoning… 12 s',done:false}
+  ]}
+}};
+""" + snapshot + r"""
+const stopped = stoppedHistorySnapshot(['active']);
+assert.strictEqual(stopped.messages.active.done, true);
+assert.deepStrictEqual(stopped.messages.active.statusHistory, [
+  {action:'reasoning',description:'Reasoning… 12 s',done:false},
+  {action:'response_stopped',description:'Response stopped',done:true}
+]);
+assert.strictEqual(history.messages.active.done, false);
+"""
+        result = subprocess.run(["node", "-e", script], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_stop_save_uses_latest_history_and_reports_only_fixed_failure(self):
         persist = self._chat_function("persistStoppedChat")
         script = r"""
@@ -278,6 +299,7 @@ let history = {currentId:'active', messages:{
   active:{content:'partial answer',done:true,statusHistory:[{action:'search'}, {action:'response_stopped',description:'Response stopped',done:true}]}
 }};
 let $chatId = 'chat-1';
+const nativeCompatibility = false;
 const localStorage = {token:'synthetic'};
 const selectedModels = ['model'];
 const params = {};
